@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cornerstone-mock"
+version = "0.1.0"
+description = "Cornerstone TCP 网关与 Mock 网页（依赖 cornerstone-cli 通信内核）。"
+requires-python = ">=3.8"
+license = { text = "Proprietary" }
+authors = [{ name = "LECO / Cornerstone Mock Gateway" }]
+dependencies = []
+
+[project.scripts]
+cornerstone-mock = "cornerstone_mock.mock_server:main"
+cornerstone-mock-dev = "cornerstone_mock.dev_mock_web:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cornerstone_mock = ["mock_web_static/*.html", "mock_web_static/*.css", "mock_web_static/*.js"]

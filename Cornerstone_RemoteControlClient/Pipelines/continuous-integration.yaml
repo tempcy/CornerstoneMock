@@ -1,0 +1,22 @@
+# This is an Azure DevOps pipeline definition file
+# https://aka.ms/yaml
+
+pool:
+  vmImage: windows-latest
+
+steps:
+- task: DotNetCoreCLI@2
+  displayName: 'Test'
+  inputs:
+    command: 'test'
+
+- task: DotNetCoreCLI@2
+  displayName: 'Publish'
+  inputs:
+    command: 'publish'
+    arguments: 'CornerstoneRemoteControlClient/CornerstoneRemoteControlClient.csproj --configuration Release --output out'
+    publishWebProjects: false
+
+- publish: out
+  displayName: 'Upload build artifacts'
+  artifact: 'artifacts'

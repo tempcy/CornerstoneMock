@@ -1,0 +1,531 @@
+﻿<RepPlot ErrorCode="0" ErrorMessage="Success" Cookie="61ccbd97940861f35be3f5e8fb657561">
+
+  <Key>0000000000000DFB</Key>
+
+  <Plot>
+
+    <Replicate Tag="1">
+
+      <Analyte Label="Carbon" Value="0.9960332292784766" RawValue="0.009960332292784766" Units="%">
+
+        <Trace>
+
+          <XMin>0</XMin>
+
+          <XMax>639126942226930000</XMax>
+
+          <YMin>0</YMin>
+
+          <YMax>114.23110994990918</YMax>
+
+          <TracePoints>
+
+            <TracePoint DateTime="0">-0.001041720218342979</TracePoint>
+
+            <TracePoint DateTime="4000000">0.0011412986042299753</TracePoint>
+
+            <TracePoint DateTime="8000000">-0.000651077201622064</TracePoint>
+
+            <TracePoint DateTime="12000000">-0.001087678149913903</TracePoint>
+
+            <TracePoint DateTime="16000000">0.0008885262917395944</TracePoint>
+
+            <TracePoint DateTime="20000000">0.0007506506739093761</TracePoint>
+
+            <TracePoint DateTime="24000000">-0.0003753285450354034</TracePoint>
+
+            <TracePoint DateTime="28000000">0.0007966091983510346</TracePoint>
+
+            <TracePoint DateTime="32000000">-0.00019149581089452196</TracePoint>
+
+            <TracePoint DateTime="36000000">0.00045192062624966126</TracePoint>
+
+            <TracePoint DateTime="40000000">-0.0004672448231873927</TracePoint>
+
+            <TracePoint DateTime="44000000">-0.0030178978913313575</TracePoint>
+
+            <TracePoint DateTime="48000000">-0.0018230030391079666</TracePoint>
+
+            <TracePoint DateTime="52000000">-0.0015932144188450094</TracePoint>
+
+            <TracePoint DateTime="56000000">-0.001409383255831856</TracePoint>
+
+            <TracePoint DateTime="60000000">0.0002221287080695195</TracePoint>
+
+            <TracePoint DateTime="64000000">0.002037494961509769</TracePoint>
+
+            <TracePoint DateTime="68000000">0.016722130363692092</TracePoint>
+
+            <TracePoint DateTime="72000000">0.12102887814990804</TracePoint>
+
+            <TracePoint DateTime="76000000">0.6149328191106438</TracePoint>
+
+            <TracePoint DateTime="80000000">2.005543913825668</TracePoint>
+
+            <TracePoint DateTime="84000000">4.9198923348687185</TracePoint>
+
+            <TracePoint DateTime="88000000">10.16410278119666</TracePoint>
+
+            <TracePoint DateTime="92000000">18.769070631645896</TracePoint>
+
+            <TracePoint DateTime="96000000">31.965086396963187</TracePoint>
+
+            <TracePoint DateTime="100000000">51.12274229922747</TracePoint>
+
+            <TracePoint DateTime="104000000">73.6031560017365</TracePoint>
+
+            <TracePoint DateTime="108010000">94.36594075088782</TracePoint>
+
+            <TracePoint DateTime="112000000">108.38486661777473</TracePoint>
+
+            <TracePoint DateTime="116000000">114.23110994990918</TracePoint>
+
+            <TracePoint DateTime="120000000">113.22150831723114</TracePoint>
+
+            <TracePoint DateTime="124000000">107.5227907876358</TracePoint>
+
+            <TracePoint DateTime="128000000">99.21041078431243</TracePoint>
+
+            <TracePoint DateTime="132000000">89.65225136024581</TracePoint>
+
+            <TracePoint DateTime="136000000">79.89420633215208</TracePoint>
+
+            <TracePoint DateTime="140000000">70.4437416994016</TracePoint>
+
+            <TracePoint DateTime="144000000">61.674849165318065</TracePoint>
+
+            <TracePoint DateTime="148000000">53.600316658512504</TracePoint>
+
+            <TracePoint DateTime="152000000">46.476251301429535</TracePoint>
+
+            <TracePoint DateTime="156000000">39.939628502961256</TracePoint>
+
+            <TracePoint DateTime="160000000">33.95973471096683</TracePoint>
+
+            <TracePoint DateTime="164000000">28.900597178770475</TracePoint>
+
+            <TracePoint DateTime="168000000">24.519411940738376</TracePoint>
+
+            <TracePoint DateTime="172000000">20.678998034617113</TracePoint>
+
+            <TracePoint DateTime="176000000">17.31171359984969</TracePoint>
+
+            <TracePoint DateTime="180000000">14.488444513002818</TracePoint>
+
+            <TracePoint DateTime="184000000">12.114584264421383</TracePoint>
+
+            <TracePoint DateTime="188000000">10.13631490918244</TracePoint>
+
+            <TracePoint DateTime="192000000">8.515742651649981</TracePoint>
+
+            <TracePoint DateTime="196000000">7.189944070008945</TracePoint>
+
+            <TracePoint DateTime="200000000">6.099673217824265</TracePoint>
+
+            <TracePoint DateTime="204000000">5.2204906508251545</TracePoint>
+
+            <TracePoint DateTime="208000000">4.507785877939409</TracePoint>
+
+            <TracePoint DateTime="212000000">3.9194455015479197</TracePoint>
+
+            <TracePoint DateTime="216000000">3.430089920823114</TracePoint>
+
+            <TracePoint DateTime="220000000">3.015844517371656</TracePoint>
+
+            <TracePoint DateTime="224000000">2.6602544479506136</TracePoint>
+
+            <TracePoint DateTime="228000000">2.354128942489581</TracePoint>
+
+            <TracePoint DateTime="232000000">2.08605539701962</TracePoint>
+
+            <TracePoint DateTime="236000000">1.8525179982723063</TracePoint>
+
+            <TracePoint DateTime="240010000">1.6512979904276712</TracePoint>
+
+            <TracePoint DateTime="244000000">1.4774506133466994</TracePoint>
+
+            <TracePoint DateTime="248000000">1.325132076620214</TracePoint>
+
+            <TracePoint DateTime="252000000">1.1938268941141295</TracePoint>
+
+            <TracePoint DateTime="256000000">1.0789180091341755</TracePoint>
+
+            <TracePoint DateTime="260000000">0.9764741814399402</TracePoint>
+
+            <TracePoint DateTime="264000000">0.8892286637319424</TracePoint>
+
+            <TracePoint DateTime="268000000">0.8111964325352482</TracePoint>
+
+            <TracePoint DateTime="272000000">0.741180054632516</TracePoint>
+
+            <TracePoint DateTime="276000000">0.6772525476253786</TracePoint>
+
+            <TracePoint DateTime="280000000">0.6199235865428292</TracePoint>
+
+            <TracePoint DateTime="284000000">0.5714848600716408</TracePoint>
+
+            <TracePoint DateTime="288000000">0.5256392039830607</TracePoint>
+
+            <TracePoint DateTime="292000000">0.48623128409982014</TracePoint>
+
+            <TracePoint DateTime="296000000">0.4524216708249923</TracePoint>
+
+            <TracePoint DateTime="300000000">0.4205147296540268</TracePoint>
+
+            <TracePoint DateTime="304000000">0.38900959120354134</TracePoint>
+
+            <TracePoint DateTime="308000000">0.3605773617957105</TracePoint>
+
+            <TracePoint DateTime="312000000">0.33583722011988926</TracePoint>
+
+            <TracePoint DateTime="316000000">0.316283241035396</TracePoint>
+
+            <TracePoint DateTime="320000000">0.2967779988957403</TracePoint>
+
+            <TracePoint DateTime="324000000">0.27856477015270886</TracePoint>
+
+            <TracePoint DateTime="328000000">0.26109054802131515</TracePoint>
+
+            <TracePoint DateTime="332000000">0.24543693810241882</TracePoint>
+
+            <TracePoint DateTime="336000000">0.23063665031231237</TracePoint>
+
+            <TracePoint DateTime="340000000">0.21657434847899792</TracePoint>
+
+            <TracePoint DateTime="344000000">0.206287422286707</TracePoint>
+
+            <TracePoint DateTime="348000000">0.19342405616155722</TracePoint>
+
+            <TracePoint DateTime="352000000">0.18313880097822913</TracePoint>
+
+            <TracePoint DateTime="356000000">0.17257820403191235</TracePoint>
+
+            <TracePoint DateTime="360000000">0.16413489106683257</TracePoint>
+
+            <TracePoint DateTime="364000000">0.15838360193236348</TracePoint>
+
+            <TracePoint DateTime="368000000">0.14929703818641285</TracePoint>
+
+            <TracePoint DateTime="372000000">0.1424882461268617</TracePoint>
+
+            <TracePoint DateTime="376000000">0.13544976929669353</TracePoint>
+
+            <TracePoint DateTime="380000000">0.12843463995761245</TracePoint>
+
+            <TracePoint DateTime="384000000">0.12314477082162892</TracePoint>
+
+            <TracePoint DateTime="388000000">0.11652121156847589</TracePoint>
+
+            <TracePoint DateTime="392000000">0.11208267921293842</TracePoint>
+
+            <TracePoint DateTime="396000000">0.10769027811602576</TracePoint>
+
+            <TracePoint DateTime="400000000">0.1019182710174598</TracePoint>
+
+            <TracePoint DateTime="404000000">0.09547965450216322</TracePoint>
+
+            <TracePoint DateTime="408000000">0.09016801487607964</TracePoint>
+
+            <TracePoint DateTime="412000000">0.08699492203492741</TracePoint>
+
+            <TracePoint DateTime="416000000">0.08315511431523559</TracePoint>
+
+            <TracePoint DateTime="420000000">0.08198249904839294</TracePoint>
+
+            <TracePoint DateTime="424000000">0.07832676044550926</TracePoint>
+
+            <TracePoint DateTime="428000000">0.07533786146241306</TracePoint>
+
+            <TracePoint DateTime="432000000">0.07175126543379103</TracePoint>
+
+            <TracePoint DateTime="436000000">0.06639453048973828</TracePoint>
+
+            <TracePoint DateTime="440000000">0.06607267300058477</TracePoint>
+
+            <TracePoint DateTime="444000000">0.06448638599610601</TracePoint>
+
+            <TracePoint DateTime="448000000">0.05958969837072225</TracePoint>
+
+            <TracePoint DateTime="452000000">0.05979659726010849</TracePoint>
+
+            <TracePoint DateTime="456000000">0.06053224018863217</TracePoint>
+
+            <TracePoint DateTime="460000000">0.05795750655366997</TracePoint>
+
+            <TracePoint DateTime="464000000">0.05345183463141938</TracePoint>
+
+            <TracePoint DateTime="468000000">0.05078527958026236</TracePoint>
+
+            <TracePoint DateTime="472000000">0.04848656527456147</TracePoint>
+
+            <TracePoint DateTime="476000000">0.04862448708721376</TracePoint>
+
+          </TracePoints>
+
+        </Trace>
+
+      </Analyte>
+
+      <Analyte Label="Sulfur" Value="0.04423012096795812" RawValue="0.00044230120967958124" Units="%">
+
+        <Trace>
+
+          <XMin>0</XMin>
+
+          <XMax>639126942224450000</XMax>
+
+          <YMin>0</YMin>
+
+          <YMax>62.660310144534805</YMax>
+
+          <TracePoints>
+
+            <TracePoint DateTime="0">-0.002505316313287013</TracePoint>
+
+            <TracePoint DateTime="4000000">0.010308522450134595</TracePoint>
+
+            <TracePoint DateTime="8000000">0.008484981805014653</TracePoint>
+
+            <TracePoint DateTime="12000000">-0.0003368583271484253</TracePoint>
+
+            <TracePoint DateTime="16000000">-0.005363714672492803</TracePoint>
+
+            <TracePoint DateTime="20000000">-0.010587614942221022</TracePoint>
+
+            <TracePoint DateTime="24000000">-0.01236174941810101</TracePoint>
+
+            <TracePoint DateTime="28000000">-0.01112971268141753</TracePoint>
+
+            <TracePoint DateTime="32000000">-0.006102951272028791</TracePoint>
+
+            <TracePoint DateTime="36000000">-0.006398645410709029</TracePoint>
+
+            <TracePoint DateTime="40000000">-0.0155157408090512</TracePoint>
+
+            <TracePoint DateTime="44000000">-0.0008789742675555812</TracePoint>
+
+            <TracePoint DateTime="48000000">0.017898511333609493</TracePoint>
+
+            <TracePoint DateTime="52000000">0.045647933773916544</TracePoint>
+
+            <TracePoint DateTime="56000000">0.10095714748185673</TracePoint>
+
+            <TracePoint DateTime="60000000">0.19572580985221805</TracePoint>
+
+            <TracePoint DateTime="64000000">0.35061409731120613</TracePoint>
+
+            <TracePoint DateTime="68000000">0.6568729778101018</TracePoint>
+
+            <TracePoint DateTime="72000000">1.2093992225447248</TracePoint>
+
+            <TracePoint DateTime="76000000">2.0070517953885365</TracePoint>
+
+            <TracePoint DateTime="80000000">2.9151435245106936</TracePoint>
+
+            <TracePoint DateTime="84000000">3.7650664485099696</TracePoint>
+
+            <TracePoint DateTime="88000000">4.533015708159882</TracePoint>
+
+            <TracePoint DateTime="92000000">5.32586959461039</TracePoint>
+
+            <TracePoint DateTime="96000000">6.241185111640702</TracePoint>
+
+            <TracePoint DateTime="100000000">7.439342274666578</TracePoint>
+
+            <TracePoint DateTime="104000000">9.04945492013552</TracePoint>
+
+            <TracePoint DateTime="108010000">11.139387976726594</TracePoint>
+
+            <TracePoint DateTime="112000000">13.94500376605671</TracePoint>
+
+            <TracePoint DateTime="116000000">17.88745667417233</TracePoint>
+
+            <TracePoint DateTime="120000000">23.229127128746732</TracePoint>
+
+            <TracePoint DateTime="124000000">29.94801495242634</TracePoint>
+
+            <TracePoint DateTime="128000000">37.69867648964797</TracePoint>
+
+            <TracePoint DateTime="132000000">45.67512538516971</TracePoint>
+
+            <TracePoint DateTime="136000000">52.858968507666134</TracePoint>
+
+            <TracePoint DateTime="140000000">58.33899652260029</TracePoint>
+
+            <TracePoint DateTime="144000000">61.61432439579472</TracePoint>
+
+            <TracePoint DateTime="148000000">62.660310144534805</TracePoint>
+
+            <TracePoint DateTime="152000000">61.726749309685644</TracePoint>
+
+            <TracePoint DateTime="156010000">59.28423678150368</TracePoint>
+
+            <TracePoint DateTime="160000000">55.84725064108396</TracePoint>
+
+            <TracePoint DateTime="164000000">51.80513047437964</TracePoint>
+
+            <TracePoint DateTime="168000000">47.47577924931491</TracePoint>
+
+            <TracePoint DateTime="172000000">43.138751384699546</TracePoint>
+
+            <TracePoint DateTime="176000000">38.958285216313044</TracePoint>
+
+            <TracePoint DateTime="180000000">35.03416808648544</TracePoint>
+
+            <TracePoint DateTime="184000000">31.402662398976634</TracePoint>
+
+            <TracePoint DateTime="188000000">28.04193910693409</TracePoint>
+
+            <TracePoint DateTime="192000000">24.960303585175698</TracePoint>
+
+            <TracePoint DateTime="196000000">22.132131234002852</TracePoint>
+
+            <TracePoint DateTime="200000000">19.601776463889497</TracePoint>
+
+            <TracePoint DateTime="204000000">17.35981525529216</TracePoint>
+
+            <TracePoint DateTime="208000000">15.368268870954891</TracePoint>
+
+            <TracePoint DateTime="212000000">13.616888850419691</TracePoint>
+
+            <TracePoint DateTime="216000000">12.089118663493911</TracePoint>
+
+            <TracePoint DateTime="220000000">10.758729075757872</TracePoint>
+
+            <TracePoint DateTime="224000000">9.59367877669022</TracePoint>
+
+            <TracePoint DateTime="228000000">8.568408336806415</TracePoint>
+
+            <TracePoint DateTime="232000000">7.668701342601696</TracePoint>
+
+            <TracePoint DateTime="236000000">6.873421061649572</TracePoint>
+
+            <TracePoint DateTime="240000000">6.177862476511696</TracePoint>
+
+            <TracePoint DateTime="244000000">5.5462607787517975</TracePoint>
+
+            <TracePoint DateTime="248000000">4.989844846437657</TracePoint>
+
+            <TracePoint DateTime="252010000">4.499853884823284</TracePoint>
+
+            <TracePoint DateTime="256000000">4.055842606937738</TracePoint>
+
+            <TracePoint DateTime="260000000">3.660105643803423</TracePoint>
+
+            <TracePoint DateTime="264000000">3.3181359357897335</TracePoint>
+
+            <TracePoint DateTime="268000000">3.014622343674475</TracePoint>
+
+            <TracePoint DateTime="272000000">2.7510917084312516</TracePoint>
+
+            <TracePoint DateTime="276000000">2.5047319428548414</TracePoint>
+
+            <TracePoint DateTime="280000000">2.302116349632576</TracePoint>
+
+            <TracePoint DateTime="284000000">2.1051930092853928</TracePoint>
+
+            <TracePoint DateTime="288000000">1.9371119438392572</TracePoint>
+
+            <TracePoint DateTime="292000000">1.783003211446672</TracePoint>
+
+            <TracePoint DateTime="296000000">1.643192553807877</TracePoint>
+
+            <TracePoint DateTime="300010000">1.5198396525571</TracePoint>
+
+            <TracePoint DateTime="304000000">1.4100529105043365</TracePoint>
+
+            <TracePoint DateTime="308000000">1.3158965494491093</TracePoint>
+
+            <TracePoint DateTime="312000000">1.229537829684789</TracePoint>
+
+            <TracePoint DateTime="316000000">1.1459737646566523</TracePoint>
+
+            <TracePoint DateTime="320000000">1.082066896313376</TracePoint>
+
+            <TracePoint DateTime="324000000">1.0189645710085302</TracePoint>
+
+            <TracePoint DateTime="328000000">0.9565179786678424</TracePoint>
+
+            <TracePoint DateTime="332000000">0.8940841562724193</TracePoint>
+
+            <TracePoint DateTime="336000000">0.8488115555896728</TracePoint>
+
+            <TracePoint DateTime="340000000">0.8070046139253885</TracePoint>
+
+            <TracePoint DateTime="344000000">0.7453918158164656</TracePoint>
+
+            <TracePoint DateTime="348000000">0.7105147008202882</TracePoint>
+
+            <TracePoint DateTime="352000000">0.6693193887437827</TracePoint>
+
+            <TracePoint DateTime="356000000">0.6340064896886244</TracePoint>
+
+            <TracePoint DateTime="360000000">0.6091170540296221</TracePoint>
+
+            <TracePoint DateTime="364000000">0.5912413700791823</TracePoint>
+
+            <TracePoint DateTime="368000000">0.5676885447938198</TracePoint>
+
+            <TracePoint DateTime="372000000">0.5335228958417411</TracePoint>
+
+            <TracePoint DateTime="376000000">0.5056797321363783</TracePoint>
+
+            <TracePoint DateTime="380000000">0.48317009434091357</TracePoint>
+
+            <TracePoint DateTime="384000000">0.4653511413189742</TracePoint>
+
+            <TracePoint DateTime="388000000">0.44644740563121466</TracePoint>
+
+            <TracePoint DateTime="392000000">0.4434367359356854</TracePoint>
+
+            <TracePoint DateTime="396000000">0.41826672472835863</TracePoint>
+
+            <TracePoint DateTime="400000000">0.3981322096869393</TracePoint>
+
+            <TracePoint DateTime="404000000">0.3883615265081222</TracePoint>
+
+            <TracePoint DateTime="408000000">0.3754824673246487</TracePoint>
+
+            <TracePoint DateTime="412000000">0.3502687175448722</TracePoint>
+
+            <TracePoint DateTime="416000000">0.35890332891701504</TracePoint>
+
+            <TracePoint DateTime="420000000">0.3465682445677964</TracePoint>
+
+            <TracePoint DateTime="424000000">0.33413498388129614</TracePoint>
+
+            <TracePoint DateTime="428000000">0.3281652251393954</TracePoint>
+
+            <TracePoint DateTime="432000000">0.3134140078403418</TracePoint>
+
+            <TracePoint DateTime="436000000">0.294963655665235</TracePoint>
+
+            <TracePoint DateTime="440000000">0.29555562826133197</TracePoint>
+
+            <TracePoint DateTime="444000000">0.28978394440906163</TracePoint>
+
+            <TracePoint DateTime="448000000">0.2745413039466457</TracePoint>
+
+            <TracePoint DateTime="452000000">0.2754292038769026</TracePoint>
+
+            <TracePoint DateTime="456000000">0.27143367452536193</TracePoint>
+
+            <TracePoint DateTime="460000000">0.25816494603501444</TracePoint>
+
+            <TracePoint DateTime="464000000">0.24874400562003893</TracePoint>
+
+            <TracePoint DateTime="468000000">0.24736294978120874</TracePoint>
+
+            <TracePoint DateTime="472000000">0.2393726779151096</TracePoint>
+
+          </TracePoints>
+
+        </Trace>
+
+      </Analyte>
+
+    </Replicate>
+
+  </Plot>
+
+</RepPlot>

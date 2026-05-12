@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Cornerstone Mock 网关</title>
+  <link rel="stylesheet" href="/static/styles.css"/>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">Cornerstone <span class="accent">Mock</span></div>
+      <div class="topbar-center" id="conn-status-wrap" title="与上游仪器的 TCP 连接状态 · RemoteControlState">
+        <span class="conn-status-cluster">
+          <span id="conn-icon-heart" class="conn-icon-heart hidden" aria-hidden="true">♥</span>
+          <span id="conn-icon-bolt" class="conn-icon-bolt hidden" aria-hidden="true">⚡</span>
+        </span>
+        <div class="rcs-box" id="rcs-box" title="RemoteControlState（上游连接/重连后问询）；悬停查看应答；AddSamples 直通 IP 见配置 privileged_add_samples_host">
+          <span id="rcs-state-dot" class="rcs-state-dot rcs-state-unknown" role="img" aria-label="RemoteControlState 未知">●</span>
+          <span class="rcs-box-label">RCS</span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button type="button" id="btn-instrument-info" class="btn-info-circle" title="InstrumentInfo">i</button>
+        <span id="instrument-version" class="instrument-version" title="Product Serial Version">—</span>
+      </div>
+    </div>
+    <div class="gateway-status-bar" role="contentinfo">
+      <button type="button" class="footer-cell footer-btn footer-left" id="btn-footer-tcp" title="点击修改网关配置（监听地址等）">
+        <span id="footer-tcp"></span>
+      </button>
+      <button type="button" class="footer-cell footer-btn footer-center" id="btn-footer-user" title="点击修改仪器登录用户/密码">
+        <span id="footer-user"></span>
+      </button>
+      <button type="button" class="footer-cell footer-btn footer-right" id="btn-footer-right" title="点击修改上游、队列上限、直通 IP 等">
+        <span id="footer-upstream-addr"></span>
+        <span class="footer-sep">·</span>
+        <span>队列上限 <strong id="footer-queue-max">—</strong></span>
+      </button>
+    </div>
+  </header>
+
+  <nav class="main-nav" role="navigation" aria-label="主导航">
+    <div class="nav-group">
+      <button type="button" class="nav-top active" data-view="analysis">分析</button>
+    </div>
+    <div class="nav-group nav-has-menu">
+      <button type="button" class="nav-top" data-menu="diagnostics" aria-expanded="false" aria-haspopup="true">诊断</button>
+      <div class="nav-dropdown" role="menu">
+        <button type="button" class="nav-sub" data-view="environment" role="menuitem">环境参数</button>
+        <button type="button" class="nav-sub" data-view="digital-io" role="menuitem">数字IO</button>
+        <button type="button" class="nav-sub" data-view="status-check" role="menuitem">状态检查</button>
+      </div>
+    </div>
+    <div class="nav-group nav-has-menu">
+      <button type="button" class="nav-top" data-menu="settings" aria-expanded="false" aria-haspopup="true">设置</button>
+      <div class="nav-dropdown" role="menu">
+        <button type="button" class="nav-sub" data-view="transports" role="menuitem">传送</button>
+      </div>
+    </div>
+    <div class="nav-group nav-has-menu">
+      <button type="button" class="nav-top" data-menu="instrument" aria-expanded="false" aria-haspopup="true">仪器</button>
+      <div class="nav-dropdown" role="menu">
+        <button type="button" class="nav-sub" data-view="maintenance-counters" role="menuitem">维护计数器</button>
+      </div>
+    </div>
+  </nav>
+
+  <main id="view-analysis" class="view">
+    <div id="instrument-status-strip" class="instrument-status-strip collapsed" aria-expanded="false">
+      <div class="status-strip-toolbar">
+        <button type="button" id="btn-status-strip-toggle" class="status-strip-toggle" aria-expanded="false" title="展开/折叠仪器状态（Status · Widgets）">
+          <span class="status-strip-toggle-icon" aria-hidden="true">▼</span>
+          <span class="status-strip-title">仪器状态</span>
+        </button>
+        <button type="button" id="btn-status-widgets-refresh" class="btn btn-sm status-strip-refresh">刷新</button>
+      </div>
+      <div class="status-strip-body">
+        <div id="status-widgets-row" class="status-widgets-row"></div>
+        <div id="status-widgets-err" class="status-widgets-msg muted hidden"></div>
+      </div>
+    </div>
+    <section class="toolbar">
+      <button type="button" id="btn-refresh-queue" class="btn">刷新列表</button>
+      <button type="button" id="btn-send-queue" class="btn primary">发送选中到仪器</button>
+    </section>
+    <div id="queue-banner" class="banner hidden"></div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="col-check"><input type="checkbox" id="queue-check-all" title="全选"/></th>
+            <th>ID</th>
+            <th>时间</th>
+            <th>来源</th>
+            <th>样品名称</th>
+            <th>样品说明</th>
+            <th>XML</th>
+          </tr>
+        </thead>
+        <tbody id="queue-tbody"></tbody>
+      </table>
+    </div>
+    <pre id="queue-send-result" class="result-log hidden"></pre>
+
+    <section
+      class="panel"
+      title="查询 Set 列表；电文中的 &lt;Analytes&gt; 决定平均列，&lt;SetReps&gt; 决定 Replicate 元素列。选中 Set 后自动拉 Replicates 并显示元素统计；选中 Replicate 后自动拉 RepPlot / RepDetail。FilterKey 常用 0（留空时网关按 0）。首次进入本页且无列表时将自动查询一次 Sets。"
+    >
+      <h2 class="panel-title">仪器样品记录（Remote Query · Sets）</h2>
+      <p id="sets-panel-hint" class="panel-hint"></p>
+      <div class="toolbar tight">
+        <label class="inline">FilterKey <input type="text" id="sets-filter-key" class="inp" value="0" placeholder="如 0"/></label>
+        <label class="inline">条数 <input type="number" id="sets-number" class="inp num" value="10" min="1" max="500"/></label>
+        <label class="inline">StartAt <input type="number" id="sets-start-at" class="inp num" value="-1"/></label>
+        <button type="button" id="btn-load-sets" class="btn">查询 Sets</button>
+        <button type="button" id="btn-sets-prev" class="btn" disabled title="更早一批（索引更小）">上一页</button>
+        <button type="button" id="btn-sets-next" class="btn" disabled title="更新一批（索引更大）">下一页</button>
+        <button type="button" id="btn-sets-last" class="btn" title="末页：StartAt=-1">末页</button>
+      </div>
+      <div id="sets-banner" class="banner hidden"></div>
+      <div class="table-wrap">
+        <table class="data-table" id="sets-table">
+          <thead>
+            <tr id="sets-thead-row"></tr>
+          </thead>
+          <tbody id="sets-tbody"></tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="reps-table">
+          <thead>
+            <tr id="reps-thead-row"></tr>
+          </thead>
+          <tbody id="reps-tbody"></tbody>
+        </table>
+      </div>
+      <section id="analysis-viz" class="analysis-viz">
+        <h3 class="subh">元素统计与谱图</h3>
+        <p class="muted">选中 Set：按已完成 Replicate 计算各元素均值±1σ、n、RSD%。选中 Replicate：各卡片内为单点谱图；点「详情」可切换为 RepDetail 元素明细（小卡片）。</p>
+        <div id="elem-toggle-bar" class="elem-toggle-bar"></div>
+        <div id="elem-panels-row" class="elem-panels-row"></div>
+      </section>
+    </section>
+  </main>
+
+  <main id="view-environment" class="view hidden">
+    <section class="toolbar env-toolbar">
+      <span class="label">刷新方式</span>
+      <label class="radio"><input type="radio" name="env-refresh" value="manual" checked/> 手动</label>
+      <label class="radio"><input type="radio" name="env-refresh" value="interval"/> 周期（5 秒）</label>
+      <button type="button" id="btn-refresh-ambients" class="btn">立即刷新</button>
+      <span id="ambients-meta" class="meta"></span>
+    </section>
+    <div id="env-banner" class="banner hidden"></div>
+    <div id="ambients-grid" class="card-grid"></div>
+  </main>
+
+  <main id="view-digital-io" class="view hidden">
+    <section class="toolbar dio-toolbar">
+      <button type="button" id="btn-refresh-digital-io" class="btn">立即刷新</button>
+      <span id="dio-meta" class="meta"></span>
+    </section>
+    <div id="dio-banner" class="banner hidden"></div>
+    <div class="dio-page">
+      <section class="dio-col dio-col-output" aria-labelledby="dio-out-title">
+        <h2 id="dio-out-title" class="dio-section-title">数字输出</h2>
+        <p id="dio-output-sub" class="dio-section-sub muted" title="当前阀门状态（ValveStates · Active=True）">—</p>
+        <div id="dio-solenoids" class="dio-grid dio-grid-3"></div>
+      </section>
+      <section class="dio-col dio-col-input" aria-labelledby="dio-in-title">
+        <h2 id="dio-in-title" class="dio-section-title">数字输入</h2>
+        <div id="dio-switches" class="dio-switch-list"></div>
+      </section>
+    </div>
+  </main>
+
+  <main id="view-status-check" class="view hidden">
+    <section class="toolbar sc-toolbar">
+      <button type="button" id="btn-refresh-status-check" class="btn">立即刷新</button>
+      <span id="sc-meta" class="meta"></span>
+    </section>
+    <div id="sc-banner" class="banner hidden"></div>
+    <div class="sc-page">
+      <section class="sc-zone" aria-labelledby="sc-elements-title">
+        <h2 id="sc-elements-title" class="sc-zone-title">Elements</h2>
+        <div class="table-wrap sc-table-wrap">
+          <table class="data-table sc-part-table">
+            <thead>
+              <tr><th>字段</th><th>值</th></tr>
+            </thead>
+            <tbody id="sc-elements-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="sc-zone" aria-labelledby="sc-odo-title">
+        <h2 id="sc-odo-title" class="sc-zone-title">Odometers</h2>
+        <div class="table-wrap sc-table-wrap">
+          <table class="data-table sc-part-table">
+            <thead>
+              <tr><th>类型</th><th>值</th></tr>
+            </thead>
+            <tbody id="sc-odometers-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="sc-zone sc-zone--wide" aria-labelledby="sc-leak-title">
+        <h2 id="sc-leak-title" class="sc-zone-title">LeakCheckResults</h2>
+        <div id="sc-leak-root"></div>
+      </section>
+      <section class="sc-zone sc-zone--wide" aria-labelledby="sc-sys-title">
+        <h2 id="sc-sys-title" class="sc-zone-title">SystemCheckResults</h2>
+        <div id="sc-system-root"></div>
+      </section>
+    </div>
+  </main>
+
+  <main id="view-maintenance-counters" class="view hidden">
+    <section class="toolbar counters-toolbar">
+      <button type="button" id="btn-refresh-counters" class="btn">立即刷新</button>
+      <span id="counters-meta" class="meta"></span>
+    </section>
+    <div id="counters-banner" class="banner hidden"></div>
+    <section class="counters-page" aria-label="维护计数器">
+      <div id="counters-body" class="counters-body">
+        <div class="counters-list-wrap">
+          <div class="counters-header">
+            <div class="c-col-state"></div>
+            <div class="c-col-name">名称</div>
+            <div class="c-col-desc">说明</div>
+            <div class="c-col-exp">到期日期</div>
+            <div class="c-col-mod">上次修改时间</div>
+            <div class="c-col-action"></div>
+          </div>
+          <div id="counters-list" class="counters-list"></div>
+        </div>
+        <div id="counters-detail" class="counters-detail hidden" aria-live="polite">
+          <div id="counters-detail-inner" class="counters-detail-inner"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <main id="view-transports" class="view hidden">
+    <section class="toolbar tp-toolbar">
+      <button type="button" id="btn-refresh-transports" class="btn">立即刷新</button>
+      <span id="tp-meta" class="meta"></span>
+    </section>
+    <div id="tp-banner" class="banner hidden"></div>
+    <section class="tp-page" aria-label="传送格式">
+      <div id="tp-body" class="tp-body">
+        <div class="tp-list-wrap">
+          <div class="tp-list-head" aria-hidden="true">
+            <div class="tp-col-state"></div>
+            <div class="tp-col-name tp-sortable">名称 <span class="tp-sort-mark">▲</span></div>
+            <div class="tp-col-desc">说明</div>
+            <div class="tp-col-used">上次使用</div>
+            <div class="tp-col-mod">上次修改时间</div>
+            <div class="tp-col-action"></div>
+          </div>
+          <div id="tp-list" class="tp-list"></div>
+        </div>
+        <div id="tp-detail" class="tp-detail hidden" aria-live="polite">
+          <div id="tp-detail-inner" class="tp-detail-inner"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="modal-gateway-settings" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-gw-title">
+    <div class="modal-dialog modal-dialog-wide">
+      <div class="modal-header">
+        <h2 id="modal-gw-title" class="modal-title">网关配置</h2>
+        <button type="button" id="modal-gw-close" class="modal-close" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-gw-body">
+        <p id="modal-gw-hint" class="modal-gw-hint muted">修改后上游地址会尝试立即重连；客户端/网页监听端口变更须重启 cornerstone-mock 后生效。使用 <code>--config</code> 启动时可将设置写回 JSON。</p>
+        <p id="modal-gw-configpath" class="modal-gw-configpath muted"></p>
+        <div class="settings-grid">
+          <label class="sett-row-label">客户端监听（TCP 网关）</label>
+          <div class="sett-row-fields">
+            <input type="text" id="sett-tcp-host" class="inp sett-inp" placeholder="host" title="与 --host 一致"/>
+            <input type="number" id="sett-tcp-port" class="inp sett-inp sett-num" min="1" max="65535" title="与 --port 一致"/>
+          </div>
+          <label class="sett-row-label">网页监听</label>
+          <div class="sett-row-fields">
+            <input type="text" id="sett-web-host" class="inp sett-inp" placeholder="web host" title="与 --web-host 一致"/>
+            <input type="number" id="sett-web-port" class="inp sett-inp sett-num" min="1" max="65535" title="与 --web-port 一致"/>
+          </div>
+          <label class="sett-row-label">上游仪器</label>
+          <div class="sett-row-fields">
+            <input type="text" id="sett-up-host" class="inp sett-inp" placeholder="upstream host"/>
+            <input type="number" id="sett-up-port" class="inp sett-inp sett-num" min="1" max="65535" title="upstream port"/>
+          </div>
+          <label class="sett-row-label">仪器登录（网页 / 远程查询）</label>
+          <div class="sett-row-fields sett-stack">
+            <input type="text" id="sett-web-user" class="inp sett-inp" placeholder="--web-user" autocomplete="username"/>
+            <input type="password" id="sett-web-password" class="inp sett-inp" placeholder="新密码（留空表示不修改）" autocomplete="new-password"/>
+          </div>
+          <label class="sett-row-label">AddSamples 直通 IP</label>
+          <div class="sett-row-fields">
+            <input type="text" id="sett-priv-host" class="inp sett-inp" placeholder="privileged_add_samples_host" title="与配置项同名；留空表示不直通"/>
+          </div>
+          <label class="sett-row-label">截留队列上限</label>
+          <div class="sett-row-fields">
+            <input type="number" id="sett-queue-max" class="inp sett-inp sett-num" min="1" max="50000" title="add_samples_queue_size"/>
+            <span id="sett-queue-current" class="sett-inline-note muted"></span>
+          </div>
+        </div>
+        <label class="sett-persist"><input type="checkbox" id="sett-persist-file" checked/> 将设置合并写回当前 JSON 配置文件（须以 <code>--config</code> 启动且路径可写）</label>
+        <pre id="modal-gw-result" class="modal-gw-result hidden"></pre>
+      </div>
+      <div class="modal-footer-btns">
+        <button type="button" id="modal-gw-save" class="btn primary">保存</button>
+        <button type="button" id="modal-gw-cancel" class="btn">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-instrument-info" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-ii-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2 id="modal-ii-title" class="modal-title">InstrumentInfo</h2>
+        <button type="button" id="modal-ii-close" class="modal-close" aria-label="关闭">×</button>
+      </div>
+      <div id="modal-ii-body" class="modal-ii-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
