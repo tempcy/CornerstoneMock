@@ -47,3 +47,6 @@ ehthumbs.db
 
 # Local / scratch
 /68
+
+# 原始 C# 客户端：不纳入版本库（本地保留）
+Cornerstone_RemoteControlClient/

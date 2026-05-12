@@ -1,8 +1,7 @@
 # Cornerstone 远程控制（Python CLI + Mock 网关）
 
-本仓库根目录包含：
+本仓库为 **Python CLI（`CornerstoneCLI`）** 与 **Mock 网关（`CornerstoneMock`）**。原始 C# WPF 客户端请放在本地 **`Cornerstone_RemoteControlClient/`** 目录自行对照（该目录已列入 `.gitignore`，**不会**推送到 Git）。
 
-- **`Cornerstone_RemoteControlClient/`**：原始 C# WPF 客户端（请勿在此目录做 Python 改写）。
 - **`CornerstoneCLI/`**：Python 分发 **`cornerstone-cli`**（导入用模块 `cornerstone_cli`，命令行入口 **`cornerstone-cli`**）。
 - **`CornerstoneMock/`**：Python 包 **`cornerstone-mock`**（TCP 网关、网页队列、`cornerstone-mock` / `cornerstone-mock-dev`），依赖 **`cornerstone-cli`**。
 
