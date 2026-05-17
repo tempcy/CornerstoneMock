@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cornerstone-bridge"
+version = "0.1.0"
+description = "Cornerstone TCP 网关、XML 解析与对内 REST API（依赖 cornerstone-cli）。"
+requires-python = ">=3.8"
+license = { text = "Proprietary" }
+authors = [{ name = "LECO / Cornerstone Bridge" }]
+dependencies = ["cornerstone-cli"]
+
+[project.scripts]
+cornerstone-bridge = "cornerstone_bridge.server:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

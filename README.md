@@ -1,41 +1,153 @@
-# Cornerstone 远程控制（Python CLI + Mock 网关）
+# Cornerstone 远程控制（Python CLI + Bridge + Web）
 
 后续开发路线图见 [PLAN.md](PLAN.md)。
 
-本仓库为 **Python CLI（`CornerstoneCLI`）** 与 **Mock 网关（`CornerstoneMock`）**。原始 C# WPF 客户端请放在本地 `**Cornerstone_RemoteControlClient/`** 目录自行对照（该目录已列入 `.gitignore`，**不会**推送到 Git）。
+本仓库为 **Python CLI（`CornerstoneCLI`）**、**Bridge（`CornerstoneBridge`）** 与 **Web UI（`CornerstoneWeb` 目录，包名 `cornerstone-web`）**。原始 C# WPF 客户端请放在本地 `**Cornerstone_RemoteControlClient/`** 目录自行对照（该目录已列入 `.gitignore`，**不会**推送到 Git）。
 
-- `**CornerstoneCLI/`**：Python 分发 `**cornerstone-cli**`（导入用模块 `cornerstone_cli`，命令行入口 `**cornerstone-cli**`）。
-- `**CornerstoneMock/**`：Python 包 `**cornerstone-mock**`（TCP 网关、网页队列、`cornerstone-mock` / `cornerstone-mock-dev`），依赖 `**cornerstone-cli**`。
+- `**CornerstoneCLI/`**：`cornerstone-cli`（协议与 TCP 通信内核）。
+- `**CornerstoneBridge/`**：`cornerstone-bridge`（TCP 网关、XML 解析、`/api/*` REST）。
+- `**CornerstoneWeb/**`：`cornerstone-web`（静态页 + 将 `/api/*` 代理到 Bridge）；`cornerstone-web-dev` 一键起 Bridge + Web。
 
-下文所述 **Python 版通信内核** 与配套工具位于上述两个子目录中，用于替代/复用原客户端中的核心通信逻辑：
+下文所述 **Python 版通信内核** 与配套工具位于上述三个子目录中，用于替代/复用原客户端中的核心通信逻辑：
 
 - **TCP 通道**：4 字节小端长度前缀 + payload（默认 UTF-16LE，对应 C# `Encoding.Unicode`）
 - **HTTP 通道**：向云端 `https://remote.lecosoftware.com/...` 发送 `text/xml` POST（对应 C# `WebRequestor`）
 
 > 说明：当前版本聚焦“通信层可用、协议一致、可跑通基本命令”。WPF UI/ViewModel 迁移会在此基础上继续推进。
 
-## CLI 与 Mock 概览
+## CLI / Bridge / Web 概览
 
 
-| 工具            | 入口命令                                                               | 作用                                                                                                        |
-| ------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| **CLI**       | `cornerstone-cli`                                                  | 直连仪器 TCP 或走云端 HTTP：发协议 XML、长连接会话、Remote Query / RSL 等子命令，适合脚本、调试与协议验证。                                    |
-| **Mock 网关**   | `cornerstone-mock`                                                 | 多客户端共用的 **TCP 转发网关**：上游只连一台真实 Cornerstone；可截留 `AddSamples`、用网页管理队列、REST 与新版 Web UI；可选网页账号补全客户端 `<Logon>`。 |
-| **Mock 本地开发** | `cornerstone-mock-dev` 或 `python -m cornerstone_mock.dev_mock_web` | 在仓库内加载示例配置启动网关+网页，便于不改安装参数做前端/联调。                                                                         |
+| 工具 | 入口命令 | 作用 |
+| --- | --- | --- |
+| **CLI** | `cornerstone-cli` | 直连仪器 TCP 或云端 HTTP；脚本与协议调试。 |
+| **Bridge** | `cornerstone-bridge` | TCP 网关 + `/api/*` REST（队列、instrument_rq、解析 JSON）。 |
+| **Web** | `cornerstone-web` | 静态 SPA；`/api/*` 反向代理到 Bridge。 |
+| **本地开发** | `cornerstone-web-dev` / `dev.ps1` | 同进程启动 Bridge + Web（读 `cornerstone-web.config.json`）。 |
 
+`cornerstone-mock` / `cornerstone-mock-dev` 仍可用，内部转调 `cornerstone-web-dev`（**已弃用**，仅兼容旧脚本）。
 
-**典型组合**：本机先起 **Mock**（客户端连网关端口），再起 `**cornerstone-cli tcp … --host/--port` 指向网关**；需要直连仪器时则把 host/port 改为仪器监听地址。不连仪器时也可用 `cornerstone-cli --help` / `tcp version` 等对 mock 做冒烟。
+**典型组合**：`cornerstone-web-dev` 或分开起 Bridge + Web；TCP 客户端与 `cornerstone-cli tcp …` 的 `--host/--port` 指向配置中的 **`host`/`port`**（网关端口，非 `web_port`）。
+
+### 运行时架构（当前）
+
+```
+浏览器 ──► cornerstone-web :8080  (/ 静态页, /api/* 代理)
+                    │
+                    ▼
+            cornerstone-bridge :8081  (/api/* REST)
+                    ├── TCP 网关 :54321  ◄── 远程客户端 / CLI
+                    └── 上游 TCP ──► Cornerstone 仪器
+```
+
+配置文件：`CornerstoneWeb/cornerstone-web.config.example.json`（复制为 `cornerstone-web.config.json` 后修改）。关键字段：`upstream_*`（仪器）、`host`/`port`（TCP 网关）、`bridge_api_*`（REST）、`web_*`（浏览器）、`web_user`/`web_password`（网页发令账号）。
 
 ## 安装
 
-需要 Python 3.8+。在仓库根目录 **先** 安装 `CornerstoneCLI`（提供 `cornerstone_cli` 包与 `cornerstone-cli`），**再** 安装 `CornerstoneMock`（提供 `cornerstone-mock` / `cornerstone-mock-dev`）。Mock 在运行时会 `import cornerstone_cli`，因此未安装 CLI 时单独装 Mock 会导入失败。
+需要 Python 3.8+。在仓库根目录依次安装（Bridge/Web 依赖 `cornerstone-cli`）：
 
 ```bash
 python -m pip install -e ./CornerstoneCLI
-python -m pip install -e ./CornerstoneMock
+python -m pip install -e ./CornerstoneBridge
+python -m pip install -e ./CornerstoneWeb
 ```
 
-仅需命令行、不跑网关时，可只执行第一行。
+仅需命令行时，可只安装 `CornerstoneCLI`。
+
+## 启用 Web
+
+Web 界面由 **Bridge**（网关 + `/api/*`）与 **Web**（静态页 + API 代理）两个进程组成。日常开发推荐一键启动；生产或分网部署时可分开起。
+
+### 1. 准备配置
+
+复制示例配置并按本机环境修改（至少核对 **上游仪器** 与 **网页登录账号**）：
+
+```bash
+cd CornerstoneWeb
+copy cornerstone-web.config.example.json cornerstone-web.config.json
+```
+
+| 配置项 | 含义 |
+| --- | --- |
+| `upstream_host` / `upstream_port` | 真实 Cornerstone 仪器 TCP 地址 |
+| `host` / `port` | 网关对 **TCP 客户端**（含 C# 远程客户端）的监听 |
+| `bridge_api_host` / `bridge_api_port` | Bridge 对内 REST（默认 `8081`） |
+| `web_host` / `web_port` | 浏览器访问的 Web 地址（默认 `http://127.0.0.1:8080/`） |
+| `web_user` / `web_password` | 网页「发送到仪器」、环境/分析页拉数用的仪器远程账号 |
+
+也可将 `cornerstone-web.config.json` 放在**仓库根目录**或任意工作目录；或通过环境变量 `CORNERSTONE_WEB_CONFIG` 指定绝对路径。
+
+### 2. 启动（推荐：开发一键）
+
+在 **`CornerstoneWeb`** 目录（或已放置 `cornerstone-web.config.json` 的目录）下执行：
+
+```bash
+python -m cornerstone_web.dev_web
+```
+
+若已把 Python 的 **Scripts** 目录加入系统 PATH，也可直接：
+
+```bash
+cornerstone-web-dev
+```
+
+Windows 下 Scripts 常见路径（`pip install` 后若提示 *not on PATH*，即为此目录）：
+
+`%APPDATA%\Python\Python311\Scripts`
+
+可临时加入当前 PowerShell 会话后再用短命令：
+
+```powershell
+$env:Path += ";$env:APPDATA\Python\Python311\Scripts"
+cornerstone-web-dev
+```
+
+或在 `CornerstoneWeb` 目录执行仓库提供的脚本：
+
+```powershell
+.\dev.ps1
+```
+
+启动成功后：
+
+- 浏览器打开 **`http://127.0.0.1:8080/`**（与配置中 `web_host` / `web_port` 一致）
+- TCP 客户端连 **`host:port`**（示例为 `54321`）
+- Bridge REST 在 **`http://127.0.0.1:8081/`**（供悬浮窗、脚本等直连；Web 会把 `/api/*` 代理到此端口）
+
+### 3. 启动（分开：Bridge + Web）
+
+需要先起 Bridge，再起 Web（Web 依赖 Bridge 的 REST）：
+
+```bash
+# 终端 1：网关 + API
+cornerstone-bridge -c CornerstoneWeb/cornerstone-web.config.json
+
+# 终端 2：静态页 + /api 代理
+cornerstone-web -c CornerstoneWeb/cornerstone-web.config.json
+```
+
+命令行覆盖示例（仅改网页端口）：
+
+```bash
+cornerstone-web-dev --web-port 9000
+```
+
+### 4. 使用前检查
+
+1. **`web_user` / `web_password` 已填写**：否则队列「发送至仪器」、环境/分析等页会失败。
+2. **端口未被占用**：`web_port`（8080）、`bridge_api_port`（8081）、`port`（TCP 网关）互不冲突。
+3. **能连上上游**：Bridge 控制台应出现 upstream 连接/Logon 相关日志；网页顶栏可查看连接与 `RemoteControlState`。
+4. **仅内网使用**：当前 TCP/HTTP 未做鉴权，勿暴露到公网。
+
+### 5. 常见问题
+
+| 现象 | 处理 |
+| --- | --- |
+| `cornerstone-web-dev` 无法识别 | 先 `pip install -e ./CornerstoneWeb`，或改用 `python -m cornerstone_web.dev_web`；见上文 PATH |
+| 页面能开但 `/api/*` 502 | 确认 Bridge 已启动且 `bridge_api_port` 与配置一致 |
+| 发送样品失败 | 检查 `web_user` / `web_password` 是否与仪器远程账号一致 |
+| 改 `web_port` / `port` 不生效 | 修改监听端口后需**重启**对应进程（`cornerstone-web-dev` 或 Bridge/Web） |
+| 仍使用旧命令 | `cornerstone-mock-dev` 会转调 `cornerstone-web-dev`，建议改用新入口 |
 
 ## cornerstone-cli 全部命令
 
@@ -47,10 +159,10 @@ python -m pip install -e ./CornerstoneMock
 
 ### `tcp` 子命令一览
 
-第四列表示 `**cornerstone-mock` 是否除 TCP 透传外，还集成了与该子命令等价的 XML 调用及应答的结构化解读**（用于网页 `/api/...`、队列 UI 或网关内部状态）。图例见表下说明。
+第四列表示 **`cornerstone-bridge` 是否除 TCP 透传外，还集成了与该子命令等价的 XML 调用及应答的结构化解读**（经 Bridge REST 供 Web `/api/...`、队列 UI 或网关内部状态）。图例见表下说明。
 
 
-| 子命令                      | 需 `--username` / `--password`（先 Logon） | 说明摘要                                                   | Mock 集成（调用+解读）                                                                                                                                                                                                                                                                       |
+| 子命令                      | 需 `--username` / `--password`（先 Logon） | 说明摘要                                                   | Bridge 集成（调用+解读）                                                                                                                                                                                                                                                                       |
 | ------------------------ | -------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `session`                | 可选（可自动 Logon）                          | 长连接 + 可选心跳与空闲超时；交互式 `>` 提示符                            | 透传                                                                                                                                                                                                                                                                                   |
 | `version`                | 否                                      | `<Version/>`                                           | 透传                                                                                                                                                                                                                                                                                   |
@@ -112,13 +224,13 @@ python -m pip install -e ./CornerstoneMock
 | `valve-states`           | 是                                      |                                                        | 网页（部分）：`GET /api/diagnostic/digital-io` 会附带请求 `<ValveStates/>`，用于显示当前 `Active=true` 阀门                                                                                                                                                                                               |
 
 
-**Mock 集成列说明**
+**Bridge 集成列说明**
 
-- **透传**：TCP 客户端经网关按 `Cookie` 转发上游，mock **未**对该命令的应答做专用结构化解析；与直连仪器行为一致，网页亦无对应该子命令的 REST。
-- **网页**：`mock_server` 内通过 `instrument_rq`（或环境接口）下发**与 CLI 同族**的 XML，并将 XML 解析为 JSON 供新版 Web UI / `GET /api/...` 使用（实现位置见 `CornerstoneMock/src/cornerstone_mock/mock_server.py` 中 `fetch_*_json` 与 `_parse_`*）。
+- **透传**：TCP 客户端经 Bridge 网关按 `Cookie` 转发上游，Bridge **未**对该命令的应答做专用结构化解析；与直连仪器行为一致，网页亦无对应该子命令的 REST。
+- **网页**：`GatewayHub.instrument_rq`（`hub.py`）下发与 CLI 同族的 XML，`parsers.py` 解析为 JSON，由 `http_api.py` 暴露 `GET /api/...`；Web 仅代理，不重复解析。
 - **网页（部分）**：与 CLI 子命令同名但 **参数/语义仅为子集**（表中已注明差异）。
 - **网关**：TCP 路径上的路由、队列、合成应答、凭据补全等；`add-samples` 另含队列条目的展示用元数据提取。
-- **内部**：无与 CLI 子命令一一对应的公开 REST，但网关在进程内主动下发并解析该 XML，用于状态展示等。
+- **内部**：无与 CLI 子命令一一对应的公开 REST，但 Bridge 在进程内主动下发并解析该 XML，用于状态展示等。
 
 ### `http` 子命令一览
 
@@ -186,7 +298,7 @@ cornerstone-cli tcp session --host 127.0.0.1 --port 12345 --heartbeat 0
 
 会话中会自动忽略心跳（`<Heartbeat/>`）的响应，不再打印，避免打断 `>`  输入；其他异步消息仍以 `[消息] ...` 显示。
 
-示例（先启动 mock，再在另一终端执行）：
+示例（先启动 Bridge / `cornerstone-web-dev`，再在另一终端执行）：
 
 ```bash
 cornerstone-cli tcp session --host 127.0.0.1 --port 12345 --heartbeat 5
@@ -197,50 +309,40 @@ cornerstone-cli tcp session --host 127.0.0.1 --port 12345 --heartbeat 5
 # exit
 ```
 
-## cornerstone-mock（TCP 网关 + AddSamples 网页队列）
+## cornerstone-bridge（TCP 网关 + REST）
 
-`cornerstone-mock` 作为 **指令转发网关**：多台客户端连接网关；网关用 **一条** TCP 连接转发到真实 Cornerstone（单机通常只接受一个登录会话）。非 `AddSamples` 命令按 XML 的 `Cookie` 将上游应答路由回发起请求的客户端。
+`cornerstone-bridge` 承担原 Mock 中的 **网关与会话** 职责：多台 TCP 客户端 → **单条**上游 Cornerstone 连接；非 `AddSamples` 按 `Cookie` 回路由；`AddSamples` 默认截留队列；`instrument_rq` + `parsers.py` 提供全部 `/api/*`。
 
-- **多用户登录**：首条 `Logon` 转发至 Cornerstone；上游应答 `ErrorCode=0` 后，对**后续客户端**的 `Logon` 默认在网关侧直接返回成功（可用 `--no-synthetic-logon` 改为全部转发上游）。
-- **TCP 客户端与网页账号**：若已配置 `**--web-user` / `--web-password`**，连接网关的 TCP 客户端发来的 `<Logon>` 中 **未带或为空** 的 `<User>` / `<Password>` 会由网关用上述网页凭据补全后再转发上游；其它 XML 指令在转发前也会尽量先完成同一套上游网页登录，便于客户端不在本地持有仪器账号即可发令（网关本身不对 TCP 客户端做额外鉴权）。
-- **AddSamples**：默认不立即转发，进入长度可配置（默认 8）的 FIFO 队列，浏览器打开 **网页**（默认 `http://127.0.0.1:8765/`）管理队列。若在 JSON / CLI 中配置 `**privileged_add_samples_host`**（或 `--privileged-add-samples-host`），则 **来自该主机 IP** 的 TCP `AddSamples` 会直接转发上游，其它客户端仍截留。
-- **RemoteControlState**：网页顶栏展示仪器应答；网关在上游 TCP **新建连接或重连**后问询一次 `<RemoteControlState/>`（需已配置 `--web-user` / `--web-password`），**不参与** AddSamples 是否截留的判定。
-- **网页 UI**：根路径 `/` 为前后端分离界面。主导航为 **分析**（队列、远程查询 Sets/谱图、可折叠 **仪器状态** Status · Widgets）、**诊断**（二级菜单：**环境参数**、**数字IO**、**状态检查**；数字 IO 页在同一次请求中附带 `<ValveStates/>`，**数字输出**标题下副标题显示当前 `Active=True` 的阀门状态；**状态检查**页请求 `<Status IncludeGauges="False" IncludeSystemCheckResults="True" IncludeLeakCheckResults="True"/>`，分 **Elements** / **Odometers**（分区表格）与 **LeakCheckResults**（多卡片+底栏摘要）/ **SystemCheckResults**（两列网格+汇总脚））、**设置**（二级菜单：**网关配置**、**传送**；**传送**为独立页面（导航栏下方主区域，与维护计数器相同布局习惯）：左侧 `<Transports/>` 列表，状态圆与维护计数器类似，**「-」** 表示 `Excluded=true`，行右侧按钮展开右侧详情；详情为同页内 `<Transport Key="…"/>` 解析结果，含字段分区 `<details>`，不再开二级窗口）、**仪器**（二级菜单：**维护计数器**，列表请求 `<Counters/>`；与传送页相同为左侧列表 + 右侧详情：行末 **▶** 展开，详情经 `GET /api/instrument/counter?key=` 对应 `<Counter Key="…"/>`；状态圆圈 `-` 表示 `Excluded=True`，`!` 表示 `IsExpired=True`，到期列显示 `ExpiresIn`；完整 InstrumentInfo 仍在标题栏 **i** 按钮）。环境拉数及网页「发送到仪器」需配置 `**--web-user` / `--web-password`**（与仪器远程账号一致）。旧版纯表格页：`/legacy`。
-- **网页改配置**：点击 **设置 → 网关配置**、或顶栏下方状态条（本地网关 / 用户 / 上游与队列上限）打开「网关配置」；`PUT /api/settings` 可更新内存中的上游地址、仪器账号、截留队列上限、监听地址等。变更 **客户端/网页监听** 的 host、port 后需 **重启** `cornerstone-mock` 方生效；变更上游地址会尝试 **立即重连** 上游 TCP。以 `**--config` 某 JSON 启动** 时可将设置 **合并写回** 该文件（否则仅内存有效，进程结束即丢）。
-- **REST**：`GET /api/queue`、`POST /api/queue/send`（JSON `{"ids":["..."]}`）、`GET /api/environment/ambients`、`GET /api/diagnostic/digital-io`（应答中含 `valveStateDisplay` / `valveStateError`）、`GET /api/diagnostic/status-check`（解析 `Status` 下的 Elements、Odometers、SystemCheckResults、LeakCheckResults）、`GET /api/instrument/counters`、`GET /api/instrument/counter?key=`、`GET /api/settings/transports`、`GET /api/settings/transport?key=`、`GET /api/config`、`GET|PUT /api/settings`；分析页还使用 `GET /api/instrument/sets?number=&start_at=&filter_key=`（`**number` 默认 10**；`**filter_key` 省略或空时按 `0` 发送**；应答中带 `window` / `pagination`：`nextOlderStartAt` / `prevNewerStartAt` 供网页翻页）、`GET /api/instrument/set-reps?set_key=&include_detail=&tag=`、`GET /api/instrument/rep-plot?set_key=&tag=`、`GET /api/instrument/set-stats?set_key=`（均经独立 TCP + Logon，与 `cornerstone-cli` 一致）；静态资源在 `/static/`*。
+- **多用户登录**：首条 `Logon` 转发上游；成功后后续客户端 `Logon` 可合成成功（`no_synthetic_logon: false`，默认）。
+- **凭据补全**：配置 `web_user` / `web_password` 后，TCP 客户端空 `<Logon>` 由网关补全；网页发令与仪器 API 共用该上游登录。
+- **AddSamples**：默认入 FIFO 队列；`privileged_add_samples_host` 匹配来源 IP 时直通上游。
+- **RemoteControlState**：上游连接/重连后自动问询，供 `/api/status` 与 Web 顶栏。
+- **监听**：TCP `host`/`port`；REST `bridge_api_host`/`bridge_api_port`（示例 8081）。
+- **配置写回**：以 `-c` 指定 JSON 时，`PUT /api/settings` 可合并写回文件；改 TCP/Web **监听端口** 须重启进程。
 
-等价的命令行示例（与下方 `cornerstone-mock.config.example.json` 一致）：Cornerstone `127.0.0.1:54321`，网关接客户端 `12345`，网页 `8080`，账号 `remote` / `control`：
-
-```bash
-cornerstone-mock --host 127.0.0.1 --port 12345 --upstream-host 127.0.0.1 --upstream-port 54321 --web-port 8080 --web-user remote --web-password control
-```
-
-也可用 `**--config` / `-c**` 指定 JSON 配置文件（键名与 CLI 的 dest 一致，如 `web_host`、`web_port`）；**命令行参数会覆盖文件中的同名字段**。仓库内示例：`CornerstoneMock/cornerstone-mock.config.example.json`，其中约定为：**Cornerstone** 监听 `127.0.0.1:54321`（`upstream_host` / `upstream_port`），**网关**在 `12345` 接客户端（`host` / `port`），**网页**在 `8080`（`web_host` / `web_port`），网页发往仪器用的账号为 `**remote` / `control`**（`web_user` / `web_password`）。若本机 `8080` 被占用，可在命令行加 `--web-port` 等覆盖。
+仅起 Bridge（无浏览器 UI）：
 
 ```bash
-cornerstone-mock -c cornerstone-mock.config.example.json
+cornerstone-bridge -c CornerstoneWeb/cornerstone-web.config.json
 ```
 
-**用配置文件做网页（及网关）本地开发**：在仓库根目录或 `CornerstoneMock` 下可直接启动并加载示例 JSON（默认 **[http://127.0.0.1:8080/](http://127.0.0.1:8080/)**，见配置文件）；额外参数仍会覆盖文件，例如 `--web-port 9000`。
+CLI 经网关访问仪器：
 
 ```bash
-python -m cornerstone_mock.dev_mock_web
+cornerstone-cli tcp version --host 127.0.0.1 --port 54321
+cornerstone-cli tcp logon --host 127.0.0.1 --port 54321 --user demo --password demo
 ```
 
-安装包后也可使用入口 `**cornerstone-mock-dev**`（与上一行等价）。若使用自己的 JSON，可设置环境变量 `**CORNERSTONE_MOCK_CONFIG**` 指向该文件，或在当前目录放置 `**cornerstone-mock.config.json**`（优先于示例文件名）。
+定时向各 TCP 客户端推送 `<CornerstoneMessage/>`（`async_message_interval`，秒）。
 
-CLI 指向**网关**：
+## cornerstone-web（静态 UI + API 代理）
 
-```bash
-cornerstone-cli tcp version --host 127.0.0.1 --port 12345
-cornerstone-cli tcp logon --host 127.0.0.1 --port 12345 --user demo --password demo
-```
+- **静态资源**：`CornerstoneWeb/src/cornerstone_web/web_static/`（`/static/*`、`/`）。
+- **API**：浏览器请求 `/api/*` 由 `http_server.py` **原样代理**到 Bridge（`bridge_api_port`），Web 进程内无 `GatewayHub`。
+- **启动**：见上文 [启用 Web](#启用-web)；`cornerstone-web-dev` 或 `python -m cornerstone_web.dev_web`。
+- **网页功能**（与分析/诊断/设置/仪器各页）：与拆分前一致；REST 清单见 Bridge `http_api.py`。`/legacy` 旧版队列页已重定向到 `/`。
 
-向各连接定时推送异步消息（秒）：
-
-```bash
-cornerstone-mock --host 127.0.0.1 --port 12345 --upstream-host 127.0.0.1 --upstream-port 54321 --web-port 8080 --async-message-interval 2
-```
+**主要 REST**（均由 Bridge 提供，Web 代理）：`GET /api/queue`、`POST /api/queue/send`、`GET /api/status`、`GET|PUT /api/settings`、`GET /api/config`、`GET /api/environment/ambients`、`GET /api/diagnostic/*`、`GET /api/instrument/*`、`GET /api/settings/transports` 等。
 
 ## Remote Sample Login Commands（远程样品登录命令）
 
