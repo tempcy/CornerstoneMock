@@ -55,11 +55,11 @@ python -m pip install -e ./CornerstoneMock
 | `logon` | 否（使用 `--user` / `--password`） | `<Logon/>` | 网关：凭据补全、首登转发、可选后续合成应答 |
 | `logoff` | 否 | `<Logoff/>` | 透传 |
 | `send` | 否 | 自定义 XML（自动注入 Cookie/Culture），`--xml` 必填 | 透传 |
-| `last-remote-added-sets` | 是 | RSL：最近远程添加的 set | 透传 |
-| `add-samples` | 是 | RSL：`<AddSamples>`；可 `--xml` 或省略走交互问答 | 网关：默认截留队列、列表元数据解析；网页发送时调用上游并保留应答 |
+| `last-remote-added-sets` | 是 | RSL：最近一次 `AddSamples` 创建的 set Key | 网页（组合）：`GET /api/instrument/remote-import-sets` **第 1 步** — 下发 `<LastRemoteAddedSets/>`，解析各 `<Set Key="…"/>` 为 `keys[]`；单独经 CLI/透传 TCP 时无结构化解读 |
+| `add-samples` | 是 | RSL：`<AddSamples>`；可 `--xml` 或省略走交互问答 | 网关：TCP 默认截留 FIFO；`GET /api/queue` 解读队列项（`sampleName`/`sampleDescription` 等自 XML 提取）；`POST /api/queue/send` 转发选中条目的 AddSamples 至上游，**不从队列删除**（`queueKept: true`）；privileged 主机 TCP 可直通上游 |
 | `ambients` | 是 | Remote Query：所有 ambient 摘要 | 网页：`GET /api/environment/ambients`，解析为卡片列表 |
 | `ambient` | 是 | Remote Query：单个 ambient，`--key` | 透传 |
-| `automation-status` | 是 | `--id` 可选 | 透传 |
+| `automation-status` | 是 | `--id` 可选 | 网页：`GET /api/instrument/automation-status`，解析 `<AutomationStatus/>`（AutoCleaner 等展示行） |
 | `available-logs` | 是 | | 透传 |
 | `counter` | 是 | `--key` | 网页：`GET /api/instrument/counter?key=`，解析单条 `<Counter/>`（维护计数器详情） |
 | `counters` | 是 | | 网页：`GET /api/instrument/counters`，请求并解析 `<Counters/>`（维护计数器） |
@@ -74,8 +74,8 @@ python -m pip install -e ./CornerstoneMock
 | `log-data` | 是 | `--log` / `--start` / `--end` / `--max-entries`，可省略走问答 | 透传 |
 | `log-directory` | 是 | | 透传 |
 | `message-history` | 是 | | 透传 |
-| `method` | 是 | `--key` | 透传 |
-| `methods` | 是 | | 透传 |
+| `method` | 是 | `--key` | 网页：`GET /api/settings/method?key=`，解析单条 `<Method/>`（含 `Sections` 树） |
+| `methods` | 是 | | 网页：`GET /api/settings/methods`，解析 `<Methods/>` 列表 |
 | `mondo-data` | 是 | `--pic-id` 等，可省略走问答 | 透传 |
 | `mondo-directory` | 是 | | 透传 |
 | `next-to-analyze` | 是 | | 透传 |
@@ -88,20 +88,21 @@ python -m pip install -e ./CornerstoneMock
 | `reports` | 是 | | 透传 |
 | `sequence` | 是 | `--name` | 透传 |
 | `sequences` | 是 | | 透传 |
-| `set` | 是 | `--key` | 透传 |
-| `set-keys-ex2` | 是 | | 透传 |
+| `set` | 是 | `--key` | 透传（单条 set **详情**） |
+| `set-keys-ex2` | 是 | | 透传（返回仪器上各 set 的 **Key** 与 **AnalysisDate**；C# Remote Control Client 中同名命令） |
 | `set-reps` | 是 | `--key` / `--include-detail-data` / `--tag`，可省略走问答 | 网页：`GET /api/instrument/set-reps`，解析 replicates 等 |
 | `sets` | 是 | `--filter-key` / `--number` / `--start-at`，可省略走问答 | 网页：`GET /api/instrument/sets`，解析列表与分页窗口 |
+| `sets-ex` | 是 | `--key`（可多个），可省略走问答 | 网页（组合）：`GET /api/instrument/remote-import-sets` **第 2 步** — 下发 `<SetsEx><Set Key="…"/>…</SetsEx>`，解析为与 `sets` 同构的 `items[]`/`analyteDefs[]`（应答常为外层 `<Set>` 包内层含 `HeaderFields` 的 `<Set>`）；单独 CLI 为透传 |
 | `solenoid` | 是 | `--key` | 透传 |
 | `solenoids` | 是 | | 网页（部分）：`GET /api/diagnostic/digital-io` 会请求并解析 `<Solenoids/>`（数字输出） |
-| `standard` | 是 | `--key` | 透传 |
-| `standards` | 是 | | 透传 |
+| `standard` | 是 | `--key` | 网页：`GET /api/settings/standard?key=`，解析单条 `<Standard/>`（含 `Analytes`） |
+| `standards` | 是 | | 网页：`GET /api/settings/standards`，解析 `<Standards/>` 列表 |
 | `status` | 是 | gauges / system-check / leak-check 等布尔项，可省略走问答 | 网页（部分）：`GET /api/instrument/status-widgets` 发送 `Status`（`IncludeGauges=true`，不含系统检查/漏气结果）解析 Widgets；`GET /api/diagnostic/status-check` 发送 `Status`（`IncludeGauges=false`、`IncludeSystemCheckResults=true`、`IncludeLeakCheckResults=true`）解析 Elements/Odometers/SystemCheck/LeakCheck |
 | `string-value` | 是 | `--key` | 透传 |
 | `string-values` | 是 | | 透传 |
 | `switch` | 是 | `--key` | 透传 |
 | `switches` | 是 | | 网页（部分）：`GET /api/diagnostic/digital-io` 会请求并解析 `<Switches/>`（数字输入） |
-| `system-parameters` | 是 | | 透传 |
+| `system-parameters` | 是 | | 网页：`GET /api/instrument/system-parameters`，解析 `<SystemParameters/>` 分区字段 |
 | `transport` | 是 | `--key` | 网页：`GET /api/settings/transport?key=`，解析单条 `<Transport/>`（含 SetBeginFields 等分区） |
 | `transports` | 是 | | 网页：`GET /api/settings/transports`，解析 `<Transports/>` 列表 |
 | `valve-states` | 是 | | 网页（部分）：`GET /api/diagnostic/digital-io` 会附带请求 `<ValveStates/>`，用于显示当前 `Active=true` 阀门 |
@@ -109,10 +110,47 @@ python -m pip install -e ./CornerstoneMock
 **Mock 集成列说明**
 
 - **透传**：TCP 客户端经网关按 `Cookie` 转发上游，mock **未**对该命令的应答做专用结构化解析；与直连仪器行为一致，网页亦无对应该子命令的 REST。
-- **网页**：`mock_server` 内通过 `instrument_rq`（或环境接口）下发**与 CLI 同族**的 XML，并将 XML 解析为 JSON 供新版 Web UI / `GET /api/...` 使用（实现位置见 `CornerstoneMock/src/cornerstone_mock/mock_server.py` 中 `fetch_*_json` 与 `_parse_*`）。
-- **网页（部分）**：与 CLI 子命令同名但 **参数/语义仅为子集**（表中已注明差异）。
-- **网关**：TCP 路径上的路由、队列、合成应答、凭据补全等；`add-samples` 另含队列条目的展示用元数据提取。
-- **内部**：无与 CLI 子命令一一对应的公开 REST，但网关在进程内主动下发并解析该 XML，用于状态展示等。
+- **网页**：`GatewayHub.instrument_rq`（或专用 `forward_add_samples_web`）下发**与 CLI 同族**的 XML，经 `_parse_*` 转为 JSON，供 `GET /api/...` 与新版 Web UI 使用（实现见 `mock_server.py` 中 `fetch_*_json`）。
+- **网页（部分）**：与 CLI 子命令同名但 **参数/语义仅为子集**（如 `status` 拆成 Widgets 与 status-check 两路）。
+- **网页（组合）**：**一条 REST 串联多条 XML**（无单独 CLI 子命令），例如分析页「远程录入 Sets」= `LastRemoteAddedSets` + `SetsEx`。
+- **网关**：TCP 路由、Logon 补全/合成、`AddSamples` 截留与队列；非 `AddSamples` 的 RQ/RSL 在配置 `--web-user`/`--web-password` 后也可由网页侧 `instrument_rq` 访问上游。
+- **内部**：无与 CLI 子命令一一对应的公开 REST，但网关在进程内主动问询并解析（如上游重连后的 `RemoteControlState` → `/api/status`）。
+
+**调用路径（网页 → 仪器）**
+
+1. 浏览器请求 `GET/POST /api/...`（需网关已配置仪器账号）。
+2. `mock_server` 调用 `fetch_*_json` → `instrument_rq`（默认复用网关**上游长连接** + 网页 Logon；`--instrument-short-connection` 时改为每次短 TCP + Logon，与 CLI 一致）。
+3. 检查应答根节点 `ErrorCode`（非 `0` 则 JSON 中 `ok: false` + `error`）。
+4. `_parse_*` 提取字段；失败时 `error` 含解析异常说明，部分接口带 `rawPreview`（应答 XML 前缀）。
+
+**网页 REST 与解读对照**（第四列「网页」/「网页（组合）」的展开）
+
+| REST | 下发 XML（与 CLI 对应） | 解读（JSON 要点） |
+|------|-------------------------|-------------------|
+| `GET /api/queue` | — | 截留队列：`items[]` 含 `id`、`sampleName`、`sampleDescription`、`peer`、`xml` 等 |
+| `POST /api/queue/send` | 选中条目的 `<AddSamples>…` | `results[]` 各条 `upstreamResponse`；**保留队列**（`queueKept: true`） |
+| `GET /api/instrument/sets` | `<Sets FilterKey Number StartAt/>` | `items[]`（setKey、name、method、analyteAvgs、state…）；`analyteDefs[]`；`pagination`（翻页） |
+| `GET /api/instrument/remote-import-sets` | `<LastRemoteAddedSets/>` → `<SetsEx>…` | 同上 `items`/`analyteDefs`；`keys[]`；无分页；`source`: `LastRemoteAddedSets+SetsEx` |
+| `GET /api/instrument/set-reps` | `<SetReps Key IncludeDetailData Tag/>` | `replicates[]`；`repAnalyteColumns[]`；`elementStats[]` |
+| `GET /api/instrument/rep-plot` | `<RepPlot SetKey Tag/>` | 曲线 `analytePlotSeries` / `series` / 内嵌图 base64 |
+| `GET /api/instrument/rep-detail` | `<RepDetail SetKey Tag/>` | Replicate 详情字段列表 |
+| `GET /api/instrument/set-stats` | 内部复用 `SetReps`（含 detail） | 选中 Set 的元素统计聚合 |
+| `GET /api/instrument/status-widgets` | `<Status IncludeGauges=true …/>` | 主界面仪表 `widgets[]` |
+| `GET /api/diagnostic/status-check` | `<Status … IncludeSystemCheckResults=true …/>` | `elements`、`odometers`、`systemCheck`、`leakChecks` |
+| `GET /api/environment/ambients` | `<Ambients/>` | 环境卡片列表 |
+| `GET /api/diagnostic/digital-io` | `<Solenoids/>` + `<Switches/>` + `<ValveStates/>` | 数字 IO；`valveStateDisplay` / `valveStateError` |
+| `GET /api/instrument/instrument-info` | `<InstrumentInfo/>` | 版本与字段摘要（标题栏 **i** 弹窗） |
+| `GET /api/instrument/counters` | `<Counters/>` | 维护计数器列表 |
+| `GET /api/instrument/counter?key=` | `<Counter Key="…"/>` | 单条计数器详情 |
+| `GET /api/instrument/automation-status` | `<AutomationStatus/>` 或带 `Id` | AutoCleaner 等键值行 |
+| `GET /api/instrument/system-parameters` | `<SystemParameters/>` | 分区 + 字段（布尔/数值） |
+| `GET /api/settings/transports` | `<Transports/>` | 传送列表 |
+| `GET /api/settings/transport?key=` | `<Transport Key="…"/>` | 单条传送（含 SetBeginFields 等） |
+| `GET /api/settings/methods` | `<Methods/>` | 方法列表 |
+| `GET /api/settings/method?key=` | `<Method Key="…"/>` | 方法详情（`Sections` 树） |
+| `GET /api/settings/standards` | `<Standards/>` | 标样列表（名称、碳/硫、修改时间等） |
+| `GET /api/settings/standard?key=` | `<Standard Key="…"/>` | 标样详情（`Analytes`） |
+| `GET /api/status` | 缓存 + 可选 `RemoteControlState` | 连接、队列、`remoteControl` 展示文案 |
 
 ### `http` 子命令一览
 
@@ -197,9 +235,9 @@ cornerstone-cli tcp session --host 127.0.0.1 --port 12345 --heartbeat 5
 - **TCP 客户端与网页账号**：若已配置 **`--web-user` / `--web-password`**，连接网关的 TCP 客户端发来的 `<Logon>` 中 **未带或为空** 的 `<User>` / `<Password>` 会由网关用上述网页凭据补全后再转发上游；其它 XML 指令在转发前也会尽量先完成同一套上游网页登录，便于客户端不在本地持有仪器账号即可发令（网关本身不对 TCP 客户端做额外鉴权）。
 - **AddSamples**：默认不立即转发，进入长度可配置（默认 8）的 FIFO 队列，浏览器打开 **网页**（默认 `http://127.0.0.1:8765/`）管理队列。若在 JSON / CLI 中配置 **`privileged_add_samples_host`**（或 `--privileged-add-samples-host`），则 **来自该主机 IP** 的 TCP `AddSamples` 会直接转发上游，其它客户端仍截留。
 - **RemoteControlState**：网页顶栏展示仪器应答；网关在上游 TCP **新建连接或重连**后问询一次 `<RemoteControlState/>`（需已配置 `--web-user` / `--web-password`），**不参与** AddSamples 是否截留的判定。
-- **网页 UI**：根路径 `/` 为前后端分离界面。主导航为 **分析**（队列、远程查询 Sets/谱图、可折叠 **仪器状态** Status · Widgets）、**诊断**（二级菜单：**环境参数**、**数字IO**、**状态检查**；数字 IO 页在同一次请求中附带 `<ValveStates/>`，**数字输出**标题下副标题显示当前 `Active=True` 的阀门状态；**状态检查**页请求 `<Status IncludeGauges="False" IncludeSystemCheckResults="True" IncludeLeakCheckResults="True"/>`，分 **Elements** / **Odometers**（分区表格）与 **LeakCheckResults**（多卡片+底栏摘要）/ **SystemCheckResults**（两列网格+汇总脚））、**设置**（二级菜单：**网关配置**、**传送**；**传送**为独立页面（导航栏下方主区域，与维护计数器相同布局习惯）：左侧 `<Transports/>` 列表，状态圆与维护计数器类似，**「-」** 表示 `Excluded=true`，行右侧按钮展开右侧详情；详情为同页内 `<Transport Key="…"/>` 解析结果，含字段分区 `<details>`，不再开二级窗口）、**仪器**（二级菜单：**维护计数器**，列表请求 `<Counters/>`；与传送页相同为左侧列表 + 右侧详情：行末 **▶** 展开，详情经 `GET /api/instrument/counter?key=` 对应 ``<Counter Key="…"/>``；状态圆圈 `-` 表示 `Excluded=True`，`!` 表示 `IsExpired=True`，到期列显示 `ExpiresIn`；完整 InstrumentInfo 仍在标题栏 **i** 按钮）。环境拉数及网页「发送到仪器」需配置 **`--web-user` / `--web-password`**（与仪器远程账号一致）。旧版纯表格页：`/legacy`。
+- **网页 UI**：根路径 `/` 为前后端分离界面。主导航为 **分析**（样品缓存队列、**查询 Sets** / **远程录入 Sets**（`LastRemoteAddedSets`+`SetsEx`）、Replicates/谱图、可折叠 **仪器状态** Status · Widgets）、**诊断**（二级菜单：**环境参数**、**数字IO**、**状态检查**；数字 IO 页在同一次请求中附带 `<ValveStates/>`，**数字输出**标题下副标题显示当前 `Active=True` 的阀门状态；**状态检查**页请求 `<Status IncludeGauges="False" IncludeSystemCheckResults="True" IncludeLeakCheckResults="True"/>`，分 **Elements** / **Odometers**（分区表格）与 **LeakCheckResults**（多卡片+底栏摘要）/ **SystemCheckResults**（两列网格+汇总脚））、**设置**（二级菜单：**网关配置**、**传送**、**方法**、**标样**；**传送** / **方法** / **标样** 为独立页面，布局相同：左侧列表 + 行末 **▶** 展开右侧详情；**传送** 请求 `<Transports/>` / `<Transport Key="…"/>`；**方法** 请求 `<Methods/>` / `<Method Key="…"/>`；**标样** 请求 `<Standards/>` / `<Standard Key="…"/>`（列表含名称、说明、碳/硫、上次修改时间）；状态圆 **「-」** 表示 `Excluded=true`）、**仪器**（二级菜单：**维护计数器**、**自动**、**系统**；**维护计数器** 列表请求 `<Counters/>`，详情 ``<Counter Key="…"/>``，状态圆 `-` 表示 `Excluded=True`，`!` 表示 `IsExpired=True`；**自动** 页请求 `<AutomationStatus/>`；**系统** 页请求 `<SystemParameters/>`，按分区折叠展示参数（布尔项为双钮只读样式）；完整 InstrumentInfo 仍在标题栏 **i** 按钮）。环境拉数及网页「发送到仪器」需配置 **`--web-user` / `--web-password`**（与仪器远程账号一致）。旧版纯表格页：`/legacy`。
 - **网页改配置**：点击 **设置 → 网关配置**、或顶栏下方状态条（本地网关 / 用户 / 上游与队列上限）打开「网关配置」；`PUT /api/settings` 可更新内存中的上游地址、仪器账号、截留队列上限、监听地址等。变更 **客户端/网页监听** 的 host、port 后需 **重启** `cornerstone-mock` 方生效；变更上游地址会尝试 **立即重连** 上游 TCP。以 **`--config` 某 JSON 启动** 时可将设置 **合并写回** 该文件（否则仅内存有效，进程结束即丢）。
-- **REST**：`GET /api/queue`、`POST /api/queue/send`（JSON `{"ids":["..."]}`）、`GET /api/environment/ambients`、`GET /api/diagnostic/digital-io`（应答中含 `valveStateDisplay` / `valveStateError`）、`GET /api/diagnostic/status-check`（解析 `Status` 下的 Elements、Odometers、SystemCheckResults、LeakCheckResults）、`GET /api/instrument/counters`、`GET /api/instrument/counter?key=`、`GET /api/settings/transports`、`GET /api/settings/transport?key=`、`GET /api/config`、`GET|PUT /api/settings`；分析页还使用 `GET /api/instrument/sets?number=&start_at=&filter_key=`（**`number` 默认 10**；**`filter_key` 省略或空时按 `0` 发送**；应答中带 `window` / `pagination`：`nextOlderStartAt` / `prevNewerStartAt` 供网页翻页）、`GET /api/instrument/set-reps?set_key=&include_detail=&tag=`、`GET /api/instrument/rep-plot?set_key=&tag=`、`GET /api/instrument/set-stats?set_key=`（均经独立 TCP + Logon，与 `cornerstone-cli` 一致）；静态资源在 `/static/*`。
+- **REST**：`GET /api/queue`、`POST /api/queue/send`（JSON `{"ids":["..."]}`，发送后**保留**队列项）、`GET /api/environment/ambients`、`GET /api/diagnostic/digital-io`（应答中含 `valveStateDisplay` / `valveStateError`）、`GET /api/diagnostic/status-check`（解析 `Status` 下的 Elements、Odometers、SystemCheckResults、LeakCheckResults）、`GET /api/instrument/counters`、`GET /api/instrument/counter?key=`、`GET /api/instrument/automation-status`、`GET /api/instrument/system-parameters`、`GET /api/settings/transports`、`GET /api/settings/transport?key=`、`GET /api/settings/methods`、`GET /api/settings/method?key=`、`GET /api/settings/standards`、`GET /api/settings/standard?key=`、`GET /api/config`、`GET|PUT /api/settings`；分析页还使用 `GET /api/instrument/sets?number=&start_at=&filter_key=`、`GET /api/instrument/remote-import-sets`（网页「远程录入 Sets」：先 `LastRemoteAddedSets` 取 Key，再 `SetsEx` 批量取概要并刷新 Set 表）（**`number` 默认 10**；**`filter_key` 省略或空时按 `0` 发送**；应答中带 `window` / `pagination`：`nextOlderStartAt` / `prevNewerStartAt` 供网页翻页）、`GET /api/instrument/set-reps?set_key=&include_detail=&tag=`、`GET /api/instrument/rep-plot?set_key=&tag=`、`GET /api/instrument/set-stats?set_key=`（均经独立 TCP + Logon，与 `cornerstone-cli` 一致）；静态资源在 `/static/*`。
 
 等价的命令行示例（与下方 `cornerstone-mock.config.example.json` 一致）：Cornerstone `127.0.0.1:54321`，网关接客户端 `12345`，网页 `8080`，账号 `remote` / `control`：
 
@@ -308,6 +346,8 @@ cornerstone-cli tcp ambient --host 127.0.0.1 --port 12345 --username demo --pass
 - `mondo-data` — 典型：`--pic-id`、`--max-entries` 等，或问答。
 - `set-reps` — 典型：`--key`、`--include-detail-data`、`--tag`，或问答。
 - `sets` — 典型：`--filter-key`、`--number`、`--start-at`，或问答。
+- `sets-ex` — 典型：`--key 56 57`（多个 Key），或问答；session 中可 `sets-ex 56 57`。
+- `set-keys-ex2` — 无参，返回全部 set 的 Key 与分析日期（常与 `sets-ex` 配合：先取 Key 再批量查概要）。
 - `status` — 典型：`--include-gauges`、`--include-system-check-results`、`--include-leak-check-results`，或问答。
 
 在 `tcp session` 中，无参/带参 Remote Query 的输入习惯与原文档一致：例如 `counter KEY`、`sets` 后按提示输入等。

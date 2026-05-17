@@ -249,6 +249,210 @@ def _parse_maintenance_counters(resp_xml: str) -> Tuple[List[Dict[str, Any]], st
     return rows, ""
 
 
+def _automation_operation_mode_display(mode: str) -> str:
+    m = (mode or "").strip()
+    ml = m.lower()
+    if ml == "enabled":
+        return "已启用"
+    if ml == "disabled":
+        return "已禁用"
+    return m or "—"
+
+
+def _parse_automation_status(resp_xml: str) -> Tuple[Dict[str, Any], str]:
+    """解析 ``<AutomationStatus>``（``automation-status`` Remote Query）。"""
+    s = (resp_xml or "").strip()
+    if not s:
+        return {}, "空应答"
+    try:
+        root = ET.fromstring(s)
+    except ET.ParseError as e:
+        return {}, f"XML 解析失败: {e}"
+
+    outer: Optional[ET.Element] = None
+    if _xml_local_tag(root.tag) == "AutomationStatus":
+        outer = root
+    elif _xml_local_tag(root.tag) == "CornerstoneMessage":
+        outer = _first_child_by_local(root, "AutomationStatus")
+    if outer is None:
+        for el in root.iter():
+            if _xml_local_tag(el.tag) == "AutomationStatus":
+                outer = el
+                break
+    if outer is None:
+        return {}, "未找到 AutomationStatus 根节点"
+
+    ec = (outer.attrib.get("ErrorCode") or "").strip()
+    em = (outer.attrib.get("ErrorMessage") or "").strip()
+    if ec and ec not in ("0",) and ec.lower() not in ("success", "ok"):
+        return {}, em or f"仪器 ErrorCode={ec}"
+
+    auto_el: Optional[ET.Element] = None
+    for ch in outer:
+        if _xml_local_tag(ch.tag) != "Automation":
+            continue
+        aid = (ch.attrib.get("Id") or ch.attrib.get("id") or "").strip()
+        if aid == "AutoCleaner" or auto_el is None:
+            auto_el = ch
+        if aid == "AutoCleaner":
+            break
+
+    if auto_el is None:
+        return {"id": "", "rows": []}, ""
+
+    aid = (auto_el.attrib.get("Id") or auto_el.attrib.get("id") or "").strip()
+    mode = (auto_el.attrib.get("OperationMode") or auto_el.attrib.get("operationMode") or "").strip()
+    clean_interval = _element_text(_first_child_by_local(auto_el, "CleanInterval")).strip()
+    num_cycles = _element_text(_first_child_by_local(auto_el, "NumberOfCleanCycles")).strip()
+    rows: List[Dict[str, str]] = [
+        {"label": "自动清洁器状态", "value": _automation_operation_mode_display(mode)},
+        {"label": "清扫周期数目", "value": num_cycles or "—"},
+        {"label": "分析清洁间隔", "value": clean_interval or "—"},
+    ]
+    return {
+        "id": aid,
+        "operationMode": mode,
+        "cleanInterval": clean_interval,
+        "numberOfCleanCycles": num_cycles,
+        "rows": rows,
+    }, ""
+
+
+_SYSTEM_PARAM_SECTION_DEFS: List[Tuple[str, str, List[str]]] = [
+    (
+        "health",
+        "CORNERSTONE 健康管理",
+        ["ParticipationLevel", "ShareUsageWithLeco", "ShareUsageWithLECO"],
+    ),
+    ("software", "软件更新", ["AutoCheckForUpdates", "AutoCheckSoftwareUpdates"]),
+    ("gasStandby", "气体备用", ["Mode", "PedestalDownGasState", "Time"]),
+    ("gasWakeup", "气体唤醒", ["Weekday", "Saturday", "Sunday", "RunLeakCheck"]),
+    ("analytes", "分析物", ["AnalyzeCarbon", "AnalyzeSulfur"]),
+    (
+        "leakCheck",
+        "漏气检查",
+        [
+            "MaximumSystemleak",
+            "MaximumSystemLeak",
+            "MaximumIncoming&Dosersegmentleak",
+            "MaximumIncomingAndDosersegmentleak",
+            "MaximumFurnacesegmentleak",
+            "MaximumFurnaceSegmentLeak",
+            "MaximumDetectorsegmentleak",
+            "MaximumDetectorSegmentLeak",
+        ],
+    ),
+    ("instrument", "仪器选项", ["DustFilterHeater", "DustFilterTemperature", "BackPressureControl", "GasDoser", "AutoIncrementSampleName"]),
+]
+
+_SYSTEM_PARAM_LABEL_ZH: Dict[str, str] = {
+    "ParticipationLevel": "参与级别",
+    "ShareUsageWithLeco": "与 LECO 共享使用",
+    "ShareUsageWithLECO": "与 LECO 共享使用",
+    "AutoCheckForUpdates": "自动检查软件更新",
+    "AutoCheckSoftwareUpdates": "自动检查软件更新",
+    "Mode": "模式",
+    "PedestalDownGasState": "气体状态",
+    "Time": "时间",
+    "Weekday": "工作日",
+    "Saturday": "星期六",
+    "Sunday": "星期天",
+    "RunLeakCheck": "运行漏气检查",
+    "AnalyzeCarbon": "分析碳",
+    "AnalyzeSulfur": "分析硫",
+    "MaximumSystemleak": "最大系统泄漏",
+    "MaximumSystemLeak": "最大系统泄漏",
+    "MaximumIncoming&Dosersegmentleak": "最大进气与剂量段泄漏",
+    "MaximumIncomingAndDosersegmentleak": "最大进气与剂量段泄漏",
+    "MaximumFurnacesegmentleak": "最大炉段泄漏",
+    "MaximumFurnaceSegmentLeak": "最大炉段泄漏",
+    "MaximumDetectorsegmentleak": "最大检测器段泄漏",
+    "MaximumDetectorSegmentLeak": "最大检测器段泄漏",
+    "DustFilterHeater": "粉尘过滤器加热",
+    "DustFilterTemperature": "粉尘过滤器温度",
+    "BackPressureControl": "背压控制",
+    "GasDoser": "气体剂量器",
+    "AutoIncrementSampleName": "样品名自动递增",
+}
+
+
+def _system_param_field_kind(raw_value: str, display: str) -> str:
+    rv = (raw_value or "").strip().lower()
+    if rv in ("true", "false"):
+        return "bool"
+    dl = (display or "").strip().lower()
+    if dl in ("yes", "no", "enabled", "disabled"):
+        return "bool"
+    return "text"
+
+
+def _parse_system_parameters(resp_xml: str) -> Tuple[Dict[str, Any], str]:
+    """解析 ``<SystemParameters>``（``system-parameters`` Remote Query）。"""
+    s = (resp_xml or "").strip()
+    if not s:
+        return {}, "空应答"
+    try:
+        root = ET.fromstring(s)
+    except ET.ParseError as e:
+        return {}, f"XML 解析失败: {e}"
+
+    outer: Optional[ET.Element] = None
+    if _xml_local_tag(root.tag) == "SystemParameters":
+        outer = root
+    elif _xml_local_tag(root.tag) == "CornerstoneMessage":
+        outer = _first_child_by_local(root, "SystemParameters")
+    if outer is None:
+        for el in root.iter():
+            if _xml_local_tag(el.tag) == "SystemParameters":
+                outer = el
+                break
+    if outer is None:
+        return {}, "未找到 SystemParameters 根节点"
+
+    ec = (outer.attrib.get("ErrorCode") or "").strip()
+    em = (outer.attrib.get("ErrorMessage") or "").strip()
+    if ec and ec not in ("0",) and ec.lower() not in ("success", "ok"):
+        return {}, em or f"仪器 ErrorCode={ec}"
+
+    fields_by_id: Dict[str, Dict[str, Any]] = {}
+    for ch in outer:
+        if _xml_local_tag(ch.tag) != "Field":
+            continue
+        fid = (ch.attrib.get("Id") or ch.attrib.get("id") or "").strip()
+        if not fid:
+            continue
+        label_en = html.unescape((ch.attrib.get("Label") or ch.attrib.get("label") or "").strip())
+        display = (ch.text or "").strip()
+        raw = (ch.attrib.get("RawValue") or ch.attrib.get("rawValue") or "").strip()
+        units = (ch.attrib.get("Units") or ch.attrib.get("units") or "").strip()
+        fields_by_id[fid] = {
+            "id": fid,
+            "label": _SYSTEM_PARAM_LABEL_ZH.get(fid) or label_en or fid,
+            "labelEn": label_en,
+            "display": display,
+            "rawValue": raw,
+            "units": units,
+            "kind": _system_param_field_kind(raw, display),
+        }
+
+    sections: List[Dict[str, Any]] = []
+    used: Set[str] = set()
+    for sid, title, id_list in _SYSTEM_PARAM_SECTION_DEFS:
+        rows: List[Dict[str, Any]] = []
+        for fid in id_list:
+            if fid in fields_by_id:
+                rows.append(fields_by_id[fid])
+                used.add(fid)
+        if rows:
+            sections.append({"id": sid, "title": title, "fields": rows})
+
+    remaining = [fields_by_id[fid] for fid in fields_by_id if fid not in used]
+    if remaining:
+        sections.append({"id": "other", "title": "其它", "fields": remaining})
+
+    return {"sections": sections}, ""
+
+
 def _parse_counter_detail(resp_xml: str) -> Tuple[Dict[str, Any], str]:
     """解析单条 ``<Counter Key=\"…\"/>`` 应答（与 ``cornerstone-cli tcp counter --key`` 一致）。"""
     s = (resp_xml or "").strip()
@@ -415,6 +619,314 @@ def _parse_transport_detail(resp_xml: str) -> Tuple[Dict[str, Any], str]:
         )
 
     return {"key": key, "scalars": scalars, "sections": sections}, ""
+
+
+def _parse_methods_list(resp_xml: str) -> Tuple[List[Dict[str, Any]], str]:
+    """解析 ``<Methods>`` 方法列表。"""
+    s = (resp_xml or "").strip()
+    if not s:
+        return [], "空应答"
+    try:
+        root = ET.fromstring(s)
+    except ET.ParseError as e:
+        return [], f"XML 解析失败: {e}"
+    outer: Optional[ET.Element] = None
+    if _xml_local_tag(root.tag) == "Methods":
+        outer = root
+    elif _xml_local_tag(root.tag) == "CornerstoneMessage":
+        outer = _first_child_by_local(root, "Methods")
+    if outer is None:
+        for el in root.iter():
+            if _xml_local_tag(el.tag) == "Methods":
+                outer = el
+                break
+    if outer is None:
+        return [], "未找到 Methods 根节点"
+
+    rows: List[Dict[str, Any]] = []
+    for ch in outer:
+        if _xml_local_tag(ch.tag) != "Method":
+            continue
+
+        def txt(local: str) -> str:
+            return _element_text(_first_child_by_local(ch, local)).strip()
+
+        excluded_raw = txt("Excluded").lower()
+        lu_raw = txt("LastUsed")
+        lm_raw = txt("LastModified")
+        rows.append(
+            {
+                "key": txt("Key"),
+                "name": txt("Name"),
+                "description": txt("Description"),
+                "lastUsed": _transport_datetime_display(lu_raw),
+                "lastModified": _transport_datetime_display(lm_raw),
+                "excluded": excluded_raw in ("1", "true", "yes"),
+            }
+        )
+    return rows, ""
+
+
+def _parse_method_field(el: ET.Element) -> Dict[str, str]:
+    text = (el.text or "").strip()
+    raw = (el.attrib.get("RawValue") or el.attrib.get("rawValue") or "").strip()
+    return {
+        "label": (el.attrib.get("Label") or el.attrib.get("label") or "").strip(),
+        "id": (el.attrib.get("Id") or el.attrib.get("id") or "").strip(),
+        "value": text or raw,
+        "rawValue": raw,
+        "units": (el.attrib.get("Units") or el.attrib.get("units") or "").strip(),
+        "valueStatus": (el.attrib.get("ValueStatus") or el.attrib.get("valueStatus") or "").strip(),
+    }
+
+
+def _parse_method_sets(el: ET.Element) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for set_el in el:
+        if _xml_local_tag(set_el.tag) != "Set":
+            continue
+        key = (set_el.attrib.get("Key") or set_el.attrib.get("key") or "").strip()
+        reps = 0
+        reps_el = _first_child_by_local(set_el, "Replicates")
+        if reps_el is not None:
+            for rep in reps_el:
+                if _xml_local_tag(rep.tag) == "Replicate":
+                    reps += 1
+        out.append({"key": key, "replicateCount": reps})
+    return out
+
+
+def _parse_method_block(el: ET.Element) -> Dict[str, Any]:
+    """解析 ``Section`` / ``Subsection`` / ``SubSection`` / ``Range`` 等嵌套块。"""
+    tag = _xml_local_tag(el.tag)
+    label = (el.attrib.get("Label") or el.attrib.get("label") or "").strip()
+    if tag == "Range":
+        label = label or (el.attrib.get("Range") or el.attrib.get("range") or "").strip()
+    block_id = (el.attrib.get("Id") or el.attrib.get("id") or "").strip()
+    fields: List[Dict[str, str]] = []
+    children: List[Dict[str, Any]] = []
+    for ch in el:
+        ctag = _xml_local_tag(ch.tag)
+        if ctag == "Field":
+            fields.append(_parse_method_field(ch))
+        elif ctag == "Sets":
+            sets = _parse_method_sets(ch)
+            if sets:
+                children.append({"kind": "sets", "label": "Sets", "sets": sets})
+        elif ctag in ("Section", "Subsection", "SubSection", "Range"):
+            children.append(_parse_method_block(ch))
+    return {
+        "kind": tag.lower() if tag else "block",
+        "label": label,
+        "id": block_id,
+        "fields": fields,
+        "children": children,
+    }
+
+
+def _parse_method_detail(resp_xml: str) -> Tuple[Dict[str, Any], str]:
+    """解析单条 ``<Method Key=\"…\"/>`` 应答（含 ``Sections`` 树）。"""
+    s = (resp_xml or "").strip()
+    if not s:
+        return {}, "空应答"
+    try:
+        root = ET.fromstring(s)
+    except ET.ParseError as e:
+        return {}, f"XML 解析失败: {e}"
+    box: Optional[ET.Element] = None
+    if _xml_local_tag(root.tag) == "Method":
+        box = root
+    elif _xml_local_tag(root.tag) == "CornerstoneMessage":
+        box = _first_child_by_local(root, "Method")
+    if box is None:
+        for el in root.iter():
+            if _xml_local_tag(el.tag) == "Method":
+                box = el
+                break
+    if box is None:
+        return {}, "未找到 Method 根节点"
+
+    key_el = _first_child_by_local(box, "Key")
+    key = (key_el.text or "").strip() if key_el is not None else (box.attrib.get("Key") or "").strip()
+
+    scalars: List[Dict[str, Any]] = []
+    sections: List[Dict[str, Any]] = []
+    for ch in box:
+        tag = _xml_local_tag(ch.tag)
+        if tag == "Sections":
+            for sec in ch:
+                if _xml_local_tag(sec.tag) == "Section":
+                    sections.append(_parse_method_block(sec))
+            continue
+        if tag == "Key":
+            continue
+        val = (ch.text or "").strip()
+        scalars.append(
+            {
+                "tag": tag,
+                "label": (ch.attrib.get("Label") or ch.attrib.get("label") or "").strip(),
+                "value": val,
+            }
+        )
+
+    return {"key": key, "scalars": scalars, "sections": sections}, ""
+
+
+def _standard_certified_display(el: Optional[ET.Element]) -> str:
+    if el is None:
+        return ""
+    val = (el.text or "").strip()
+    if not val:
+        return ""
+    units = (el.attrib.get("Units") or el.attrib.get("units") or "").strip()
+    if units.lower() == "percent":
+        return f"{val} %"
+    if units:
+        return f"{val} {units}"
+    return val
+
+
+def _standard_list_analyte_values(std_el: ET.Element) -> Tuple[str, str]:
+    """从列表项或详情中的 ``Analytes`` 提取碳/硫认证值展示串。"""
+    carbon, sulfur = "", ""
+    analytes = _first_child_by_local(std_el, "Analytes")
+    if analytes is None:
+        return carbon, sulfur
+    for a in analytes:
+        if _xml_local_tag(a.tag) != "Analyte":
+            continue
+        label = (a.attrib.get("Label") or a.attrib.get("label") or "").strip().lower()
+        key_txt = _element_text(_first_child_by_local(a, "Key")).strip().lower()
+        disp = _standard_certified_display(_first_child_by_local(a, "Certified"))
+        if label == "carbon" or key_txt == "carbon":
+            carbon = disp
+        elif label == "sulfur" or key_txt == "sulfur":
+            sulfur = disp
+    return carbon, sulfur
+
+
+def _parse_standards_list(resp_xml: str) -> Tuple[List[Dict[str, Any]], str]:
+    """解析 ``<Standards>`` 标样列表。"""
+    s = (resp_xml or "").strip()
+    if not s:
+        return [], "空应答"
+    try:
+        root = ET.fromstring(s)
+    except ET.ParseError as e:
+        return [], f"XML 解析失败: {e}"
+    outer: Optional[ET.Element] = None
+    if _xml_local_tag(root.tag) == "Standards":
+        outer = root
+    elif _xml_local_tag(root.tag) == "CornerstoneMessage":
+        outer = _first_child_by_local(root, "Standards")
+    if outer is None:
+        for el in root.iter():
+            if _xml_local_tag(el.tag) == "Standards":
+                outer = el
+                break
+    if outer is None:
+        return [], "未找到 Standards 根节点"
+
+    rows: List[Dict[str, Any]] = []
+    for ch in outer:
+        if _xml_local_tag(ch.tag) != "Standard":
+            continue
+
+        def txt(local: str) -> str:
+            return _element_text(_first_child_by_local(ch, local)).strip()
+
+        excluded_raw = txt("Excluded").lower()
+        lm_raw = txt("LastModified")
+        carbon, sulfur = _standard_list_analyte_values(ch)
+        rows.append(
+            {
+                "key": txt("Key"),
+                "name": txt("Name"),
+                "description": txt("Description"),
+                "carbon": carbon,
+                "sulfur": sulfur,
+                "lastModified": _transport_datetime_display(lm_raw),
+                "excluded": excluded_raw in ("1", "true", "yes"),
+            }
+        )
+    return rows, ""
+
+
+def _parse_standard_analyte(a_el: ET.Element) -> Dict[str, Any]:
+    label = (a_el.attrib.get("Label") or a_el.attrib.get("label") or "").strip()
+    key_txt = _element_text(_first_child_by_local(a_el, "Key")).strip()
+    fields: List[Dict[str, str]] = []
+    for ch in a_el:
+        tag = _xml_local_tag(ch.tag)
+        if tag == "Key":
+            continue
+        flabel = (ch.attrib.get("Label") or ch.attrib.get("label") or tag).strip()
+        val = (ch.text or "").strip()
+        if tag == "Certified":
+            disp = _standard_certified_display(ch)
+        else:
+            units = (ch.attrib.get("Units") or ch.attrib.get("units") or "").strip()
+            if val and units:
+                disp = f"{val} {units}" if units.lower() != "percent" else f"{val} %"
+            else:
+                disp = val
+        fields.append({"tag": tag, "label": flabel, "value": val, "display": disp or val or "—"})
+    return {"label": label or key_txt, "key": key_txt, "fields": fields}
+
+
+def _parse_standard_detail(resp_xml: str) -> Tuple[Dict[str, Any], str]:
+    """解析单条 ``<Standard Key=\"…\"/>`` 应答。"""
+    s = (resp_xml or "").strip()
+    if not s:
+        return {}, "空应答"
+    try:
+        root = ET.fromstring(s)
+    except ET.ParseError as e:
+        return {}, f"XML 解析失败: {e}"
+    box: Optional[ET.Element] = None
+    if _xml_local_tag(root.tag) == "Standard":
+        box = root
+    elif _xml_local_tag(root.tag) == "CornerstoneMessage":
+        box = _first_child_by_local(root, "Standard")
+    if box is None:
+        for el in root.iter():
+            if _xml_local_tag(el.tag) == "Standard":
+                box = el
+                break
+    if box is None:
+        return {}, "未找到 Standard 根节点"
+
+    key_el = _first_child_by_local(box, "Key")
+    key = (key_el.text or "").strip() if key_el is not None else (box.attrib.get("Key") or "").strip()
+
+    scalars: List[Dict[str, Any]] = []
+    analytes: List[Dict[str, Any]] = []
+    for ch in box:
+        tag = _xml_local_tag(ch.tag)
+        if tag == "Analytes":
+            for a in ch:
+                if _xml_local_tag(a.tag) == "Analyte":
+                    analytes.append(_parse_standard_analyte(a))
+            continue
+        if tag == "Key":
+            continue
+        val = (ch.text or "").strip()
+        scalars.append(
+            {
+                "tag": tag,
+                "label": (ch.attrib.get("Label") or ch.attrib.get("label") or "").strip(),
+                "value": val,
+            }
+        )
+
+    carbon, sulfur = _standard_list_analyte_values(box)
+    return {
+        "key": key,
+        "scalars": scalars,
+        "analytes": analytes,
+        "carbon": carbon,
+        "sulfur": sulfur,
+    }, ""
 
 
 _VALVE_STATE_NAME_ZH: Dict[str, str] = {
@@ -745,6 +1257,60 @@ def _parse_sets_response(resp_xml: str) -> Tuple[List[Dict[str, Any]], List[Dict
         rows.append(_parse_one_set_row(s, analyte_defs))
     win = _parse_sets_window_from_outer(outer)
     return rows, analyte_defs, win
+
+
+def _find_setsex_container(root: ET.Element) -> ET.Element:
+    """在应答根节点下定位 ``<SetsEx>``。"""
+    lt = _xml_local_tag(root.tag)
+    if lt == "SetsEx":
+        return root
+    if lt == "CornerstoneMessage":
+        inner = _first_child_by_local(root, "SetsEx")
+        if inner is not None:
+            return inner
+    for el in root.iter():
+        if _xml_local_tag(el.tag) == "SetsEx":
+            return el
+    return root
+
+
+def _parse_last_remote_added_set_keys(resp_xml: str) -> List[str]:
+    """解析 ``<LastRemoteAddedSets>`` 下各 ``<Set Key=\"…\"/>``。"""
+    root = ET.fromstring(resp_xml)
+    box = root
+    if _xml_local_tag(root.tag) != "LastRemoteAddedSets":
+        found: Optional[ET.Element] = None
+        for el in root.iter():
+            if _xml_local_tag(el.tag) == "LastRemoteAddedSets":
+                found = el
+                break
+        if found is not None:
+            box = found
+    keys: List[str] = []
+    for ch in box:
+        if _xml_local_tag(ch.tag) != "Set":
+            continue
+        k = (ch.attrib.get("Key") or ch.attrib.get("key") or "").strip()
+        if not k:
+            k = _element_text(_first_child_by_local(ch, "Key"))
+        if k:
+            keys.append(k)
+    return keys
+
+
+def _parse_sets_ex_response(resp_xml: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
+    """解析 ``<SetsEx>`` 应答（外层 ``<Set>`` 常包裹内层含 ``HeaderFields`` 的 ``<Set>``）。"""
+    root = ET.fromstring(resp_xml)
+    outer = _find_setsex_container(root)
+    analyte_defs = _parse_sets_analyte_defs(outer)
+    rows: List[Dict[str, Any]] = []
+    for ch in outer:
+        if _xml_local_tag(ch.tag) != "Set":
+            continue
+        inner = _first_child_by_local(ch, "Set")
+        node = inner if inner is not None else ch
+        rows.append(_parse_one_set_row(node, analyte_defs))
+    return rows, analyte_defs
 
 
 _REP_COL_EXCLUDE = frozenset(
@@ -1754,6 +2320,10 @@ class GatewayHub:
     def pending_snapshot(self) -> List[PendingAddSamples]:
         return list(self._pending_add_samples)
 
+    def get_pending_by_ids(self, ids: Set[str]) -> List[PendingAddSamples]:
+        """按 ID 返回队列中的条目（不从队列移除）。"""
+        return [p for p in self._pending_add_samples if p.entry_id in ids]
+
     def remove_pending_by_ids(self, ids: Set[str]) -> List[PendingAddSamples]:
         kept: List[PendingAddSamples] = []
         selected: List[PendingAddSamples] = []
@@ -2363,6 +2933,59 @@ class GatewayHub:
             }
         return {"ok": True, "error": "", "items": items, "fetchedAt": time.time()}
 
+    async def fetch_automation_status_json(self) -> Dict[str, Any]:
+        """仪器自动状态：``<AutomationStatus/>``。"""
+        r = await self.instrument_rq("<AutomationStatus/>", timeout_s=120.0)
+        if not r["ok"]:
+            return {
+                "ok": False,
+                "error": r["error"],
+                "automation": {},
+                "rows": [],
+                "rawPreview": (r.get("xml") or "")[:3000],
+            }
+        parsed, perr = _parse_automation_status(r.get("xml") or "")
+        if perr:
+            return {
+                "ok": False,
+                "error": perr,
+                "automation": {},
+                "rows": [],
+                "rawPreview": (r.get("xml") or "")[:3000],
+            }
+        return {
+            "ok": True,
+            "error": "",
+            "automation": {k: v for k, v in parsed.items() if k != "rows"},
+            "rows": parsed.get("rows") or [],
+            "fetchedAt": time.time(),
+        }
+
+    async def fetch_system_parameters_json(self) -> Dict[str, Any]:
+        """仪器系统参数：``<SystemParameters/>``。"""
+        r = await self.instrument_rq("<SystemParameters/>", timeout_s=120.0)
+        if not r["ok"]:
+            return {
+                "ok": False,
+                "error": r["error"],
+                "sections": [],
+                "rawPreview": (r.get("xml") or "")[:4000],
+            }
+        parsed, perr = _parse_system_parameters(r.get("xml") or "")
+        if perr:
+            return {
+                "ok": False,
+                "error": perr,
+                "sections": [],
+                "rawPreview": (r.get("xml") or "")[:4000],
+            }
+        return {
+            "ok": True,
+            "error": "",
+            "sections": parsed.get("sections") or [],
+            "fetchedAt": time.time(),
+        }
+
     async def fetch_counter_detail_json(self, counter_key: str) -> Dict[str, Any]:
         """Remote Query：``<Counter Key=\"…\"/>`` 单条详情。"""
         from cornerstone_cli.cli import _build_attr_xml
@@ -2434,6 +3057,98 @@ class GatewayHub:
                 "rawPreview": (r.get("xml") or "")[:4000],
             }
         return {"ok": True, "error": "", "transport": detail, "fetchedAt": time.time()}
+
+    async def fetch_methods_list_json(self) -> Dict[str, Any]:
+        """Remote Query：``<Methods/>`` 方法列表。"""
+        r = await self.instrument_rq("<Methods/>", timeout_s=120.0)
+        if not r["ok"]:
+            return {
+                "ok": False,
+                "error": r["error"],
+                "items": [],
+                "rawPreview": (r.get("xml") or "")[:3000],
+            }
+        items, perr = _parse_methods_list(r.get("xml") or "")
+        if perr:
+            return {
+                "ok": False,
+                "error": perr,
+                "items": [],
+                "rawPreview": (r.get("xml") or "")[:3000],
+            }
+        return {"ok": True, "error": "", "items": items, "fetchedAt": time.time()}
+
+    async def fetch_method_detail_json(self, method_key: str) -> Dict[str, Any]:
+        """Remote Query：``<Method Key=\"…\"/>`` 单条详情。"""
+        from cornerstone_cli.cli import _build_attr_xml
+
+        k = (method_key or "").strip()
+        if not k:
+            return {"ok": False, "error": "缺少 key", "method": {}, "rawPreview": ""}
+        xml = _build_attr_xml("Method", {"Key": k})
+        r = await self.instrument_rq(xml, timeout_s=120.0)
+        if not r["ok"]:
+            return {
+                "ok": False,
+                "error": r["error"],
+                "method": {},
+                "rawPreview": (r.get("xml") or "")[:8000],
+            }
+        detail, perr = _parse_method_detail(r.get("xml") or "")
+        if perr:
+            return {
+                "ok": False,
+                "error": perr,
+                "method": {},
+                "rawPreview": (r.get("xml") or "")[:8000],
+            }
+        return {"ok": True, "error": "", "method": detail, "fetchedAt": time.time()}
+
+    async def fetch_standards_list_json(self) -> Dict[str, Any]:
+        """Remote Query：``<Standards/>`` 标样列表。"""
+        r = await self.instrument_rq("<Standards/>", timeout_s=120.0)
+        if not r["ok"]:
+            return {
+                "ok": False,
+                "error": r["error"],
+                "items": [],
+                "rawPreview": (r.get("xml") or "")[:3000],
+            }
+        items, perr = _parse_standards_list(r.get("xml") or "")
+        if perr:
+            return {
+                "ok": False,
+                "error": perr,
+                "items": [],
+                "rawPreview": (r.get("xml") or "")[:3000],
+            }
+        return {"ok": True, "error": "", "items": items, "fetchedAt": time.time()}
+
+    async def fetch_standard_detail_json(self, standard_key: str) -> Dict[str, Any]:
+        """Remote Query：``<Standard Key=\"…\"/>`` 单条详情。"""
+        from cornerstone_cli.cli import _build_attr_xml
+
+        k = (standard_key or "").strip()
+        if not k:
+            return {"ok": False, "error": "缺少 key", "standard": {}, "rawPreview": ""}
+        xml = _build_attr_xml("Standard", {"Key": k})
+        r = await self.instrument_rq(xml, timeout_s=120.0)
+        if not r["ok"]:
+            return {
+                "ok": False,
+                "error": r["error"],
+                "standard": {},
+                "rawPreview": (r.get("xml") or "")[:8000],
+            }
+        detail, perr = _parse_standard_detail(r.get("xml") or "")
+        if perr:
+            return {
+                "ok": False,
+                "error": perr,
+                "standard": {},
+                "rawPreview": (r.get("xml") or "")[:8000],
+            }
+        return {"ok": True, "error": "", "standard": detail, "fetchedAt": time.time()}
 
     async def fetch_status_widgets_json(self) -> Dict[str, Any]:
         """``Status``：仅请求 gauges（Widgets），不包含系统检查 / 漏气检查结果。"""
@@ -2533,6 +3248,60 @@ class GatewayHub:
             "analyteDefs": analyte_defs,
             "window": win,
             "pagination": pag,
+            "fetchedAt": time.time(),
+        }
+
+    async def fetch_remote_import_sets_json(self) -> Dict[str, Any]:
+        """RSL ``LastRemoteAddedSets`` 取 Key，再 RQ ``SetsEx`` 批量取 set 概要（供网页「远程录入 Sets」）。"""
+        empty: Dict[str, Any] = {
+            "items": [],
+            "analyteDefs": [],
+            "window": {},
+            "pagination": {},
+            "keys": [],
+        }
+        r1 = await self.instrument_rq("<LastRemoteAddedSets/>", timeout_s=120.0)
+        if not r1["ok"]:
+            return {**empty, "ok": False, "error": r1["error"], "rawPreview": (r1.get("xml") or "")[:2000]}
+        try:
+            keys = _parse_last_remote_added_set_keys(r1["xml"])
+        except ET.ParseError as ex:
+            return {**empty, "ok": False, "error": f"解析 LastRemoteAddedSets 失败: {ex}"}
+        if not keys:
+            return {
+                **empty,
+                "ok": False,
+                "error": "LastRemoteAddedSets 未返回任何 Set Key（请先通过 RSL 添加样品）",
+            }
+        from cornerstone_cli.cli import _build_sets_ex_xml
+
+        r2 = await self.instrument_rq(_build_sets_ex_xml(keys), timeout_s=180.0)
+        if not r2["ok"]:
+            return {
+                **empty,
+                "ok": False,
+                "error": r2["error"],
+                "keys": keys,
+                "rawPreview": (r2.get("xml") or "")[:2000],
+            }
+        try:
+            items, analyte_defs = _parse_sets_ex_response(r2["xml"])
+        except ET.ParseError as ex:
+            return {
+                **empty,
+                "ok": False,
+                "error": f"解析 SetsEx 失败: {ex}",
+                "keys": keys,
+            }
+        return {
+            "ok": True,
+            "error": "",
+            "items": items,
+            "analyteDefs": analyte_defs,
+            "window": {},
+            "pagination": {},
+            "keys": keys,
+            "source": "LastRemoteAddedSets+SetsEx",
             "fetchedAt": time.time(),
         }
 
@@ -2771,10 +3540,10 @@ def _legacy_queue_html_page(hub: GatewayHub) -> bytes:
         rows.append(
             f"<tr><td><input type=\"checkbox\" name=\"id\" value=\"{html.escape(p.entry_id)}\"/></td>"
             f"<td><code>{html.escape(p.entry_id)}</code></td>"
-            f"<td>{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(p.received_at))}</td>"
-            f"<td>{html.escape(p.source_peer)}</td>"
             f"<td>{name}</td>"
             f"<td>{desc}</td>"
+            f"<td>{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(p.received_at))}</td>"
+            f"<td>{html.escape(p.source_peer)}</td>"
             f"<td><details><summary>展开 XML</summary><pre>{full_xml}</pre></details></td></tr>"
         )
     body_rows = "\n".join(rows) if rows else "<tr><td colspan=\"7\">（队列为空）</td></tr>"
@@ -2792,10 +3561,10 @@ def _legacy_queue_html_page(hub: GatewayHub) -> bytes:
 <p>勾选后点击下方按钮，将选中条目<strong>依次</strong>发往上游 Cornerstone（发送前会自动对上游执行 Logon，需配置 <code>--web-user</code> / <code>--web-password</code>）。</p>
 <form method="post" action="/send">
 <table>
-<thead><tr><th>选</th><th>ID</th><th>时间</th><th>来源</th><th>样品名称</th><th>样品说明</th><th>XML 全文</th></tr></thead>
+<thead><tr><th>选</th><th>ID</th><th>样品名称</th><th>样品说明</th><th>时间</th><th>来源</th><th>XML 全文</th></tr></thead>
 <tbody>{body_rows}</tbody>
 </table>
-<p><button type="submit">发送选中到 Cornerstone</button></p>
+<p><button type="submit">发送至仪器</button></p>
 </form>
 <p><a href="/">新版网页</a> · <a href="/legacy">刷新本页</a></p>
 </body></html>"""
@@ -3045,6 +3814,48 @@ async def _handle_http(
             )
             return
 
+        if method == "GET" and path == "/api/settings/methods":
+            data = await hub.fetch_methods_list_json()
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "GET" and path == "/api/settings/method":
+            mk = (qparams.get("key") or "").strip()
+            data = await hub.fetch_method_detail_json(mk)
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "GET" and path == "/api/settings/standards":
+            data = await hub.fetch_standards_list_json()
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "GET" and path == "/api/settings/standard":
+            sk = (qparams.get("key") or "").strip()
+            data = await hub.fetch_standard_detail_json(sk)
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
         if method == "PUT" and path == "/api/settings":
             try:
                 obj = json.loads(body.decode("utf-8", errors="replace") or "{}")
@@ -3194,6 +4005,26 @@ async def _handle_http(
             )
             return
 
+        if method == "GET" and path == "/api/instrument/automation-status":
+            data = await hub.fetch_automation_status_json()
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "GET" and path == "/api/instrument/system-parameters":
+            data = await hub.fetch_system_parameters_json()
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
         if method == "GET" and path == "/api/instrument/counter":
             ck = (qparams.get("key") or "").strip()
             data = await hub.fetch_counter_detail_json(ck)
@@ -3243,6 +4074,16 @@ async def _handle_http(
             if fk == "":
                 fk = "0"
             data = await hub.fetch_sets_json(fk, n, sa)
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "GET" and path == "/api/instrument/remote-import-sets":
+            data = await hub.fetch_remote_import_sets_json()
             await _http_send(
                 writer,
                 200,
@@ -3329,12 +4170,12 @@ async def _handle_http(
                 )
                 return
             ids = set(obj.get("ids") or [])
-            selected = hub.remove_pending_by_ids(ids)
+            selected = hub.get_pending_by_ids(ids)
             results: List[Dict[str, Any]] = []
             for p in selected:
                 r = await hub.forward_add_samples_web(p.payload_xml)
                 results.append({"id": p.entry_id, "upstreamResponse": r})
-            out = {"ok": True, "results": results}
+            out = {"ok": True, "results": results, "queueKept": True}
             if not selected:
                 out = {"ok": False, "error": "未选择任何条目或 ID 无效", "results": []}
             await _http_send(
@@ -3348,7 +4189,7 @@ async def _handle_http(
         if method == "POST" and path == "/send":
             form = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"))
             ids = set(form.get("id", []))
-            selected = hub.remove_pending_by_ids(ids)
+            selected = hub.get_pending_by_ids(ids)
             results: List[str] = []
             for p in selected:
                 r = await hub.forward_add_samples_web(p.payload_xml)

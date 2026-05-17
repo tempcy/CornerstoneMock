@@ -210,6 +210,12 @@
   var transportsDetailCache = Object.create(null);
   var transportsExpandedKey = null;
 
+  var methodsDetailCache = Object.create(null);
+  var methodsExpandedKey = null;
+
+  var standardsDetailCache = Object.create(null);
+  var standardsExpandedKey = null;
+
   function resetTransportsDetailUi() {
     transportsExpandedKey = null;
     var body = $("tp-body");
@@ -448,6 +454,470 @@
     renderTransportDetail(tjson);
   }
 
+  function resetMethodsDetailUi() {
+    methodsExpandedKey = null;
+    var body = $("md-body");
+    if (body) body.classList.remove("md-body--split");
+    var det = $("md-detail");
+    if (det) det.classList.add("hidden");
+    var inner = $("md-detail-inner");
+    if (inner) inner.innerHTML = "";
+    document.querySelectorAll("#md-list .md-row.md-row--active").forEach(function (r) {
+      r.classList.remove("md-row--active");
+    });
+    document.querySelectorAll("#md-list .btn-tp-expand").forEach(function (b) {
+      b.setAttribute("aria-expanded", "false");
+      b.textContent = "▶";
+    });
+  }
+
+  function mdListDatetimeHtml(raw) {
+    var s = (raw && String(raw).trim()) || "";
+    if (!s || s === "—") return '<span class="muted">—</span>';
+    var sp = s.indexOf(" ");
+    if (sp > 0) {
+      return (
+        '<span class="md-dt-stack">' +
+        '<span class="md-dt-date">' +
+        escapeHtml(s.slice(0, sp)) +
+        "</span>" +
+        '<span class="md-dt-time">' +
+        escapeHtml(s.slice(sp + 1)) +
+        "</span></span>"
+      );
+    }
+    return escapeHtml(s);
+  }
+
+  function mdScalarTitleZh(tag, fallbackLabel) {
+    var m = {
+      Name: "名称",
+      Description: "说明",
+      LastUsed: "上次使用",
+      LastModified: "上次修改时间",
+      Excluded: "已排除"
+    };
+    return (tag && m[tag]) || (fallbackLabel && String(fallbackLabel).trim()) || tag || "—";
+  }
+
+  function mdDisplayScalarValue(tag, raw) {
+    var v = raw == null ? "" : String(raw).trim();
+    if ((tag || "").trim() === "Excluded") {
+      var lo = v.toLowerCase();
+      if (lo === "true") return "是";
+      if (lo === "false") return "否";
+    }
+    if (!v) return "—";
+    return v;
+  }
+
+  function renderMethodsList(items) {
+    var box = $("md-list");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!items || !items.length) {
+      box.innerHTML = '<p class="muted tp-list-empty">暂无方法</p>';
+      return;
+    }
+    items.forEach(function (it) {
+      var row = document.createElement("div");
+      row.className = "tp-row md-row";
+      row.dataset.key = it.key || "";
+      var ex = !!it.excluded;
+      var desc = (it.description && String(it.description).trim()) || "—";
+      row.innerHTML =
+        '<span class="' +
+        (ex ? "tp-state-dot md-state-dot excluded" : "tp-state-dot md-state-dot") +
+        '" title="' +
+        escapeAttr(ex ? "Excluded=true" : "Excluded=false") +
+        '">' +
+        escapeHtml(ex ? "-" : "") +
+        "</span>" +
+        '<div class="tp-cell-name">' +
+        escapeHtml(it.name || "") +
+        "</div>" +
+        '<div class="tp-cell-desc muted">' +
+        escapeHtml(desc) +
+        "</div>" +
+        '<div class="tp-cell-used">' +
+        mdListDatetimeHtml(it.lastUsed) +
+        "</div>" +
+        '<div class="tp-cell-mod">' +
+        mdListDatetimeHtml(it.lastModified) +
+        "</div>" +
+        '<div class="tp-cell-action">' +
+        '<button type="button" class="btn-tp-expand" aria-expanded="false" title="展开/折叠详情">▶</button>' +
+        "</div>";
+      box.appendChild(row);
+    });
+  }
+
+  function appendMethodFields(parent, fields) {
+    if (!fields || !fields.length) return;
+    var form = document.createElement("div");
+    form.className = "tp-detail-form";
+    fields.forEach(function (f) {
+      var title = (f.label && String(f.label).trim()) || f.id || "—";
+      var disp = (f.value && String(f.value).trim()) || "—";
+      var r = document.createElement("div");
+      r.className = "tp-dl-row";
+      r.innerHTML =
+        "<label>" + escapeHtml(title) + "</label>" +
+        '<div class="tp-dl-val" tabindex="0">' +
+        escapeHtml(disp) +
+        "</div>";
+      form.appendChild(r);
+    });
+    parent.appendChild(form);
+  }
+
+  function renderMethodBlock(block, depth) {
+    var det = document.createElement("details");
+    det.className = "md-method-block" + (depth > 0 ? " md-method-block--nested" : "");
+    det.open = depth < 1;
+    var sm = document.createElement("summary");
+    var title = (block.label && String(block.label).trim()) || block.id || block.kind || "—";
+    if (block.kind === "range" && block.label) {
+      title = "Range · " + block.label;
+    }
+    sm.textContent = title;
+    det.appendChild(sm);
+    appendMethodFields(det, block.fields || []);
+    (block.children || []).forEach(function (ch) {
+      if (ch.kind === "sets") {
+        var note = document.createElement("p");
+        note.className = "muted md-sets-note";
+        var parts = (ch.sets || []).map(function (s) {
+          var k = s.key || "—";
+          var n = s.replicateCount != null ? s.replicateCount : 0;
+          return k + "（" + n + " 条 Replicate）";
+        });
+        note.textContent = parts.length ? "关联 Set：" + parts.join("；") : "（无关联 Set）";
+        det.appendChild(note);
+        return;
+      }
+      det.appendChild(renderMethodBlock(ch, depth + 1));
+    });
+    return det;
+  }
+
+  function renderMethodDetail(m) {
+    var inner = $("md-detail-inner");
+    if (!inner) return;
+    inner.innerHTML = "";
+    if (!m || !Object.keys(m).length) {
+      inner.innerHTML = '<p class="muted">无详情数据</p>';
+      return;
+    }
+    var form = document.createElement("div");
+    form.className = "tp-detail-form";
+    (m.scalars || []).forEach(function (row) {
+      var tag = row.tag || "";
+      var title = mdScalarTitleZh(tag, row.label);
+      var disp = mdDisplayScalarValue(tag, row.value);
+      var r = document.createElement("div");
+      r.className = "tp-dl-row";
+      r.innerHTML =
+        "<label>" + escapeHtml(title) + "</label>" +
+        '<div class="tp-dl-val" tabindex="0">' +
+        escapeHtml(disp) +
+        "</div>";
+      form.appendChild(r);
+    });
+    inner.appendChild(form);
+    (m.sections || []).forEach(function (sec) {
+      inner.appendChild(renderMethodBlock(sec, 0));
+    });
+  }
+
+  async function refreshMethodsPage() {
+    methodsDetailCache = Object.create(null);
+    resetMethodsDetailUi();
+    var meta = $("md-meta");
+    var data = await fetchJson("/api/settings/methods");
+    if (!data) {
+      renderMethodsList([]);
+      if (meta) meta.textContent = "";
+      setBanner("md-banner", "无应答", "err");
+      return;
+    }
+    renderMethodsList(data.items || []);
+    var t = data.fetchedAt ? new Date(data.fetchedAt * 1000).toLocaleString() : "";
+    if (meta) meta.textContent = "已更新 " + t + " · 共 " + ((data.items && data.items.length) || 0) + " 条";
+    if (data.ok) setBanner("md-banner", "", "");
+    else setBanner("md-banner", (data && data.error) || "查询失败", "err");
+  }
+
+  async function toggleMethodDetail(key, rowEl, btn) {
+    if (!key) return;
+    var detWrap = $("md-detail");
+    var body = $("md-body");
+    var inner = $("md-detail-inner");
+    if (methodsExpandedKey === key && detWrap && !detWrap.classList.contains("hidden")) {
+      methodsExpandedKey = null;
+      if (detWrap) detWrap.classList.add("hidden");
+      if (inner) inner.innerHTML = "";
+      if (body) body.classList.remove("md-body--split");
+      if (rowEl) rowEl.classList.remove("md-row--active");
+      if (btn) {
+        btn.setAttribute("aria-expanded", "false");
+        btn.textContent = "▶";
+      }
+      return;
+    }
+    document.querySelectorAll("#md-list .md-row.md-row--active").forEach(function (r) {
+      r.classList.remove("md-row--active");
+    });
+    document.querySelectorAll("#md-list .btn-tp-expand").forEach(function (b) {
+      b.setAttribute("aria-expanded", "false");
+      b.textContent = "▶";
+    });
+    methodsExpandedKey = key;
+    if (rowEl) rowEl.classList.add("md-row--active");
+    if (btn) {
+      btn.setAttribute("aria-expanded", "true");
+      btn.textContent = "▼";
+    }
+    if (detWrap) detWrap.classList.remove("hidden");
+    if (body) body.classList.add("md-body--split");
+    if (inner) inner.innerHTML = '<p class="muted">加载中…</p>';
+    var mjson = methodsDetailCache[key];
+    if (!mjson) {
+      var url = "/api/settings/method?key=" + encodeURIComponent(key);
+      var d = await fetchJson(url);
+      if (!d || !d.ok) {
+        if (inner) {
+          inner.innerHTML =
+            '<p class="muted">' +
+            escapeHtml((d && d.error) || "加载详情失败") +
+            "</p>";
+        }
+        setBanner("md-banner", (d && d.error) || "加载详情失败", "err");
+        return;
+      }
+      mjson = d.method || {};
+      methodsDetailCache[key] = mjson;
+    }
+    setBanner("md-banner", "", "");
+    renderMethodDetail(mjson);
+  }
+
+  function resetStandardsDetailUi() {
+    standardsExpandedKey = null;
+    var body = $("st-body");
+    if (body) body.classList.remove("st-body--split");
+    var det = $("st-detail");
+    if (det) det.classList.add("hidden");
+    var inner = $("st-detail-inner");
+    if (inner) inner.innerHTML = "";
+    document.querySelectorAll("#st-list .st-row.st-row--active").forEach(function (r) {
+      r.classList.remove("st-row--active");
+    });
+    document.querySelectorAll("#st-list .btn-tp-expand").forEach(function (b) {
+      b.setAttribute("aria-expanded", "false");
+      b.textContent = "▶";
+    });
+  }
+
+  function stPctCell(raw) {
+    var s = (raw && String(raw).trim()) || "";
+    return s ? escapeHtml(s) : '<span class="muted">—</span>';
+  }
+
+  function stScalarTitleZh(tag, fallbackLabel) {
+    var m = {
+      Name: "名称",
+      Description: "说明",
+      LastUsed: "上次使用",
+      LastModified: "上次修改时间",
+      Excluded: "已排除",
+      GasDoseType: "气体剂量类型",
+      GasDoseCycles: "剂量次数"
+    };
+    return (tag && m[tag]) || (fallbackLabel && String(fallbackLabel).trim()) || tag || "—";
+  }
+
+  function stDisplayScalarValue(tag, raw) {
+    var v = raw == null ? "" : String(raw).trim();
+    if ((tag || "").trim() === "Excluded") {
+      var lo = v.toLowerCase();
+      if (lo === "true") return "是";
+      if (lo === "false") return "否";
+    }
+    if ((tag || "").trim() === "GasDoseType" && v === "None") return "无";
+    if (!v || v.indexOf("0001") >= 0) return "—";
+    return v;
+  }
+
+  function renderStandardsList(items) {
+    var box = $("st-list");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!items || !items.length) {
+      box.innerHTML = '<p class="muted tp-list-empty">暂无标样</p>';
+      return;
+    }
+    items.forEach(function (it) {
+      var row = document.createElement("div");
+      row.className = "st-row";
+      row.dataset.key = it.key || "";
+      var ex = !!it.excluded;
+      var desc = (it.description && String(it.description).trim()) || "—";
+      row.innerHTML =
+        '<span class="' +
+        (ex ? "tp-state-dot st-state-dot excluded" : "tp-state-dot st-state-dot") +
+        '" title="' +
+        escapeAttr(ex ? "Excluded=true" : "Excluded=false") +
+        '">' +
+        escapeHtml(ex ? "-" : "") +
+        "</span>" +
+        '<div class="tp-cell-name">' +
+        escapeHtml(it.name || "") +
+        "</div>" +
+        '<div class="tp-cell-desc muted">' +
+        escapeHtml(desc) +
+        "</div>" +
+        '<div class="st-cell-carbon">' +
+        stPctCell(it.carbon) +
+        "</div>" +
+        '<div class="st-cell-sulfur">' +
+        stPctCell(it.sulfur) +
+        "</div>" +
+        '<div class="tp-cell-mod">' +
+        mdListDatetimeHtml(it.lastModified) +
+        "</div>" +
+        '<div class="tp-cell-action">' +
+        '<button type="button" class="btn-tp-expand" aria-expanded="false" title="展开/折叠详情">▶</button>' +
+        "</div>";
+      box.appendChild(row);
+    });
+  }
+
+  function renderStandardDetail(s) {
+    var inner = $("st-detail-inner");
+    if (!inner) return;
+    inner.innerHTML = "";
+    if (!s || !Object.keys(s).length) {
+      inner.innerHTML = '<p class="muted">无详情数据</p>';
+      return;
+    }
+    var form = document.createElement("div");
+    form.className = "tp-detail-form";
+    (s.scalars || []).forEach(function (row) {
+      var tag = row.tag || "";
+      var title = stScalarTitleZh(tag, row.label);
+      var disp = stDisplayScalarValue(tag, row.value);
+      var r = document.createElement("div");
+      r.className = "tp-dl-row";
+      r.innerHTML =
+        "<label>" + escapeHtml(title) + "</label>" +
+        '<div class="tp-dl-val" tabindex="0">' +
+        escapeHtml(disp) +
+        "</div>";
+      form.appendChild(r);
+    });
+    inner.appendChild(form);
+    (s.analytes || []).forEach(function (a) {
+      var det = document.createElement("details");
+      det.className = "md-method-block";
+      det.open = true;
+      var sm = document.createElement("summary");
+      sm.textContent = (a.label && String(a.label).trim()) || a.key || "Analyte";
+      det.appendChild(sm);
+      (a.fields || []).forEach(function (f) {
+        var r = document.createElement("div");
+        r.className = "tp-dl-row";
+        var title = (f.label && String(f.label).trim()) || f.tag || "—";
+        var disp = (f.display && String(f.display).trim()) || f.value || "—";
+        r.innerHTML =
+          "<label>" + escapeHtml(title) + "</label>" +
+          '<div class="tp-dl-val" tabindex="0">' +
+          escapeHtml(disp) +
+          "</div>";
+        det.appendChild(r);
+      });
+      inner.appendChild(det);
+    });
+  }
+
+  async function refreshStandardsPage() {
+    standardsDetailCache = Object.create(null);
+    resetStandardsDetailUi();
+    var meta = $("st-meta");
+    var data = await fetchJson("/api/settings/standards");
+    if (!data) {
+      renderStandardsList([]);
+      if (meta) meta.textContent = "";
+      setBanner("st-banner", "无应答", "err");
+      return;
+    }
+    renderStandardsList(data.items || []);
+    var t = data.fetchedAt ? new Date(data.fetchedAt * 1000).toLocaleString() : "";
+    if (meta) meta.textContent = "已更新 " + t + " · 共 " + ((data.items && data.items.length) || 0) + " 条";
+    if (data.ok) setBanner("st-banner", "", "");
+    else setBanner("st-banner", (data && data.error) || "查询失败", "err");
+  }
+
+  async function toggleStandardDetail(key, rowEl, btn) {
+    if (!key) return;
+    var detWrap = $("st-detail");
+    var body = $("st-body");
+    var inner = $("st-detail-inner");
+    if (standardsExpandedKey === key && detWrap && !detWrap.classList.contains("hidden")) {
+      standardsExpandedKey = null;
+      if (detWrap) detWrap.classList.add("hidden");
+      if (inner) inner.innerHTML = "";
+      if (body) body.classList.remove("st-body--split");
+      if (rowEl) rowEl.classList.remove("st-row--active");
+      if (btn) {
+        btn.setAttribute("aria-expanded", "false");
+        btn.textContent = "▶";
+      }
+      return;
+    }
+    document.querySelectorAll("#st-list .st-row.st-row--active").forEach(function (r) {
+      r.classList.remove("st-row--active");
+    });
+    document.querySelectorAll("#st-list .btn-tp-expand").forEach(function (b) {
+      b.setAttribute("aria-expanded", "false");
+      b.textContent = "▶";
+    });
+    standardsExpandedKey = key;
+    if (rowEl) rowEl.classList.add("st-row--active");
+    if (btn) {
+      btn.setAttribute("aria-expanded", "true");
+      btn.textContent = "▼";
+    }
+    if (detWrap) detWrap.classList.remove("hidden");
+    if (body) body.classList.add("st-body--split");
+    if (inner) inner.innerHTML = '<p class="muted">加载中…</p>';
+    var sjson = standardsDetailCache[key];
+    if (!sjson) {
+      var url = "/api/settings/standard?key=" + encodeURIComponent(key);
+      var d = await fetchJson(url);
+      if (!d || !d.ok) {
+        if (inner) {
+          inner.innerHTML =
+            '<p class="muted">' +
+            escapeHtml((d && d.error) || "加载详情失败") +
+            "</p>";
+        }
+        setBanner("st-banner", (d && d.error) || "加载详情失败", "err");
+        return;
+      }
+      sjson = d.standard || {};
+      standardsDetailCache[key] = sjson;
+    }
+    setBanner("st-banner", "", "");
+    renderStandardDetail(sjson);
+    if (rowEl && (sjson.carbon || sjson.sulfur)) {
+      var cEl = rowEl.querySelector(".st-cell-carbon");
+      var sEl = rowEl.querySelector(".st-cell-sulfur");
+      if (cEl && sjson.carbon) cEl.innerHTML = stPctCell(sjson.carbon);
+      if (sEl && sjson.sulfur) sEl.innerHTML = stPctCell(sjson.sulfur);
+    }
+  }
+
   async function saveGatewaySettings() {
     var b = lastGwSettings || {};
     function pint(id, fb) {
@@ -565,10 +1035,10 @@
         escapeAttr(it.id) +
         '"/></td>' +
         "<td><code>" + escapeHtml(it.id) + "</code></td>" +
-        "<td>" + escapeHtml(it.receivedAtText || "") + "</td>" +
-        "<td>" + escapeHtml(it.peer || "") + "</td>" +
         "<td>" + escapeHtml(it.sampleName || "") + "</td>" +
         "<td>" + escapeHtml(it.sampleDescription || "") + "</td>" +
+        "<td>" + escapeHtml(it.receivedAtText || "") + "</td>" +
+        "<td>" + escapeHtml(it.peer || "") + "</td>" +
         '<td><details class="xml-fold"><summary>展开 XML</summary><pre>' +
         xmlEsc +
         "</pre></details></td>";
@@ -1079,6 +1549,165 @@
     });
   }
 
+  function renderAutomationRows(rows) {
+    var box = $("auto-rows");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!rows || !rows.length) {
+      var empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = "暂无自动状态数据";
+      box.appendChild(empty);
+      return;
+    }
+    rows.forEach(function (r) {
+      var row = document.createElement("div");
+      row.className = "auto-row";
+      row.innerHTML =
+        '<span class="auto-label">' + escapeHtml(r.label || "") + "</span>" +
+        '<span class="auto-value">' + escapeHtml(r.value || "—") + "</span>";
+      box.appendChild(row);
+    });
+  }
+
+  async function refreshAutomation() {
+    var meta = $("auto-meta");
+    var data = await fetchJson("/api/instrument/automation-status");
+    if (!data) {
+      renderAutomationRows([]);
+      if (meta) meta.textContent = "";
+      setBanner("auto-banner", "无应答", "err");
+      return;
+    }
+    renderAutomationRows(data.rows || []);
+    var t = data.fetchedAt ? new Date(data.fetchedAt * 1000).toLocaleString() : "";
+    if (meta) meta.textContent = "已更新 " + t;
+    if (data.ok) setBanner("auto-banner", "", "");
+    else setBanner("auto-banner", (data && data.error) || "查询失败", "err");
+  }
+
+  function sysParamDisplayZh(field) {
+    var d = String((field && field.display) || "").trim();
+    var dl = d.toLowerCase();
+    if (!d) return "—";
+    if (dl === "enabled") return "启用";
+    if (dl === "disabled") return "禁用";
+    if (dl === "yes") return "是";
+    if (dl === "no") return "否";
+    if (dl === "gas off") return "气体关闭";
+    if (dl.indexOf("conserve") >= 0) return "节省气";
+    if (dl.indexOf("最小") >= 0 || dl.indexOf("min") >= 0) return d.replace(/min\.?/i, "分钟");
+    return d;
+  }
+
+  function sysParamBoolLabels(field) {
+    var id = (field && field.id) || "";
+    if (id === "AnalyzeCarbon" || id === "AnalyzeSulfur" || id === "DustFilterHeater" || id === "GasDoser") {
+      return { off: "禁用", on: "启用" };
+    }
+    if (id === "RunLeakCheck") {
+      return { off: "否", on: "是" };
+    }
+    if (id === "ShareUsageWithLeco" || id === "ShareUsageWithLECO") {
+      return { off: "关", on: "是" };
+    }
+    var dl = String((field && field.display) || "").toLowerCase();
+    if (dl === "enabled" || dl === "disabled") return { off: "禁用", on: "启用" };
+    if (dl === "yes" || dl === "no") return { off: "否", on: "是" };
+    return { off: "关", on: "开" };
+  }
+
+  function sysParamIsOn(field) {
+    var dl = String((field && field.display) || "").trim().toLowerCase();
+    if (dl === "yes" || dl === "enabled") return true;
+    if (dl === "no" || dl === "disabled" || dl === "gas off") return false;
+    var rv = String((field && field.rawValue) || "").trim().toLowerCase();
+    if (rv === "true") return true;
+    if (rv === "false") return false;
+    return false;
+  }
+
+  function sysParamControlHtml(field) {
+    if (!field) return '<span class="sysp-pill muted">—</span>';
+    if (field.kind === "bool") {
+      var labels = sysParamBoolLabels(field);
+      var on = sysParamIsOn(field);
+      return (
+        '<span class="sysp-toggle" role="group" aria-label="' +
+        escapeAttr(field.label || "") +
+        '">' +
+        '<span class="sysp-toggle-opt sysp-toggle-opt--off' +
+        (!on ? " sysp-toggle-opt--on" : "") +
+        '">' +
+        escapeHtml(labels.off) +
+        "</span>" +
+        '<span class="sysp-toggle-opt sysp-toggle-opt--on' +
+        (on ? " sysp-toggle-opt--on" : "") +
+        '">' +
+        escapeHtml(labels.on) +
+        "</span></span>"
+      );
+    }
+    return '<span class="sysp-pill">' + escapeHtml(sysParamDisplayZh(field)) + "</span>";
+  }
+
+  function renderSystemParameters(sections) {
+    var box = $("sysp-sections");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!sections || !sections.length) {
+      box.innerHTML = '<p class="muted">暂无系统参数</p>';
+      return;
+    }
+    sections.forEach(function (sec, idx) {
+      var det = document.createElement("details");
+      det.className = "sysp-section";
+      det.open = idx < 6;
+      var sm = document.createElement("summary");
+      sm.textContent = sec.title || sec.id || "—";
+      det.appendChild(sm);
+      var body = document.createElement("div");
+      body.className = "sysp-section-body";
+      (sec.fields || []).forEach(function (f) {
+        var row = document.createElement("div");
+        row.className = "sysp-row";
+        var hint = "";
+        if (f.id === "AutoCheckForUpdates" || f.id === "AutoCheckSoftwareUpdates") {
+          hint = '<div class="sysp-row-hint">无法检查更新。</div>';
+        }
+        row.innerHTML =
+          '<div class="sysp-row-label-wrap">' +
+          '<div class="sysp-row-label">' +
+          escapeHtml(f.label || f.labelEn || f.id || "—") +
+          "</div>" +
+          hint +
+          "</div>" +
+          '<div class="sysp-control">' +
+          sysParamControlHtml(f) +
+          "</div>";
+        body.appendChild(row);
+      });
+      det.appendChild(body);
+      box.appendChild(det);
+    });
+  }
+
+  async function refreshSystemParameters() {
+    var meta = $("sysp-meta");
+    var data = await fetchJson("/api/instrument/system-parameters");
+    if (!data) {
+      renderSystemParameters([]);
+      if (meta) meta.textContent = "";
+      setBanner("sysp-banner", "无应答", "err");
+      return;
+    }
+    renderSystemParameters(data.sections || []);
+    var t = data.fetchedAt ? new Date(data.fetchedAt * 1000).toLocaleString() : "";
+    if (meta) meta.textContent = "已更新 " + t;
+    if (data.ok) setBanner("sysp-banner", "", "");
+    else setBanner("sysp-banner", (data && data.error) || "查询失败", "err");
+  }
+
   async function refreshMaintenanceCounters() {
     countersDetailCache = Object.create(null);
     resetCountersDetailUi();
@@ -1350,7 +1979,11 @@
     "digital-io": "view-digital-io",
     "status-check": "view-status-check",
     transports: "view-transports",
-    "maintenance-counters": "view-maintenance-counters"
+    methods: "view-methods",
+    standards: "view-standards",
+    "maintenance-counters": "view-maintenance-counters",
+    automation: "view-automation",
+    "system-parameters": "view-system-parameters"
   };
 
   function closeAllNavMenus() {
@@ -1372,8 +2005,13 @@
         (viewName === "environment" || viewName === "digital-io" || viewName === "status-check")
       )
         active = true;
-      if (menu === "instrument" && viewName === "maintenance-counters") active = true;
-      if (menu === "settings" && viewName === "transports") active = true;
+      if (
+        menu === "instrument" &&
+        (viewName === "maintenance-counters" || viewName === "automation" || viewName === "system-parameters")
+      )
+        active = true;
+      if (menu === "settings" && (viewName === "transports" || viewName === "methods" || viewName === "standards"))
+        active = true;
       btn.classList.toggle("active", active);
     });
     document.querySelectorAll(".nav-sub").forEach(function (s) {
@@ -1410,8 +2048,20 @@
     if (name === "maintenance-counters") {
       void refreshMaintenanceCounters();
     }
+    if (name === "automation") {
+      void refreshAutomation();
+    }
+    if (name === "system-parameters") {
+      void refreshSystemParameters();
+    }
     if (name === "transports") {
       void refreshTransportsPage();
+    }
+    if (name === "methods") {
+      void refreshMethodsPage();
+    }
+    if (name === "standards") {
+      void refreshStandardsPage();
     }
 
     updateNavActiveState(name);
@@ -1577,6 +2227,16 @@
   if ($("btn-refresh-counters")) {
     $("btn-refresh-counters").addEventListener("click", function () {
       void refreshMaintenanceCounters();
+    });
+  }
+  if ($("btn-refresh-automation")) {
+    $("btn-refresh-automation").addEventListener("click", function () {
+      void refreshAutomation();
+    });
+  }
+  if ($("btn-refresh-system-parameters")) {
+    $("btn-refresh-system-parameters").addEventListener("click", function () {
+      void refreshSystemParameters();
     });
   }
   var ctList = $("counters-list");
@@ -2374,6 +3034,34 @@
     await Promise.all([loadRepPlot(), loadRepDetail()]);
   }
 
+  function clearSetsSampleArea(emptySetsHint) {
+    selectedSetKey = "";
+    selectedRepTag = null;
+    lastRepAnalyteColumns = [];
+    lastElementStats = [];
+    lastReps = [];
+    renderRepsThead();
+    renderRepsTbody([]);
+    buildElementPanels();
+    clearAllElemPlots();
+    showSetLevelViz();
+    if (emptySetsHint != null) {
+      renderSetsTbody([], emptySetsHint);
+    }
+  }
+
+  function applySetsListPayload(data, emptyHint) {
+    lastAnalyteDefs = (data && data.analyteDefs) || [];
+    renderSetsThead();
+    if (!data || !data.items || !data.items.length) {
+      renderSetsTbody([], emptyHint || "当前无 Set 记录。");
+    } else {
+      renderSetsTbody(data.items);
+    }
+    updateSetsPaginationButtons(data || {});
+    clearSetsSampleArea(null);
+  }
+
   async function loadSets() {
     var fk = ($("sets-filter-key").value || "").trim();
     var n = parseInt($("sets-number").value, 10) || 10;
@@ -2388,30 +3076,45 @@
       encodeURIComponent(fk);
     var data = await fetchJson("/api/instrument/sets" + q);
     if (data && data.ok) {
-      lastAnalyteDefs = data.analyteDefs || [];
-      renderSetsThead();
-      if (!data.items || !data.items.length) {
-        renderSetsTbody([], "查询成功：当前无 Set 记录（参数无匹配或仪器列表为空）。");
-        setSetsBanner("", "");
-      } else {
-        renderSetsTbody(data.items);
-        setSetsBanner("", "");
-      }
-      updateSetsPaginationButtons(data);
-      selectedSetKey = "";
-      selectedRepTag = null;
-      lastRepAnalyteColumns = [];
-      lastElementStats = [];
-      lastReps = [];
-      renderRepsThead();
-      renderRepsTbody([]);
-      buildElementPanels();
-      clearAllElemPlots();
-      showSetLevelViz();
+      applySetsListPayload(
+        data,
+        "查询成功：当前无 Set 记录（参数无匹配或仪器列表为空）。"
+      );
+      setSetsBanner("", "");
     } else {
       renderSetsTbody([], "查询失败，请查看上方提示或网关日志。");
       setSetsBanner((data && data.error) || "Sets 查询失败", "err");
       updateSetsPaginationButtons({});
+    }
+  }
+
+  async function loadRemoteImportSets() {
+    var btn = $("btn-sets-remote-import");
+    if (btn) btn.disabled = true;
+    setSetsBanner("正在获取最近远程添加的 Set…", "");
+    clearSetsSampleArea("正在加载…");
+    lastAnalyteDefs = [];
+    renderSetsThead();
+    try {
+      var data = await fetchJson("/api/instrument/remote-import-sets");
+      if (data && data.ok) {
+        applySetsListPayload(
+          data,
+          "远程录入成功，但 SetsEx 未返回 Set 行（请确认已执行 AddSamples）。"
+        );
+        var n = data.items ? data.items.length : 0;
+        var k = data.keys ? data.keys.length : 0;
+        setSetsBanner(
+          n ? "已从 LastRemoteAddedSets + SetsEx 载入 " + n + " 条（Key 数 " + k + "）。" : "",
+          ""
+        );
+      } else {
+        clearSetsSampleArea("远程录入失败。");
+        setSetsBanner((data && data.error) || "远程录入 Sets 失败", "err");
+        updateSetsPaginationButtons({});
+      }
+    } finally {
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -2512,6 +3215,9 @@
       loadSets();
     });
   }
+  if ($("btn-sets-remote-import")) {
+    $("btn-sets-remote-import").addEventListener("click", loadRemoteImportSets);
+  }
 
   renderSetsThead();
   renderRepsThead();
@@ -2553,6 +3259,32 @@
       if (!row) return;
       var key = row.dataset.key || "";
       void toggleTransportDetail(key, row, btn);
+    });
+  }
+  var mdRef = $("btn-refresh-methods");
+  if (mdRef) mdRef.addEventListener("click", function () { void refreshMethodsPage(); });
+  var mdList = $("md-list");
+  if (mdList) {
+    mdList.addEventListener("click", function (ev) {
+      var btn = ev.target && ev.target.closest && ev.target.closest(".btn-tp-expand");
+      if (!btn) return;
+      var row = btn.closest(".md-row");
+      if (!row) return;
+      var key = row.dataset.key || "";
+      void toggleMethodDetail(key, row, btn);
+    });
+  }
+  var stRef = $("btn-refresh-standards");
+  if (stRef) stRef.addEventListener("click", function () { void refreshStandardsPage(); });
+  var stList = $("st-list");
+  if (stList) {
+    stList.addEventListener("click", function (ev) {
+      var btn = ev.target && ev.target.closest && ev.target.closest(".btn-tp-expand");
+      if (!btn) return;
+      var row = btn.closest(".st-row");
+      if (!row) return;
+      var key = row.dataset.key || "";
+      void toggleStandardDetail(key, row, btn);
     });
   }
   document.addEventListener("keydown", function (ev) {

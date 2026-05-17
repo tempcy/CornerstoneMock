@@ -56,12 +56,16 @@
       <button type="button" class="nav-top" data-menu="settings" aria-expanded="false" aria-haspopup="true">设置</button>
       <div class="nav-dropdown" role="menu">
         <button type="button" class="nav-sub" data-view="transports" role="menuitem">传送</button>
+        <button type="button" class="nav-sub" data-view="methods" role="menuitem">方法</button>
+        <button type="button" class="nav-sub" data-view="standards" role="menuitem">标样</button>
       </div>
     </div>
     <div class="nav-group nav-has-menu">
       <button type="button" class="nav-top" data-menu="instrument" aria-expanded="false" aria-haspopup="true">仪器</button>
       <div class="nav-dropdown" role="menu">
         <button type="button" class="nav-sub" data-view="maintenance-counters" role="menuitem">维护计数器</button>
+        <button type="button" class="nav-sub" data-view="automation" role="menuitem">自动</button>
+        <button type="button" class="nav-sub" data-view="system-parameters" role="menuitem">系统</button>
       </div>
     </div>
   </nav>
@@ -82,7 +86,7 @@
     </div>
     <section class="toolbar">
       <button type="button" id="btn-refresh-queue" class="btn">刷新列表</button>
-      <button type="button" id="btn-send-queue" class="btn primary">发送选中到仪器</button>
+      <button type="button" id="btn-send-queue" class="btn primary">发送至仪器</button>
     </section>
     <div id="queue-banner" class="banner hidden"></div>
     <div class="table-wrap">
@@ -91,10 +95,10 @@
           <tr>
             <th class="col-check"><input type="checkbox" id="queue-check-all" title="全选"/></th>
             <th>ID</th>
-            <th>时间</th>
-            <th>来源</th>
             <th>样品名称</th>
             <th>样品说明</th>
+            <th>时间</th>
+            <th>来源</th>
             <th>XML</th>
           </tr>
         </thead>
@@ -117,6 +121,7 @@
         <button type="button" id="btn-sets-prev" class="btn" disabled title="更早一批（索引更小）">上一页</button>
         <button type="button" id="btn-sets-next" class="btn" disabled title="更新一批（索引更大）">下一页</button>
         <button type="button" id="btn-sets-last" class="btn" title="末页：StartAt=-1">末页</button>
+        <button type="button" id="btn-sets-remote-import" class="btn" title="LastRemoteAddedSets → SetsEx，填入下方 Set 列表">远程录入 Sets</button>
       </div>
       <div id="sets-banner" class="banner hidden"></div>
       <div class="table-wrap">
@@ -215,6 +220,28 @@
     </div>
   </main>
 
+  <main id="view-system-parameters" class="view hidden">
+    <section class="toolbar sysp-toolbar">
+      <button type="button" id="btn-refresh-system-parameters" class="btn">立即刷新</button>
+      <span id="sysp-meta" class="meta"></span>
+    </section>
+    <div id="sysp-banner" class="banner hidden"></div>
+    <section class="sysp-page" aria-label="系统参数">
+      <div id="sysp-sections" class="sysp-sections"></div>
+    </section>
+  </main>
+
+  <main id="view-automation" class="view hidden">
+    <section class="toolbar auto-toolbar">
+      <button type="button" id="btn-refresh-automation" class="btn">立即刷新</button>
+      <span id="auto-meta" class="meta"></span>
+    </section>
+    <div id="auto-banner" class="banner hidden"></div>
+    <section class="auto-page" aria-label="自动">
+      <div id="auto-rows" class="auto-rows"></div>
+    </section>
+  </main>
+
   <main id="view-maintenance-counters" class="view hidden">
     <section class="toolbar counters-toolbar">
       <button type="button" id="btn-refresh-counters" class="btn">立即刷新</button>
@@ -236,6 +263,59 @@
         </div>
         <div id="counters-detail" class="counters-detail hidden" aria-live="polite">
           <div id="counters-detail-inner" class="counters-detail-inner"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <main id="view-standards" class="view hidden">
+    <section class="toolbar st-toolbar">
+      <button type="button" id="btn-refresh-standards" class="btn">立即刷新</button>
+      <span id="st-meta" class="meta"></span>
+    </section>
+    <div id="st-banner" class="banner hidden"></div>
+    <section class="st-page" aria-label="标样列表">
+      <div id="st-body" class="tp-body st-body">
+        <div class="tp-list-wrap st-list-wrap">
+          <div class="st-list-head" aria-hidden="true">
+            <div class="tp-col-state"></div>
+            <div class="tp-col-name tp-sortable">名称 <span class="tp-sort-mark">▲</span></div>
+            <div class="tp-col-desc">说明</div>
+            <div class="st-col-carbon">碳</div>
+            <div class="st-col-sulfur">硫</div>
+            <div class="tp-col-mod">上次修改时间</div>
+            <div class="tp-col-action"></div>
+          </div>
+          <div id="st-list" class="tp-list st-list"></div>
+        </div>
+        <div id="st-detail" class="tp-detail st-detail hidden" aria-live="polite">
+          <div id="st-detail-inner" class="tp-detail-inner st-detail-inner"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <main id="view-methods" class="view hidden">
+    <section class="toolbar md-toolbar">
+      <button type="button" id="btn-refresh-methods" class="btn">立即刷新</button>
+      <span id="md-meta" class="meta"></span>
+    </section>
+    <div id="md-banner" class="banner hidden"></div>
+    <section class="md-page" aria-label="方法列表">
+      <div id="md-body" class="tp-body md-body">
+        <div class="tp-list-wrap md-list-wrap">
+          <div class="tp-list-head md-list-head" aria-hidden="true">
+            <div class="tp-col-state"></div>
+            <div class="tp-col-name tp-sortable">名称 <span class="tp-sort-mark">▲</span></div>
+            <div class="tp-col-desc">说明</div>
+            <div class="tp-col-used">上次使用</div>
+            <div class="tp-col-mod">上次修改时间</div>
+            <div class="tp-col-action"></div>
+          </div>
+          <div id="md-list" class="tp-list md-list"></div>
+        </div>
+        <div id="md-detail" class="tp-detail md-detail hidden" aria-live="polite">
+          <div id="md-detail-inner" class="tp-detail-inner md-detail-inner"></div>
         </div>
       </div>
     </section>

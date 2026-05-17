@@ -119,6 +119,7 @@ _TCP_CMDS_REQUIRE_LOGON: frozenset[str] = frozenset(
         "set-keys-ex2",
         "set-reps",
         "sets",
+        "sets-ex",
         "solenoid",
         "solenoids",
         "standard",
@@ -178,6 +179,7 @@ _XML_ROOT_TAGS_REQUIRE_LOGON: frozenset[str] = frozenset(
         "SetKeysEx2",
         "SetReps",
         "Sets",
+        "SetsEx",
         "Solenoid",
         "Solenoids",
         "Standard",
@@ -225,6 +227,18 @@ def _build_attr_xml(tag: str, attrs: dict[str, object | None]) -> str:
             continue
         parts.append(f' {k}="{_xml_escape(s)}"')
     parts.append("/>")
+    return "".join(parts)
+
+
+def _build_sets_ex_xml(keys: list[str]) -> str:
+    """构造 ``<SetsEx>``（Remote Control 文档：按 Key 列表批量取 set 概要）。"""
+    parts = ["<SetsEx>"]
+    for key in keys:
+        k = (key or "").strip()
+        if not k:
+            continue
+        parts.append(f'<Set Key="{_xml_escape(k)}"/>')
+    parts.append("</SetsEx>")
     return "".join(parts)
 
 
@@ -465,6 +479,24 @@ async def _run_tcp(args: argparse.Namespace) -> int:
             resp = await engine.send_xml("<SetKeysEx2/>", timeout_s=args.timeout)
             if resp:
                 print(resp)
+        elif args.tcp_cmd == "sets-ex":
+            keys = list(args.key) if args.key else []
+            if not keys:
+                loop = asyncio.get_running_loop()
+                try:
+                    keys = await _session_prompt_sets_ex_keys(loop)
+                except (EOFError, KeyboardInterrupt):
+                    print("已取消。", file=sys.stderr)
+                    return 1
+                except ValueError as e:
+                    print(e, file=sys.stderr)
+                    return 1
+            if not keys:
+                print("SetsEx 至少需要一个 --key。", file=sys.stderr)
+                return 1
+            resp = await engine.send_xml(_build_sets_ex_xml(keys), timeout_s=args.timeout)
+            if resp:
+                print(resp)
         elif args.tcp_cmd == "set-reps":
             loop = asyncio.get_running_loop()
             if args.key is None and args.include_detail_data is None and args.tag is None:
@@ -633,6 +665,7 @@ SESSION_PROMPT_LOG_DATA = "__PROMPT_LOG_DATA__"
 SESSION_PROMPT_MONDO_DATA = "__PROMPT_MONDO_DATA__"
 SESSION_PROMPT_SET_REPS = "__PROMPT_SET_REPS__"
 SESSION_PROMPT_SETS = "__PROMPT_SETS__"
+SESSION_PROMPT_SETS_EX = "__PROMPT_SETS_EX__"
 SESSION_PROMPT_STATUS = "__PROMPT_STATUS__"
 
 
@@ -746,6 +779,11 @@ def _session_parse_line(line: str) -> tuple[str, str] | None:
         return "", SESSION_PROMPT_SET_REPS
     if lower == "sets":
         return "", SESSION_PROMPT_SETS
+    if lower.startswith("sets-ex"):
+        parts = line.split(None)
+        if len(parts) > 1:
+            return _build_sets_ex_xml(parts[1:]), ""
+        return "", SESSION_PROMPT_SETS_EX
     if lower == "status":
         return "", SESSION_PROMPT_STATUS
     if lower == "logon":
@@ -772,6 +810,14 @@ async def _session_read_line(loop: asyncio.AbstractEventLoop, prompt: str) -> st
     return (await loop.run_in_executor(None, lambda: input(prompt))).strip()
 
 
+def _prompt_line(prompt: str) -> str:
+    """确保交互提示以 ``: `` 结尾，避免与输入粘连（如 ``MaxEntries10``）。"""
+    p = prompt.rstrip()
+    if p.endswith(":"):
+        return p + " "
+    return f"{p}: "
+
+
 async def _prompt_int(
     loop: asyncio.AbstractEventLoop,
     prompt: str,
@@ -779,8 +825,9 @@ async def _prompt_int(
     min_value: int | None = None,
 ) -> int:
     """带重试的整数输入。"""
+    line_prompt = _prompt_line(prompt)
     while True:
-        text = await _session_read_line(loop, prompt)
+        text = await _session_read_line(loop, line_prompt)
         try:
             value = int(text)
         except ValueError:
@@ -859,6 +906,14 @@ async def _session_prompt_sets(loop: asyncio.AbstractEventLoop) -> tuple[str, in
     except ValueError:
         raise ValueError("StartAt 必须是整数。")
     return filter_key, number, start_at
+
+
+async def _session_prompt_sets_ex_keys(loop: asyncio.AbstractEventLoop) -> list[str]:
+    text = await _session_read_line(loop, "Set Keys（空格分隔，至少一个）: ")
+    keys = [k for k in text.split() if k.strip()]
+    if not keys:
+        raise ValueError("至少需要一个 Set Key。")
+    return keys
 
 
 async def _session_prompt_status(loop: asyncio.AbstractEventLoop) -> tuple[bool, bool, bool]:
@@ -1040,7 +1095,7 @@ async def _run_tcp_session(args: argparse.Namespace) -> int:
         "exception-directory, field KEY, fields, filters, gas-state, log-data, log-directory, message-history, "
         "method KEY, methods, mondo-data, mondo-directory, next-to-analyze, prerequisite KEY, prerequisites, "
         "qc-status METHODKEY, rep-detail SETKEY TAG, rep-plot SETKEY TAG, report KEY, reports, sequence NAME, sequences, "
-        "set KEY, set-keys-ex2, set-reps, sets, solenoid KEY, solenoids, standard KEY, standards, status, "
+        "set KEY, set-keys-ex2, set-reps, sets, sets-ex KEY [KEY ...], solenoid KEY, solenoids, standard KEY, standards, status, "
         "string-value KEY, string-values, switch KEY, switches, system-parameters, transport KEY, transports, valve-states, "
         "logon [USER PASSWORD], logoff, add-samples, last-remote-added-sets；或直接输入 XML。"
         " logon/add-samples 可只输入命令名，将逐行提示参数。",
@@ -1125,6 +1180,16 @@ async def _run_tcp_session(args: argparse.Namespace) -> int:
                         _build_attr_xml("Sets", {"FilterKey": filter_key, "Number": number, "StartAt": start_at}),
                         "",
                     )
+                except (EOFError, KeyboardInterrupt):
+                    print("已取消。", file=sys.stderr)
+                    continue
+                except ValueError as e:
+                    print(e, file=sys.stderr)
+                    continue
+            elif cookie == SESSION_PROMPT_SETS_EX:
+                try:
+                    keys = await _session_prompt_sets_ex_keys(loop)
+                    xml, cookie = _build_sets_ex_xml(keys), ""
                 except (EOFError, KeyboardInterrupt):
                     print("已取消。", file=sys.stderr)
                     continue
@@ -1347,7 +1412,23 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     p_set = tcp_sub.add_parser("set", help="Remote Query：<Set Key=\"...\"/>", parents=[tcp_common, tcp_requires_logon])
     p_set.add_argument("--key", required=True)
-    tcp_sub.add_parser("set-keys-ex2", help="Remote Query：<SetKeysEx2/>", parents=[tcp_common, tcp_requires_logon])
+    tcp_sub.add_parser(
+        "set-keys-ex2",
+        help="Remote Query：<SetKeysEx2/>（返回各 set 的 Key 与 AnalysisDate）",
+        parents=[tcp_common, tcp_requires_logon],
+    )
+
+    p_sets_ex = tcp_sub.add_parser(
+        "sets-ex",
+        help="Remote Query：<SetsEx>…</SetsEx>（按 Key 列表批量取 set 概要，优于多次 Set）",
+        parents=[tcp_common, tcp_requires_logon],
+    )
+    p_sets_ex.add_argument(
+        "--key",
+        nargs="+",
+        required=False,
+        help="一个或多个 Set Key（可省略则逐行提示；session 中可写 sets-ex KEY1 KEY2）",
+    )
 
     p_set_reps = tcp_sub.add_parser("set-reps", help="Remote Query：<SetReps .../>（可只输入命令名逐行提示）", parents=[tcp_common, tcp_requires_logon])
     p_set_reps.add_argument("--key", required=False, default=None, help="Set 的 Key（省略可逐行提示）")
