@@ -33,6 +33,15 @@ def _normalize_encoding(value: str) -> str:
     raise argparse.ArgumentTypeError(f"不支持的 encoding: {value}（可选: utf16/utf8/ascii）")
 
 
+async def _async_close_stream_writer(writer: Optional[asyncio.StreamWriter]) -> None:
+    """``close()`` 后必须 ``await wait_closed()``，避免 Windows Proactor 在事件循环关闭后析构报警。"""
+    if writer is None or writer.is_closing():
+        return
+    writer.close()
+    with contextlib.suppress(Exception):
+        await writer.wait_closed()
+
+
 def _frame(payload_text: str, encoding: str) -> bytes:
     payload = payload_text.encode(encoding, errors="strict")
     return struct.pack("<I", len(payload)) + payload
@@ -2311,6 +2320,7 @@ class GatewayHub:
             Path(config_file_path).expanduser().resolve() if config_file_path else None
         )
         self._last_upstream_heartbeat_reply_at = 0.0
+        self._shutting_down = False
 
         self._rcs_lock = asyncio.Lock()
         self._remote_control_display: str = "—"
@@ -2344,6 +2354,54 @@ class GatewayHub:
         self._add_samples_max = n
         self._pending_add_samples = deque(items, maxlen=n)
 
+    async def _send_upstream_logoff(self) -> None:
+        """向上游 Cornerstone 发送 ``<Logoff/>``（程序退出或主动释放会话）。"""
+        if not self._upstream_session_authenticated:
+            return
+        uw = self._upstream_writer
+        if uw is None or uw.is_closing():
+            self._upstream_session_authenticated = False
+            return
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[str] = loop.create_future()
+        logoff_cookie = secrets.token_hex(16)
+        payload = self._inject_cookie_culture("<Logoff/>", logoff_cookie)
+        await self._register(logoff_cookie, _FutureWaiter(fut))
+        try:
+            async with self._write_upstream_lock:
+                uw = self._upstream_writer
+                if uw is None or uw.is_closing():
+                    return
+                print(f"[gateway] upstream Logoff (cookie={logoff_cookie!r})")
+                uw.write(_frame(payload, self.encoding))
+                await uw.drain()
+            await asyncio.wait_for(fut, timeout=15.0)
+        except asyncio.TimeoutError:
+            print("[gateway] upstream Logoff wait timeout (proceeding to disconnect)")
+        except (asyncio.CancelledError, OSError, RuntimeError):
+            pass
+        except Exception as e:
+            print(f"[gateway] upstream Logoff error: {e}")
+        finally:
+            async with self._cookie_lock:
+                self._cookie_to_target.pop(logoff_cookie, None)
+            self._upstream_session_authenticated = False
+            self._logon_seen_upstream_success = False
+
+    async def shutdown_gracefully(self) -> None:
+        """主动退出：停止上游心跳/重连，Logoff 仪器会话，断开上游 TCP。"""
+        self._shutting_down = True
+        self._upstream_auto_reconnect = False
+        await self._stop_upstream_heartbeat()
+        rct = self._upstream_reconnect_task
+        if rct is not None and not rct.done():
+            rct.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await rct
+        self._upstream_reconnect_task = None
+        await self._send_upstream_logoff()
+        await self._force_close_upstream()
+
     async def _force_close_upstream(self) -> None:
         await self._stop_upstream_heartbeat()
         rct = self._upstream_reconnect_task
@@ -2354,17 +2412,15 @@ class GatewayHub:
         self._upstream_reconnect_task = None
         t = self._upstream_reader_task
         self._upstream_reader_task = None
-        async with self._upstream_connect_lock:
-            uw = self._upstream_writer
-            if uw is not None and not uw.is_closing():
-                uw.close()
         if t is not None and not t.done():
             t.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await t
         async with self._upstream_connect_lock:
+            uw = self._upstream_writer
             self._upstream_reader = None
             self._upstream_writer = None
+        await _async_close_stream_writer(uw)
         self._logon_seen_upstream_success = False
         self._upstream_session_authenticated = False
         async with self._cookie_lock:
@@ -2502,7 +2558,7 @@ class GatewayHub:
                 continue
             try:
                 payload_bytes = await self._upstream_reader.readexactly(length)
-            except asyncio.IncompleteReadError:
+            except (asyncio.IncompleteReadError, asyncio.CancelledError):
                 break
             text = payload_bytes.decode(enc, errors="replace")
             cookie = _parse_cookie_from_payload(text)
@@ -2539,10 +2595,14 @@ class GatewayHub:
                 print(f"[gateway] failed to deliver to client: {e}")
 
         print("[gateway] upstream read loop ended")
+        if self._shutting_down:
+            return
         await self._stop_upstream_heartbeat()
         async with self._upstream_connect_lock:
+            uw = self._upstream_writer
             self._upstream_reader = None
             self._upstream_writer = None
+        await _async_close_stream_writer(uw)
         self._logon_seen_upstream_success = False
         self._upstream_session_authenticated = False
         if self._upstream_auto_reconnect:
@@ -3525,9 +3585,7 @@ async def _handle_client(
             async_task.cancel()
             with contextlib.suppress(Exception):
                 await async_task
-        writer.close()
-        with contextlib.suppress(Exception):
-            await writer.wait_closed()
+        await _async_close_stream_writer(writer)
         print(f"[gateway] client disconnected: {peer_s}")
 
 
@@ -4205,9 +4263,21 @@ async def _handle_http(
 
         await _http_send(writer, 404, b"Not Found", "text/plain; charset=utf-8")
     finally:
-        writer.close()
-        with contextlib.suppress(Exception):
-            await writer.wait_closed()
+        await _async_close_stream_writer(writer)
+
+
+async def _async_drain_remaining_tasks() -> None:
+    """退出前取消并收拢剩余 asyncio 任务，减轻 Windows Proactor 在 loop 关闭后的析构告警。"""
+    current = asyncio.current_task()
+    pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
+    if not pending:
+        await asyncio.sleep(0)
+        return
+    for t in pending:
+        t.cancel()
+    with contextlib.suppress(Exception):
+        await asyncio.gather(*pending, return_exceptions=True)
+    await asyncio.sleep(0)
 
 
 async def _run_gateway(
@@ -4297,7 +4367,19 @@ async def _run_gateway(
 
     async with srv_client, srv_web:
         await _preconnect_upstream_long_instrument()
-        await asyncio.gather(srv_client.serve_forever(), srv_web.serve_forever())
+        try:
+            await asyncio.gather(srv_client.serve_forever(), srv_web.serve_forever())
+        except asyncio.CancelledError:
+            pass
+        finally:
+            print("[gateway] shutting down: Logoff upstream and closing connections...")
+            srv_client.close()
+            srv_web.close()
+            await hub.shutdown_gracefully()
+            with contextlib.suppress(Exception):
+                await srv_client.wait_closed()
+                await srv_web.wait_closed()
+            await _async_drain_remaining_tasks()
 
 
 def _load_mock_config_defaults(config_path: Path) -> Dict[str, Any]:

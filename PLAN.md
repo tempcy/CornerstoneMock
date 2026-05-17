@@ -63,7 +63,7 @@ flowchart LR
 ### 建议技术栈
 
 - **Windows 优先**：WPF / WinUI 3 / Tauri（Rust + WebView）— 与现有 C# 客户端技能栈接近；跨平台可选 Electron / Tauri。
-- 托盘图标 + 可拖拽悬浮窗；列顺序与 Web 对齐：**ID → 样品名称 → 样品说明 → 时间 → 来源**。
+- 托盘图标 + 可拖拽悬浮窗；列顺序与 Web 对齐：**样品名称 → 样品说明**。
 
 ### 阶段划分
 
