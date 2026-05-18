@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import sys
 from typing import Optional
 from xml.sax.saxutils import escape as _xml_escape
@@ -29,6 +30,48 @@ def _bool_from_arg(value: str) -> bool:
     if v in ("0", "false", "f", "no", "n", "off"):
         return False
     raise argparse.ArgumentTypeError(f"不支持的布尔值: {value}（可选: true/false）")
+
+
+def _sanitize_xml_arg(xml: str) -> str:
+    """修正 PowerShell/Word 弯引号、BOM、零宽字符等导致的非 well-formed XML。"""
+    s = (xml or "").strip().lstrip("\ufeff")
+    for ch in "\u200b\u200c\u200d\ufeff":
+        s = s.replace(ch, "")
+    for old, new in (
+        ("\u201c", '"'),
+        ("\u201d", '"'),
+        ("\u2018", "'"),
+        ("\u2019", "'"),
+        ("\uff02", '"'),
+        ("\u00ab", '"'),
+        ("\u00bb", '"'),
+    ):
+        s = s.replace(old, new)
+    return s
+
+
+def _normalize_client_xml(xml: str) -> str:
+    """规范化命令行传入的 XML（去 BOM、校验可解析），与交互模式输出一致。"""
+    s = _sanitize_xml_arg(xml)
+    if not s:
+        raise ValueError("XML 不能为空。")
+    if not s.startswith("<"):
+        raise ValueError("XML 须以 < 开头。")
+    if re.search(r"\bId=[^\"'\s/>]+", s):
+        raise ValueError(
+            "XML 属性缺少引号（例如 Id=SampleType）。"
+            "在 PowerShell 中调用 cornerstone-cli 时，双引号 \" 会被剥掉；"
+            "请改用 --xml-file add.xml，或属性使用单引号：Id='SampleType'。"
+        )
+    try:
+        root = ET.fromstring(s)
+    except ET.ParseError as e:
+        raise ValueError(
+            f"XML 解析失败: {e}。"
+            " PowerShell 请用 --xml-file，或属性单引号 Id='...'；"
+            "勿依赖 here-string + --xml $xml（双引号仍会被剥掉）。"
+        ) from e
+    return ET.tostring(root, encoding="unicode")
 
 
 def _logon_xml(user: str, password: str) -> str:
@@ -637,6 +680,15 @@ async def _run_tcp(args: argparse.Namespace) -> int:
                 print(resp)
         elif args.tcp_cmd == "add-samples":
             xml = getattr(args, "xml", "") or ""
+            xml_file = (getattr(args, "xml_file", None) or "").strip()
+            if xml_file:
+                try:
+                    from pathlib import Path
+
+                    xml = Path(xml_file).read_text(encoding="utf-8-sig")
+                except OSError as e:
+                    print(f"无法读取 --xml-file: {e}", file=sys.stderr)
+                    return 1
             if not xml:
                 loop = asyncio.get_running_loop()
                 try:
@@ -647,7 +699,22 @@ async def _run_tcp(args: argparse.Namespace) -> int:
                 except ValueError as e:
                     print(e, file=sys.stderr)
                     return 1
-            resp = await engine.send_xml(xml, timeout_s=args.timeout)
+            else:
+                try:
+                    xml = _normalize_client_xml(xml)
+                except ValueError as e:
+                    print(e, file=sys.stderr)
+                    return 1
+            try:
+                resp = await engine.send_xml(xml, timeout_s=args.timeout)
+            except asyncio.TimeoutError:
+                print(
+                    f"等待应答超时（{args.timeout}s）。"
+                    " 若网关配置了 privileged_add_samples_host 且与本机 IP 一致，AddSamples 会直通上位机，"
+                    "上位机无应答时会一直等到超时；可改用省略 --xml 的交互模式，或检查网关日志。",
+                    file=sys.stderr,
+                )
+                return 1
             if resp:
                 print(resp)
         else:
@@ -1486,6 +1553,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         parents=[tcp_common, tcp_requires_logon],
     )
     p_add_samples.add_argument("--xml", required=False, help='完整 <AddSamples>...</AddSamples> XML，若省略则通过问答逐步生成')
+    p_add_samples.add_argument(
+        "--xml-file",
+        required=False,
+        help="从 UTF-8 文件读取 AddSamples XML（推荐 PowerShell 使用，避免引号被改写）",
+    )
 
     p_send = tcp_sub.add_parser("send", help="发送自定义 XML（自动注入 Cookie/Culture）", parents=[tcp_common])
     p_send.add_argument("--xml", required=True)

@@ -53,6 +53,8 @@ async def run_bridge(
     web_password: str,
     privileged_add_samples_host: str,
     config_file_path: Optional[Path] = None,
+    persist_add_samples_queue: bool = True,
+    add_samples_queue_persist_file: str = "",
 ) -> None:
     hub = GatewayHub(
         upstream_host=upstream_host,
@@ -71,6 +73,8 @@ async def run_bridge(
         web_listen_host=web_host,
         web_listen_port=web_port,
         config_file_path=config_file_path,
+        persist_add_samples_queue=persist_add_samples_queue,
+        add_samples_queue_persist_file=add_samples_queue_persist_file,
     )
 
     async def client_cb(r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
@@ -108,6 +112,8 @@ async def run_bridge(
             f"[bridge] AddSamples 直通上位机 IP: {hub._privileged_add_samples_host!r} "
             f"(其余 TCP 客户端仍截留)"
         )
+    if hub._queue_persist_path is not None:
+        print(f"[bridge] AddSamples 队列持久化: {hub._queue_persist_path}")
 
     async def _preconnect_upstream_long_instrument() -> None:
         if hub._instrument_short_connection:
@@ -194,6 +200,17 @@ def main() -> int:
     parser.add_argument("--instrument-short-connection", action="store_true")
     parser.add_argument("--upstream-heartbeat-interval", type=float, default=60.0, metavar="SEC")
     parser.add_argument("--no-upstream-auto-reconnect", action="store_true")
+    parser.add_argument(
+        "--no-persist-add-samples-queue",
+        action="store_true",
+        help="不将截留的 AddSamples 队列写入磁盘（默认开启持久化）",
+    )
+    parser.add_argument(
+        "--add-samples-queue-persist-file",
+        default="",
+        metavar="PATH",
+        help="队列缓存 JSON 路径（默认与配置文件同目录）",
+    )
 
     cfg_resolved: Optional[Path] = None
     if pre_args.config:
@@ -252,6 +269,14 @@ def main() -> int:
                 web_password=args.web_password,
                 privileged_add_samples_host=args.privileged_add_samples_host,
                 config_file_path=cfg_resolved,
+                persist_add_samples_queue=(
+                    False
+                    if getattr(args, "no_persist_add_samples_queue", False)
+                    else bool(getattr(args, "persist_add_samples_queue", True))
+                ),
+                add_samples_queue_persist_file=str(
+                    getattr(args, "add_samples_queue_persist_file", "") or ""
+                ),
             )
         )
     except KeyboardInterrupt:

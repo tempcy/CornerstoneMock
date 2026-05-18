@@ -22,6 +22,7 @@ from cornerstone_cli.communications.tcp_engine import HEARTBEAT_XML
 
 from .hub import GatewayHub, PendingAddSamples
 from .hub_helpers import _peer_host_from_peername, _peer_host_matches_privileged
+from .parsers import _xml_local_tag
 from .protocol import (
     _add_samples_name_description,
     _async_close_stream_writer,
@@ -68,7 +69,7 @@ async def _handle_client(
             text = payload_bytes.decode(enc, errors="replace")
             print(f"[gateway] client IN: {text[:400]}{'...' if len(text) > 400 else ''}")
 
-            tag = _root_tag(text)
+            tag = _xml_local_tag(_root_tag(text))
             cookie = _parse_cookie_from_payload(text)
 
             if tag == "Logon":
@@ -94,7 +95,7 @@ async def _handle_client(
                     await hub.forward_client_frame(text, writer)
                     continue
                 s_name, s_desc = _add_samples_name_description(text)
-                hub._pending_add_samples.append(
+                hub.enqueue_add_samples(
                     PendingAddSamples(
                         entry_id=secrets.token_hex(8),
                         received_at=time.time(),

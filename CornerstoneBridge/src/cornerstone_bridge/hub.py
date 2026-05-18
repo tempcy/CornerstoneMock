@@ -9,6 +9,7 @@ import math
 import re
 import secrets
 import struct
+import threading
 import time
 import urllib.parse
 from collections import deque
@@ -23,6 +24,11 @@ from cornerstone_cli.communications.tcp_engine import HEARTBEAT_XML
 from .hub_types import PendingAddSamples, _FutureWaiter
 from .protocol import *
 from .parsers import *
+from .queue_persistence import (
+    load_add_samples_queue,
+    resolve_queue_persist_path,
+    save_add_samples_queue,
+)
 
 from .hub_helpers import *
 
@@ -58,6 +64,8 @@ class GatewayHub:
         web_listen_host: str = "",
         web_listen_port: int = 0,
         config_file_path: Optional[Union[Path, str]] = None,
+        persist_add_samples_queue: bool = True,
+        add_samples_queue_persist_file: str = "",
     ) -> None:
         self._upstream_host = upstream_host
         self._upstream_port = upstream_port
@@ -83,7 +91,27 @@ class GatewayHub:
         self._logon_seen_upstream_success = False
         self._upstream_session_authenticated = False
 
-        self._pending_add_samples: deque[PendingAddSamples] = deque(maxlen=self._add_samples_max)
+        self._config_file_path: Optional[Path] = (
+            Path(config_file_path).expanduser().resolve() if config_file_path else None
+        )
+
+        self._queue_persist_lock = threading.Lock()
+        self._queue_persist_path = resolve_queue_persist_path(
+            config_file_path=self._config_file_path,
+            explicit_path=add_samples_queue_persist_file,
+            persist_enabled=bool(persist_add_samples_queue),
+        )
+        restored = load_add_samples_queue(self._queue_persist_path)
+        if len(restored) > self._add_samples_max:
+            restored = restored[-self._add_samples_max :]
+        self._pending_add_samples: deque[PendingAddSamples] = deque(
+            restored, maxlen=self._add_samples_max
+        )
+        if restored and self._queue_persist_path is not None:
+            print(
+                f"[bridge] 已从磁盘恢复 {len(restored)} 条 AddSamples 队列: {self._queue_persist_path}"
+            )
+            self._persist_add_samples_queue()
 
         self._upstream_reader_task: Optional[asyncio.Task[None]] = None
         self._upstream_heartbeat_task: Optional[asyncio.Task[None]] = None
@@ -94,9 +122,6 @@ class GatewayHub:
         self._tcp_listen_port = int(tcp_listen_port)
         self._web_listen_host = (web_listen_host or "").strip()
         self._web_listen_port = int(web_listen_port)
-        self._config_file_path: Optional[Path] = (
-            Path(config_file_path).expanduser().resolve() if config_file_path else None
-        )
         self._last_upstream_heartbeat_reply_at = 0.0
         self._shutting_down = False
 
@@ -106,7 +131,20 @@ class GatewayHub:
         self._remote_control_last_err: str = ""
 
     def pending_snapshot(self) -> List[PendingAddSamples]:
-        return list(self._pending_add_samples)
+        return sorted(self._pending_add_samples, key=lambda p: p.received_at, reverse=True)
+
+    def _persist_add_samples_queue(self) -> None:
+        if self._queue_persist_path is None:
+            return
+        with self._queue_persist_lock:
+            save_add_samples_queue(
+                self._queue_persist_path, list(self._pending_add_samples)
+            )
+
+    def enqueue_add_samples(self, item: PendingAddSamples) -> None:
+        """截留的 AddSamples 入队并写入磁盘（Bridge 重启后可恢复）。"""
+        self._pending_add_samples.append(item)
+        self._persist_add_samples_queue()
 
     def get_pending_by_ids(self, ids: Set[str]) -> List[PendingAddSamples]:
         """按 ID 返回队列中的条目（不从队列移除）。"""
@@ -122,6 +160,7 @@ class GatewayHub:
                 kept.append(p)
         self._pending_add_samples.clear()
         self._pending_add_samples.extend(kept)
+        self._persist_add_samples_queue()
         return selected
 
     def set_add_samples_queue_max(self, n: int) -> None:
@@ -131,6 +170,7 @@ class GatewayHub:
             items.pop(0)
         self._add_samples_max = n
         self._pending_add_samples = deque(items, maxlen=n)
+        self._persist_add_samples_queue()
 
     async def _send_upstream_logoff(self) -> None:
         """向上游 Cornerstone 发送 ``<Logoff/>``（程序退出或主动释放会话）。"""
@@ -168,6 +208,7 @@ class GatewayHub:
 
     async def shutdown_gracefully(self) -> None:
         """主动退出：停止上游心跳/重连，Logoff 仪器会话，断开上游 TCP。"""
+        self._persist_add_samples_queue()
         self._shutting_down = True
         self._upstream_auto_reconnect = False
         await self._stop_upstream_heartbeat()

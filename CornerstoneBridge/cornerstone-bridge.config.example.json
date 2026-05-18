@@ -9,6 +9,7 @@
   "upstream_auto_reconnect": true,
   "encoding": "utf16",
   "add_samples_queue_size": 8,
+  "persist_add_samples_queue": true,
   "privileged_add_samples_host": "127.0.0.1",
   "no_synthetic_logon": false,
   "async_message_interval": 0,

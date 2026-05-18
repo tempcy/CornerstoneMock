@@ -45,8 +45,12 @@ def _frame(payload_text: str, encoding: str) -> bytes:
     return struct.pack("<I", len(payload)) + payload
 
 
+def _strip_xml_prefix(text: str) -> str:
+    return (text or "").lstrip("\ufeff").lstrip()
+
+
 def _parse_cookie_from_payload(text: str) -> str:
-    stripped = (text or "").lstrip()
+    stripped = _strip_xml_prefix(text)
     if not stripped.startswith("<"):
         return ""
     with contextlib.suppress(ET.ParseError):
@@ -56,7 +60,7 @@ def _parse_cookie_from_payload(text: str) -> str:
 
 
 def _root_tag(text: str) -> str:
-    stripped = (text or "").lstrip()
+    stripped = _strip_xml_prefix(text)
     if not stripped.startswith("<"):
         return ""
     with contextlib.suppress(ET.ParseError):

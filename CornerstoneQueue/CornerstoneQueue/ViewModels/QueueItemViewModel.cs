@@ -35,7 +35,7 @@ public sealed class QueueItemViewModel : IEquatable<QueueItemViewModel>
         var parts = items
             .OrderBy(i => i.Id, StringComparer.Ordinal)
             .Select(i =>
-                $"{i.Id}\t{i.SampleName}\t{i.SampleDescription}\t{i.ReceivedAtText}\t{i.Peer}");
+                $"{i.Id}\t{i.SampleName}\t{i.SampleDescription}\t{i.ReceivedAt}\t{i.ReceivedAtText}\t{i.Peer}");
         return string.Join("\n", parts);
     }
 

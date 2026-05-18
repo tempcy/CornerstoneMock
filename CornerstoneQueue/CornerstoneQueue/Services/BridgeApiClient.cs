@@ -13,11 +13,11 @@ public sealed class BridgeApiClient : IDisposable
     };
 
     private readonly HttpClient _http;
-    private readonly string _baseUrl;
+    private string _baseUrl;
 
     public BridgeApiClient(string baseUrl, TimeSpan? timeout = null)
     {
-        _baseUrl = baseUrl.TrimEnd('/');
+        _baseUrl = NormalizeBaseUrl(baseUrl);
         _http = new HttpClient
         {
             Timeout = timeout ?? TimeSpan.FromSeconds(120),
@@ -25,6 +25,14 @@ public sealed class BridgeApiClient : IDisposable
     }
 
     public string BaseUrl => _baseUrl;
+
+    public void SetBaseUrl(string baseUrl) => _baseUrl = NormalizeBaseUrl(baseUrl);
+
+    private static string NormalizeBaseUrl(string baseUrl)
+    {
+        var u = (baseUrl ?? "").Trim().TrimEnd('/');
+        return string.IsNullOrWhiteSpace(u) ? AppSettings.DefaultBridgeBaseUrl : u;
+    }
 
     public async Task<QueueListResponse?> GetQueueAsync(CancellationToken cancellationToken = default)
     {

@@ -5,8 +5,8 @@
 本仓库为 **Python CLI（`CornerstoneCLI`）**、**Bridge（`CornerstoneBridge`）** 与 **Web UI（`CornerstoneWeb` 目录，包名 `cornerstone-web`）**。原始 C# WPF 客户端请放在本地 `**Cornerstone_RemoteControlClient/`** 目录自行对照（该目录已列入 `.gitignore`，**不会**推送到 Git）。
 
 - `**CornerstoneCLI/`**：`cornerstone-cli`（协议与 TCP 通信内核）。
-- `**CornerstoneBridge/`**：`cornerstone-bridge`（TCP 网关、XML 解析、`/api/*` REST）。
-- `**CornerstoneWeb/**`：`cornerstone-web`（静态页 + 将 `/api/*` 代理到 Bridge）；`cornerstone-web-dev` 一键起 Bridge + Web。
+- `**CornerstoneBridge/`**：`cornerstone-bridge`（TCP 网关、XML 解析、`/api/`* REST）。
+- `**CornerstoneWeb/`**：`cornerstone-web`（静态页 + 将 `/api/`* 代理到 Bridge）；`cornerstone-web-dev` 一键起 Bridge + Web。
 
 下文所述 **Python 版通信内核** 与配套工具位于上述三个子目录中，用于替代/复用原客户端中的核心通信逻辑：
 
@@ -18,16 +18,17 @@
 ## CLI / Bridge / Web 概览
 
 
-| 工具 | 入口命令 | 作用 |
-| --- | --- | --- |
-| **CLI** | `cornerstone-cli` | 直连仪器 TCP 或云端 HTTP；脚本与协议调试。 |
-| **Bridge** | `cornerstone-bridge` | TCP 网关 + `/api/*` REST（队列、instrument_rq、解析 JSON）。 |
-| **Web** | `cornerstone-web` | 静态 SPA；`/api/*` 反向代理到 Bridge。 |
-| **本地开发** | `cornerstone-web-dev` / `dev.ps1` | 同进程启动 Bridge + Web（读 Bridge + Web 两份配置，或兼容旧版单文件）。 |
+| 工具         | 入口命令                              | 作用                                                |
+| ---------- | --------------------------------- | ------------------------------------------------- |
+| **CLI**    | `cornerstone-cli`                 | 直连仪器 TCP 或云端 HTTP；脚本与协议调试。                        |
+| **Bridge** | `cornerstone-bridge`              | TCP 网关 + `/api/`* REST（队列、instrument_rq、解析 JSON）。 |
+| **Web**    | `cornerstone-web`                 | 静态 SPA；`/api/`* 反向代理到 Bridge。                     |
+| **本地开发**   | `cornerstone-web-dev` / `dev.ps1` | 同进程启动 Bridge + Web（读 Bridge + Web 两份配置，或兼容旧版单文件）。 |
+
 
 `cornerstone-mock` / `cornerstone-mock-dev` 仍可用，内部转调 `cornerstone-web-dev`（**已弃用**，仅兼容旧脚本）。
 
-**典型组合**：`cornerstone-web-dev` 或分开起 Bridge + Web；TCP 客户端与 `cornerstone-cli tcp …` 的 `--host/--port` 指向配置中的 **`host`/`port`**（网关端口，非 `web_port`）。
+**典型组合**：`cornerstone-web-dev` 或分开起 Bridge + Web；TCP 客户端与 `cornerstone-cli tcp …` 的 `--host/--port` 指向配置中的 `**host`/`port`**（网关端口，非 `web_port`）。
 
 ### 运行时架构（当前）
 
@@ -42,10 +43,12 @@
 
 配置文件拆为两份（复制对应 `.example.json` 为 `.config.json` 后修改）：
 
-| 文件 | 职责 |
-| --- | --- |
+
+| 文件                                                         | 职责                                                                  |
+| ---------------------------------------------------------- | ------------------------------------------------------------------- |
 | `CornerstoneBridge/cornerstone-bridge.config.example.json` | 网关 TCP、`upstream_*`、REST `bridge_api_*`、`web_user`/`web_password` 等 |
-| `CornerstoneWeb/cornerstone-web.config.example.json` | 浏览器 `web_*`、Web 代理目标的 `bridge_api_*` |
+| `CornerstoneWeb/cornerstone-web.config.example.json`       | 浏览器 `web_*`、Web 代理目标的 `bridge_api_*`                                |
+
 
 ## 安装
 
@@ -61,7 +64,7 @@ python -m pip install -e ./CornerstoneWeb
 
 ## 启用 Web
 
-Web 界面由 **Bridge**（网关 + `/api/*`）与 **Web**（静态页 + API 代理）两个进程组成。日常开发推荐一键启动；生产或分网部署时可分开起。
+Web 界面由 **Bridge**（网关 + `/api/`*）与 **Web**（静态页 + API 代理）两个进程组成。日常开发推荐一键启动；生产或分网部署时可分开起。
 
 ### 1. 准备配置
 
@@ -76,25 +79,29 @@ copy cornerstone-web.config.example.json cornerstone-web.config.json
 
 **Bridge**（`cornerstone-bridge.config.json`）：
 
-| 配置项 | 含义 |
-| --- | --- |
-| `upstream_host` / `upstream_port` | 真实 Cornerstone 仪器 TCP 地址 |
-| `host` / `port` | 网关对 **TCP 客户端**（含 C# 远程客户端）的监听 |
-| `bridge_api_host` / `bridge_api_port` | Bridge 对内 REST（默认 `8081`） |
-| `web_user` / `web_password` | 网页「发送到仪器」、环境/分析页拉数用的仪器远程账号 |
+
+| 配置项                                   | 含义                             |
+| ------------------------------------- | ------------------------------ |
+| `upstream_host` / `upstream_port`     | 真实 Cornerstone 仪器 TCP 地址       |
+| `host` / `port`                       | 网关对 **TCP 客户端**（含 C# 远程客户端）的监听 |
+| `bridge_api_host` / `bridge_api_port` | Bridge 对内 REST（默认 `8081`）      |
+| `web_user` / `web_password`           | 网页「发送到仪器」、环境/分析页拉数用的仪器远程账号     |
+
 
 **Web**（`cornerstone-web.config.json`）：
 
-| 配置项 | 含义 |
-| --- | --- |
-| `web_host` / `web_port` | 浏览器访问地址（默认 `http://127.0.0.1:8080/`） |
-| `bridge_api_host` / `bridge_api_port` | Web 将 `/api/*` 代理到的 Bridge REST |
+
+| 配置项                                   | 含义                                   |
+| ------------------------------------- | ------------------------------------ |
+| `web_host` / `web_port`               | 浏览器访问地址（默认 `http://127.0.0.1:8080/`） |
+| `bridge_api_host` / `bridge_api_port` | Web 将 `/api/`* 代理到的 Bridge REST      |
+
 
 环境变量：`CORNERSTONE_BRIDGE_CONFIG`、`CORNERSTONE_WEB_CONFIG`（或兼容旧名 `CORNERSTONE_MOCK_CONFIG`）。也可将 `.config.json` 放在**当前工作目录**。`cornerstone-web-dev` 会合并两份配置；若仍只有旧版单文件 `cornerstone-web.config.json`，会自动兼作 Bridge 配置并提示拆分。
 
 ### 2. 启动（推荐：开发一键）
 
-在仓库根目录或 **`CornerstoneWeb`** 目录（已放置两份 `.config.json` 或旧版单文件）下执行：
+在仓库根目录或 `**CornerstoneWeb`** 目录（已放置两份 `.config.json` 或旧版单文件）下执行：
 
 ```bash
 python -m cornerstone_web.dev_web
@@ -125,9 +132,9 @@ cornerstone-web-dev
 
 启动成功后：
 
-- 浏览器打开 **`http://127.0.0.1:8080/`**（与配置中 `web_host` / `web_port` 一致）
-- TCP 客户端连 **`host:port`**（示例为 `54321`）
-- Bridge REST 在 **`http://127.0.0.1:8081/`**（供悬浮窗、脚本等直连；Web 会把 `/api/*` 代理到此端口）
+- 浏览器打开 `**http://127.0.0.1:8080/**`（与配置中 `web_host` / `web_port` 一致）
+- TCP 客户端连 `**host:port**`（示例为 `54321`）
+- Bridge REST 在 `**http://127.0.0.1:8081/**`（供悬浮窗、脚本等直连；Web 会把 `/api/*` 代理到此端口）
 
 ### 3. 启动（分开：Bridge + Web）
 
@@ -149,20 +156,22 @@ cornerstone-web-dev --web-port 9000
 
 ### 4. 使用前检查
 
-1. **`web_user` / `web_password` 已填写**：否则队列「发送至仪器」、环境/分析等页会失败。
+1. `**web_user` / `web_password` 已填写**：否则队列「发送至仪器」、环境/分析等页会失败。
 2. **端口未被占用**：`web_port`（8080）、`bridge_api_port`（8081）、`port`（TCP 网关）互不冲突。
 3. **能连上上游**：Bridge 控制台应出现 upstream 连接/Logon 相关日志；网页顶栏可查看连接与 `RemoteControlState`。
 4. **仅内网使用**：当前 TCP/HTTP 未做鉴权，勿暴露到公网。
 
 ### 5. 常见问题
 
-| 现象 | 处理 |
-| --- | --- |
+
+| 现象                         | 处理                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------ |
 | `cornerstone-web-dev` 无法识别 | 先 `pip install -e ./CornerstoneWeb`，或改用 `python -m cornerstone_web.dev_web`；见上文 PATH |
-| 页面能开但 `/api/*` 502 | 确认 Bridge 已启动且 `bridge_api_port` 与配置一致 |
-| 发送样品失败 | 检查 `web_user` / `web_password` 是否与仪器远程账号一致 |
-| 改 `web_port` / `port` 不生效 | 修改监听端口后需**重启**对应进程（`cornerstone-web-dev` 或 Bridge/Web） |
-| 仍使用旧命令 | `cornerstone-mock-dev` 会转调 `cornerstone-web-dev`，建议改用新入口 |
+| 页面能开但 `/api/`* 502         | 确认 Bridge 已启动且 `bridge_api_port` 与配置一致                                               |
+| 发送样品失败                     | 检查 `web_user` / `web_password` 是否与仪器远程账号一致                                           |
+| 改 `web_port` / `port` 不生效  | 修改监听端口后需**重启**对应进程（`cornerstone-web-dev` 或 Bridge/Web）                               |
+| 仍使用旧命令                     | `cornerstone-mock-dev` 会转调 `cornerstone-web-dev`，建议改用新入口                             |
+
 
 ## cornerstone-cli 全部命令
 
@@ -174,10 +183,10 @@ cornerstone-web-dev --web-port 9000
 
 ### `tcp` 子命令一览
 
-第四列表示 **`cornerstone-bridge` 是否除 TCP 透传外，还集成了与该子命令等价的 XML 调用及应答的结构化解读**（经 Bridge REST 供 Web `/api/...`、队列 UI 或网关内部状态）。图例见表下说明。
+第四列表示 `**cornerstone-bridge` 是否除 TCP 透传外，还集成了与该子命令等价的 XML 调用及应答的结构化解读**（经 Bridge REST 供 Web `/api/...`、队列 UI 或网关内部状态）。图例见表下说明。
 
 
-| 子命令                      | 需 `--username` / `--password`（先 Logon） | 说明摘要                                                   | Bridge 集成（调用+解读）                                                                                                                                                                                                                                                                       |
+| 子命令                      | 需 `--username` / `--password`（先 Logon） | 说明摘要                                                   | Bridge 集成（调用+解读）                                                                                                                                                                                                                                                                     |
 | ------------------------ | -------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `session`                | 可选（可自动 Logon）                          | 长连接 + 可选心跳与空闲超时；交互式 `>` 提示符                            | 透传                                                                                                                                                                                                                                                                                   |
 | `version`                | 否                                      | `<Version/>`                                           | 透传                                                                                                                                                                                                                                                                                   |
@@ -326,7 +335,7 @@ cornerstone-cli tcp session --host 127.0.0.1 --port 12345 --heartbeat 5
 
 ## cornerstone-bridge（TCP 网关 + REST）
 
-`cornerstone-bridge` 承担原 Mock 中的 **网关与会话** 职责：多台 TCP 客户端 → **单条**上游 Cornerstone 连接；非 `AddSamples` 按 `Cookie` 回路由；`AddSamples` 默认截留队列；`instrument_rq` + `parsers.py` 提供全部 `/api/*`。
+`cornerstone-bridge` 承担原 Mock 中的 **网关与会话** 职责：多台 TCP 客户端 → **单条**上游 Cornerstone 连接；非 `AddSamples` 按 `Cookie` 回路由；`AddSamples` 默认截留队列；`instrument_rq` + `parsers.py` 提供全部 `/api/`*。
 
 - **多用户登录**：首条 `Logon` 转发上游；成功后后续客户端 `Logon` 可合成成功（`no_synthetic_logon: false`，默认）。
 - **凭据补全**：配置 `web_user` / `web_password` 后，TCP 客户端空 `<Logon>` 由网关补全；网页发令与仪器 API 共用该上游登录。
@@ -352,12 +361,12 @@ cornerstone-cli tcp logon --host 127.0.0.1 --port 54321 --user demo --password d
 
 ## cornerstone-web（静态 UI + API 代理）
 
-- **静态资源**：`CornerstoneWeb/src/cornerstone_web/web_static/`（`/static/*`、`/`）。
-- **API**：浏览器请求 `/api/*` 由 `http_server.py` **原样代理**到 Bridge（`bridge_api_port`），Web 进程内无 `GatewayHub`。
+- **静态资源**：`CornerstoneWeb/src/cornerstone_web/web_static/`（`/static/`*、`/`）。
+- **API**：浏览器请求 `/api/`* 由 `http_server.py` **原样代理**到 Bridge（`bridge_api_port`），Web 进程内无 `GatewayHub`。
 - **启动**：见上文 [启用 Web](#启用-web)；`cornerstone-web-dev` 或 `python -m cornerstone_web.dev_web`。
 - **网页功能**（与分析/诊断/设置/仪器各页）：与拆分前一致；REST 清单见 Bridge `http_api.py`。`/legacy` 旧版队列页已重定向到 `/`。
 
-**主要 REST**（均由 Bridge 提供，Web 代理）：`GET /api/queue`、`POST /api/queue/send`、`GET /api/status`、`GET|PUT /api/settings`、`GET /api/config`、`GET /api/environment/ambients`、`GET /api/diagnostic/*`、`GET /api/instrument/*`、`GET /api/settings/transports` 等。
+**主要 REST**（均由 Bridge 提供，Web 代理）：`GET /api/queue`、`POST /api/queue/send`、`GET /api/status`、`GET|PUT /api/settings`、`GET /api/config`、`GET /api/environment/ambients`、`GET /api/diagnostic/`*、`GET /api/instrument/`*、`GET /api/settings/transports` 等。
 
 ## Remote Sample Login Commands（远程样品登录命令）
 
@@ -379,6 +388,19 @@ cornerstone-cli tcp last-remote-added-sets --host 127.0.0.1 --port 12345 --usern
 
 ```bash
 cornerstone-cli tcp add-samples --host 127.0.0.1 --port 12345 --username demo --password demo --xml "<AddSamples><Set><Field Id=\"SampleType\">Sample</Field><Field Id=\"Name\">MySet</Field><Field Id=\"MethodKey\">0</Field></Set><Replicates><Replicate><Field Id=\"Mass\">1.0</Field><Field Id=\"Comments\"></Field></Replicate></Replicates></AddSamples>"
+```
+
+PowerShell 请用**单引号**包裹整段 XML（不要用 `\"` 转义）：
+
+```powershell
+# 最稳妥：从文件读取（避免 PowerShell 剥掉参数里的双引号）
+cornerstone-cli tcp add-samples --host 127.0.0.1 --port 54321 --username remote --password control --xml-file add.xml
+```
+
+或把属性改成**单引号**：
+
+```powershell
+cornerstone-cli tcp add-samples --host 127.0.0.1 --port 54321 --username remote --password control --xml "<AddSamples><Set><Field Id='SampleType'>Sample</Field><Field Id='Name'>MySet</Field><Field Id='MethodKey'>0</Field></Set><Replicates><Replicate><Field Id='Mass'>1</Field></Replicate></Replicates></AddSamples>"
 ```
 
 **添加到已有 set**：根节点下直接写 `<SetKey>...</SetKey>`，并包含 `<Replicates>...</Replicates>`。  

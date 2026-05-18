@@ -94,6 +94,8 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
         "web_user",
         "web_password",
         "privileged_add_samples_host",
+        "persist_add_samples_queue",
+        "add_samples_queue_persist_file",
     }
     text = config_path.read_text(encoding="utf-8")
     raw = json.loads(text)
@@ -113,7 +115,7 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
         if k == "async_message_interval":
             out[k] = float(v)
             continue
-        if k == "no_synthetic_logon":
+        if k in ("no_synthetic_logon", "persist_add_samples_queue"):
             out[k] = bool(v)
             continue
         if k == "instrument_long_connection":

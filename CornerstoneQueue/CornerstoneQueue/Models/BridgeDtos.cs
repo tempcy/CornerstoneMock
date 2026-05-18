@@ -25,6 +25,9 @@ public sealed class QueueItemDto
     [JsonPropertyName("sampleDescription")]
     public string? SampleDescription { get; set; }
 
+    [JsonPropertyName("receivedAt")]
+    public double ReceivedAt { get; set; }
+
     [JsonPropertyName("receivedAtText")]
     public string? ReceivedAtText { get; set; }
 

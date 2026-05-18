@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Cornerstone 样品队列">
 
-  <Grid Padding="8,6" RowSpacing="4">
+  <Grid x:Name="DockRoot" Padding="8,6" RowSpacing="4">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
@@ -24,10 +24,22 @@
     </StackPanel>
 
     <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6">
-      <Button x:Name="BtnRefresh" Padding="8,4" Content="刷新" Click="OnRefreshClick" />
+      <Button
+        x:Name="BtnRefresh"
+        Padding="8,4"
+        FontSize="12"
+        Content="刷新"
+        Click="OnRefreshClick" />
+      <Button
+        x:Name="BtnSettings"
+        Padding="8,4"
+        FontSize="12"
+        Content="设置"
+        Click="OnSettingsClick" />
       <Button
         x:Name="BtnSend"
         Padding="8,4"
+        FontSize="12"
         Content="发送"
         Style="{StaticResource AccentButtonStyle}"
         Click="OnSendClick" />
@@ -36,20 +48,22 @@
     <ListView
       Grid.Row="2"
       x:Name="QueueList"
-      MinHeight="48"
-      MaxHeight="140"
+      MinHeight="72"
+      MaxHeight="280"
       SelectionMode="Extended"
       IsItemClickEnabled="False">
       <ListView.ItemContainerStyle>
         <Style TargetType="ListViewItem">
-          <Setter Property="MinHeight" Value="22" />
-          <Setter Property="Padding" Value="4,1" />
+          <Setter Property="MinHeight" Value="30" />
+          <Setter Property="Padding" Value="8,4" />
+          <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         </Style>
       </ListView.ItemContainerStyle>
       <ListView.ItemTemplate>
         <DataTemplate>
           <TextBlock
-            FontSize="12"
+            x:Name="ItemLine"
+            Foreground="{ThemeResource TextFillColorPrimaryBrush}"
             Text="{Binding DisplayLine}"
             TextTrimming="CharacterEllipsis"
             TextWrapping="NoWrap" />

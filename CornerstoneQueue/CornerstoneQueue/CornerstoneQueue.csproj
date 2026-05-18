@@ -12,6 +12,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <WindowsPackageType>None</WindowsPackageType>
+    <!-- 未安装 VS AppxPackage/PRI 任务时，避免 MrtCore.PriGen 依赖 Microsoft.Build.AppxPackage.dll -->
+    <EnableCoreMrtTooling>false</EnableCoreMrtTooling>
     <!-- 自包含：输出目录携带 WASDK；由 SDK 自动 bootstrap（勿在 App 静态构造里手动 Initialize） -->
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <AssemblyName>CornerstoneQueue</AssemblyName>

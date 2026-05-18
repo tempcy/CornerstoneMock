@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "entry_id": "2e35b514bf13768c",
+      "received_at": 1779119324.6197882,
+      "source_peer": "('127.0.0.1', 1808)",
+      "payload_xml": "<AddSamples Cookie=\"8e88f7b723e5aa2fac853cecbac1c5e8\" Culture=\"en-US\"><Set><Field Id=\"SampleType\">Sample</Field><Field Id=\"Name\">MySet</Field><Field Id=\"MethodKey\">0</Field></Set><Replicates><Replicate><Field Id=\"Mass\">1.0</Field><Field Id=\"Comments\" /></Replicate></Replicates></AddSamples>",
+      "sample_name": "MySet",
+      "sample_description": "—"
+    },
+    {
+      "entry_id": "fcfb59e80dcb4bb7",
+      "received_at": 1779119349.345102,
+      "source_peer": "('192.168.1.97', 1846)",
+      "payload_xml": "<AddSamples Cookie=\"6bb682a1e4604e1f466a1967b6be698d\" Culture=\"en-US\"><Set><Field Id=\"SampleType\">Sample</Field><Field Id=\"Name\">MySet</Field><Field Id=\"MethodKey\">0</Field></Set><Replicates><Replicate><Field Id=\"Mass\">1</Field></Replicate></Replicates></AddSamples>",
+      "sample_name": "MySet",
+      "sample_description": "—"
+    },
+    {
+      "entry_id": "f47221888e1df08f",
+      "received_at": 1779119360.0591474,
+      "source_peer": "('192.168.1.97', 9585)",
+      "payload_xml": "<AddSamples Cookie=\"6f7ee212ff1f82b8e57bbd6be76fdc5e\" Culture=\"en-US\"><Set><Field Id=\"SampleType\">Sample</Field><Field Id=\"Name\">MySet</Field><Field Id=\"MethodKey\">0</Field></Set><Replicates><Replicate><Field Id=\"Mass\">1</Field></Replicate></Replicates></AddSamples>",
+      "sample_name": "MySet",
+      "sample_description": "—"
+    },
+    {
+      "entry_id": "30d8bb236274e91c",
+      "received_at": 1779119775.0187974,
+      "source_peer": "('192.168.1.97', 2655)",
+      "payload_xml": "<AddSamples Cookie=\"3c0d6fa8d6a940fbecc6514dacafd4c6\" Culture=\"en-US\"><Set><Field Id=\"SampleType\">Sample</Field><Field Id=\"Name\">MySet</Field><Field Id=\"MethodKey\">0</Field></Set><Replicates><Replicate><Field Id=\"Mass\">1</Field></Replicate></Replicates></AddSamples>",
+      "sample_name": "MySet",
+      "sample_description": "—"
+    },
+    {
+      "entry_id": "301ba9d53a2379ee",
+      "received_at": 1779119779.8314056,
+      "source_peer": "('192.168.1.97', 9607)",
+      "payload_xml": "<AddSamples Cookie=\"60f6e5ae70152a07e066bcf823537d73\" Culture=\"en-US\"><Set><Field Id=\"SampleType\">Sample</Field><Field Id=\"Name\">MySet</Field><Field Id=\"MethodKey\">0</Field></Set><Replicates><Replicate><Field Id=\"Mass\">1</Field></Replicate></Replicates></AddSamples>",
+      "sample_name": "MySet",
+      "sample_description": "—"
+    },
+    {
+      "entry_id": "e9a9125f0ad28f04",
+      "received_at": 1779119798.3659241,
+      "source_peer": "('192.168.1.97', 9729)",
+      "payload_xml": "<AddSamples Cookie=\"d96bdd451745594c1e7579c9dda04eb8\" Culture=\"en-US\"><Set><Field Id=\"SampleType\">Sample</Field><Field Id=\"Name\">MySet1</Field><Field Id=\"MethodKey\">0</Field></Set><Replicates><Replicate><Field Id=\"Mass\">1</Field></Replicate></Replicates></AddSamples>",
+      "sample_name": "MySet1",
+      "sample_description": "—"
+    },
+    {
+      "entry_id": "0558f9cf26628054",
+      "received_at": 1779119836.510501,
+      "source_peer": "('192.168.1.97', 8408)",
+      "payload_xml": "<AddSamples Cookie=\"faa6270926592efabd85957a634a512a\" Culture=\"en-US\"><Set><Field Id=\"SampleType\">Sample</Field><Field Id=\"Name\">MySet2</Field><Field Id=\"MethodKey\">0</Field></Set><Replicates><Replicate><Field Id=\"Mass\">1</Field></Replicate></Replicates></AddSamples>",
+      "sample_name": "MySet2",
+      "sample_description": "—"
+    }
+  ]
+}
