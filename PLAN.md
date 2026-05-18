@@ -2,7 +2,7 @@
 
 基于当前仓库（`cornerstone-cli` + `cornerstone-bridge` + `cornerstone-web`），分三条产品线规划、分阶段落地。
 
-**已确定架构**：**Bridge = 网关 + 协议适配（Modbus / IoT，阶段 2）**；**`cornerstone-web`** 仅静态 SPA + `/api/*` 反向代理，不持有 `GatewayHub` 或仪器会话。
+**已确定架构**：**Bridge = 网关 + 协议适配（Modbus / IoT，阶段 2）**；`**cornerstone-web`** 仅静态 SPA + `/api/`* 反向代理，不持有 `GatewayHub` 或仪器会话。
 
 ---
 
@@ -37,11 +37,15 @@ flowchart TB
   PARSE --> HUB
 ```
 
-| 监听（示例配置） | 进程 | 说明 |
-|------------------|------|------|
-| `host:port`（如 `0.0.0.0:54321`） | Bridge | C# / CLI 远程客户端连此 TCP 网关 |
-| `bridge_api_host:bridge_api_port`（如 `127.0.0.1:8081`） | Bridge | 对内 REST；悬浮窗 / 脚本应连此地址 |
-| `web_host:web_port`（如 `127.0.0.1:8080`） | Web | 浏览器访问；`/api/*` 代理到 Bridge API |
+
+
+
+| 监听（示例配置）                                              | 进程     | 说明                            |
+| ----------------------------------------------------- | ------ | ----------------------------- |
+| `host:port`（如 `0.0.0.0:54321`）                        | Bridge | C# / CLI 远程客户端连此 TCP 网关       |
+| `bridge_api_host:bridge_api_port`（如 `127.0.0.1:8081`） | Bridge | 对内 REST；悬浮窗 / 脚本应连此地址         |
+| `web_host:web_port`（如 `127.0.0.1:8080`）               | Web    | 浏览器访问；`/api/*` 代理到 Bridge API |
+
 
 **Bridge 包内模块**（`CornerstoneBridge/src/cornerstone_bridge/`）：`protocol.py`、`parsers.py`、`hub.py`、`hub_helpers.py`、`hub_types.py`、`gateway.py`、`http_api.py`、`server.py`、`config.py`。
 
@@ -61,33 +65,39 @@ flowchart LR
   CLI[cornerstone-cli] -.->|库复用| Bridge
 ```
 
-| 组件 | 职责 |
-|------|------|
-| **cornerstone-cli** | 协议帧、TCP 引擎、可选 CLI；**共享库**，不单独跑网关 |
-| **cornerstone-bridge** | 上游 TCP 网关、AddSamples 队列、`instrument_rq`、**XML→JSON 解析**、对内 REST；**北向** Modbus/MQTT（Gateway + Protocol Adapters，可同进程） |
-| **cornerstone-web** | 静态资源 + 薄 BFF（或纯静态直连 Bridge API）；**不再** `import GatewayHub` |
-| **cornerstone-queue** | 桌面悬浮窗，仅 HTTP 客户端 |
-| **cornerstone-agent** | 规则/AI、监控，调 Bridge API 或 `cornerstone_cli` |
 
-**开发/仿真**：保留 **`cornerstone-web-dev` = Bridge + Web 一键启动**（与现有一键体验一致）。  
+
+
+| 组件                     | 职责                                                                                                                   |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **cornerstone-cli**    | 协议帧、TCP 引擎、可选 CLI；**共享库**，不单独跑网关                                                                                     |
+| **cornerstone-bridge** | 上游 TCP 网关、AddSamples 队列、`instrument_rq`、**XML→JSON 解析**、对内 REST；**北向** Modbus/MQTT（Gateway + Protocol Adapters，可同进程） |
+| **cornerstone-web**    | 静态资源 + 薄 BFF（或纯静态直连 Bridge API）；**不再** `import GatewayHub`                                                           |
+| **cornerstone-queue**  | 桌面悬浮窗，仅 HTTP 客户端                                                                                                     |
+| **cornerstone-agent**  | 规则/AI、监控，调 Bridge API 或 `cornerstone_cli`                                                                            |
+
+
+**开发/仿真**：保留 `**cornerstone-web-dev` = Bridge + Web 一键启动**（与现有一键体验一致）。  
 **生产**：可只部署 **Bridge**；Web 可为 Nginx 静态 + Bridge API。
 
 ### 实施顺序（不必一步拆光）
 
-| 阶段 | 内容 |
-|------|------|
-| **0** ✅ | 仓内逻辑分包：`cornerstone_bridge` 下 `protocol.py` / `parsers.py` / `http_api.py` / `hub.py` / `gateway.py` |
-| **1** ✅ | **`cornerstone-bridge`** 独立包与 `cornerstone-bridge` 入口；**`cornerstone-web`** 静态页 + `/api/*` 代理；`cornerstone-web-dev` 一键启动 |
-| **2** | Bridge 增加 Modbus/MQTT（映射与 `instrument_rq` 读数共用） |
-| **3** | Agent 只依赖 Bridge API；不再碰 TCP Cookie |
 
-### Bridge 第一版 REST（与现有 `/api/*` 对齐）
+| 阶段      | 内容                                                                                                                       |
+| ------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **0** ✅ | 仓内逻辑分包：`cornerstone_bridge` 下 `protocol.py` / `parsers.py` / `http_api.py` / `hub.py` / `gateway.py`                     |
+| **1** ✅ | `**cornerstone-bridge`** 独立包与 `cornerstone-bridge` 入口；`**cornerstone-web`** 静态页 + `/api/*` 代理；`cornerstone-web-dev` 一键启动 |
+| **2**   | Bridge 增加 Modbus/MQTT（映射与 `instrument_rq` 读数共用）                                                                          |
+| **3**   | Agent 只依赖 Bridge API；不再碰 TCP Cookie                                                                                      |
+
+
+### Bridge 第一版 REST（与现有 `/api/`* 对齐）
 
 Bridge 至少提供：
 
 - `GET/POST /api/queue`、`/api/status`、`/api/config`、`PUT /api/settings`  
-- `GET /api/instrument/*`、`/api/settings/*`、`/api/diagnostic/*`、`/api/environment/*`  
-- 可选：原始 **TCP 代理端口**（与现在 `host:port` 一致），供 C# 客户端继续连 Bridge  
+- `GET /api/instrument/`*、`/api/settings/*`、`/api/diagnostic/*`、`/api/environment/*`  
+- 可选：原始 **TCP 代理端口**（与现在 `host:port` 一致），供 C# 客户端继续连 Bridge
 
 **解析器归属**：放 **Bridge**（Web 只渲染 JSON）；Bridge 仅透传 XML 会导致 Web/Agent/Queue 重复解析，**不推荐**。
 
@@ -95,11 +105,13 @@ Bridge 至少提供：
 
 ## 总览（三条产品线）
 
-| 序号 | 方向 | 定位 | 与仓库关系 |
-|------|------|------|------------|
-| 1 | 缓存样品悬浮窗 | 轻量桌面端，专注队列查看与「发送至仪器」 | 消费 **Bridge** 的 `GET/POST /api/queue*` |
-| 2 | 协议转换网关 | 厂家私有协议 ↔ Modbus / 通用 IoT | **即 cornerstone-bridge**（南向 TCP/XML + 北向 Modbus/MQTT） |
-| 3 | 仪器本机 Agent | 驻场采集 + 规则/AI 审核与告警 | 连 **Bridge 对内 API** 或 `cornerstone-cli`；不嵌套网关 |
+
+| 序号  | 方向         | 定位                       | 与仓库关系                                                 |
+| --- | ---------- | ------------------------ | ----------------------------------------------------- |
+| 1   | 缓存样品悬浮窗    | 轻量桌面端，专注队列查看与「发送至仪器」     | 消费 **Bridge** 的 `GET/POST /api/queue`*                |
+| 2   | 协议转换网关     | 厂家私有协议 ↔ Modbus / 通用 IoT | **即 cornerstone-bridge**（南向 TCP/XML + 北向 Modbus/MQTT） |
+| 3   | 仪器本机 Agent | 驻场采集 + 规则/AI 审核与告警       | 连 **Bridge 对内 API** 或 `cornerstone-cli`；不嵌套网关         |
+
 
 ```mermaid
 flowchart LR
@@ -128,7 +140,9 @@ flowchart LR
   Agent --> AI
 ```
 
-目录命名与 PLAN 一致：**`CornerstoneQueue`**（勿用 `CornetstoneQueue`）、**`CornerstoneBridge`**、**`CornerstoneAgent`**。
+
+
+目录命名与 PLAN 一致：`**CornerstoneQueue**`（勿用 `CornetstoneQueue`）、`**CornerstoneBridge**`、`**CornerstoneAgent**`。
 
 ---
 
@@ -141,13 +155,15 @@ flowchart LR
 
 ### 数据来源
 
-| API | 用途 |
-|-----|------|
-| `GET /api/queue` | 列表：`id`、`sampleName`、`sampleDescription`、时间、来源 |
-| `POST /api/queue/send` | `{"ids":[...]}`，发送后**保留**队列（`queueKept: true`） |
-| `GET /api/status`（可选） | 网关/上游连接、队列条数、RemoteControl 状态 |
 
-配置：Bridge REST 基址 **`http://<bridge_api_host>:<bridge_api_port>`**（示例 `http://127.0.0.1:8081`）。勿与 Web 页端口 `web_port`（8080）混淆。
+| API                    | 用途                                             |
+| ---------------------- | ---------------------------------------------- |
+| `GET /api/queue`       | 列表：`id`、`sampleName`、`sampleDescription`、时间、来源 |
+| `POST /api/queue/send` | `{"ids":[...]}`，发送后**保留**队列（`queueKept: true`） |
+| `GET /api/status`（可选）  | 网关/上游连接、队列条数、RemoteControl 状态                  |
+
+
+配置：Bridge REST 基址 `**http://<bridge_api_host>:<bridge_api_port>`**（示例 `http://127.0.0.1:8081`）。勿与 Web 页端口 `web_port`（8080）混淆。
 
 ### 技术栈
 
@@ -156,12 +172,14 @@ flowchart LR
 
 ### 阶段划分
 
-| 阶段 | 内容 | 验收 |
-|------|------|------|
-| **M1** | 只读：轮询/手动刷新队列，展示连接状态 | 与 Web 队列数据一致 |
-| **M2** | 多选 +「发送至仪器」+ 结果提示（成功/上游 XML 摘要） | 行为与 Web「发送至仪器」一致 |
-| **M3** | 设置页（Bridge URL、刷新间隔、窗口置顶/透明度）；断线重连 | 7×24 挂机可用 |
-| **M4**（可选） | 系统通知（发送失败、队列满）、快捷键全局唤起 | 提升产线体验 |
+
+| 阶段         | 内容                                 | 验收               |
+| ---------- | ---------------------------------- | ---------------- |
+| **M1**     | 只读：轮询/手动刷新队列，展示连接状态                | 与 Web 队列数据一致     |
+| **M2**     | 多选 +「发送至仪器」+ 结果提示（成功/上游 XML 摘要）    | 行为与 Web「发送至仪器」一致 |
+| **M3**     | 设置页（Bridge URL、刷新间隔、窗口置顶/透明度）；断线重连 | 7×24 挂机可用        |
+| **M4**（可选） | 系统通知（发送失败、队列满）、快捷键全局唤起             | 提升产线体验           |
+
 
 ### 风险与约束
 
@@ -193,21 +211,23 @@ flowchart LR
 **核心模块（Bridge 内）**
 
 1. **Gateway**（`gateway.py`）：多客户端 TCP、上游单连接、AddSamples 队列、Cookie 路由。
-2. **解析与对内 REST**（`parsers.py` + `http_api.py`）：`_parse_*` → JSON；队列、status、instrument/* 等 API。
+2. **解析与对内 REST**（`parsers.py` + `http_api.py`）：`_parse_`* → JSON；队列、status、instrument/* 等 API。
 3. **映射引擎**：配置驱动——JSON 字段 → Modbus 地址 / MQTT topic。
 4. **北向出口**：Modbus TCP Server（如 pymodbus）；MQTT：`instrument/{id}/status`、`/queue/count`、`/alarm/...`。
 5. **管理面**：健康检查、最后成功时间、映射热加载（可选）。
 
 ### 阶段划分
 
-| 阶段 | 内容 | 验收 |
-|------|------|------|
-| **P0** ✅ | 仓内模块化（`cornerstone_bridge` 分包） | 已完成 |
-| **P1** ✅ | `cornerstone-bridge` 独立进程 + REST；Web 代理 `/api/*` | 已完成 |
-| **P2** | 只读映射：`Status`、`RemoteControlState`、队列 `queueCurrent` | Modbus + MQTT 可读 |
-| **P3** | 扩展：`Ambients`、`Counters`；文档化寄存器表 | 与仪器/Web 读数一致 |
-| **P4** | 写侧（谨慎）：白名单 RQ / Modbus 触发刷新 | 权限与互锁 |
-| **P5** | 第二厂家协议插件（`SouthboundAdapter`） | 插件接入 |
+
+| 阶段       | 内容                                                   | 验收               |
+| -------- | ---------------------------------------------------- | ---------------- |
+| **P0** ✅ | 仓内模块化（`cornerstone_bridge` 分包）                       | 已完成              |
+| **P1** ✅ | `cornerstone-bridge` 独立进程 + REST；Web 代理 `/api/`*     | 已完成              |
+| **P2**   | 只读映射：`Status`、`RemoteControlState`、队列 `queueCurrent` | Modbus + MQTT 可读 |
+| **P3**   | 扩展：`Ambients`、`Counters`；文档化寄存器表                     | 与仪器/Web 读数一致     |
+| **P4**   | 写侧（谨慎）：白名单 RQ / Modbus 触发刷新                          | 权限与互锁            |
+| **P5**   | 第二厂家协议插件（`SouthboundAdapter`）                        | 插件接入             |
+
 
 ### 与 CLI / Web 的分工
 
@@ -216,7 +236,7 @@ flowchart LR
 
 ### 交付物
 
-- Python 包 **`cornerstone-bridge`**；
+- Python 包 `**cornerstone-bridge`**；
 - 《Modbus 点表》+《MQTT 主题规范》+ 示例 Node-RED / ThingsBoard 接入。
 
 ---
@@ -244,13 +264,15 @@ flowchart LR
 
 ### 阶段划分
 
-| 阶段 | 内容 | 验收 |
-|------|------|------|
-| **A1** | 无 AI：定时拉 `Status` + status-check 等价数据，规则告警 | 告警可配置、可静默 |
+
+| 阶段     | 内容                                                | 验收           |
+| ------ | ------------------------------------------------- | ------------ |
+| **A1** | 无 AI：定时拉 `Status` + status-check 等价数据，规则告警        | 告警可配置、可静默    |
 | **A2** | 数据审核 v1：`SetReps` / `set-stats`，规则判断（RSD、空白、n 不足） | 结构化审核报告 JSON |
-| **A3** | AI 增强：RepDetail/统计摘要送 LLM（脱敏、可关闭） | 人工可覆盖、全量留痕 |
-| **A4** | 与 Web/悬浮窗联动：远程录入 Sets 后自动审核流水线 | 端到端闭环 |
-| **A5** | 运维：自更新配置、健康心跳、离线缓存 | 适合长期驻场 |
+| **A3** | AI 增强：RepDetail/统计摘要送 LLM（脱敏、可关闭）                 | 人工可覆盖、全量留痕   |
+| **A4** | 与 Web/悬浮窗联动：远程录入 Sets 后自动审核流水线                    | 端到端闭环        |
+| **A5** | 运维：自更新配置、健康心跳、离线缓存                                | 适合长期驻场       |
+
 
 ### AI 设计原则（建议写进规范）
 
@@ -268,12 +290,14 @@ flowchart LR
 
 ## 推荐实施顺序与资源粗估
 
-| 优先级 | 项目 | 理由 | 粗估（1 人） |
-|--------|------|------|----------------|
-| **高** | 1 悬浮窗 M1–M2 | 复用 Bridge `queue` API，见效快 | 2–3 周 |
-| **中** | 2 Bridge P2–P3（Modbus/MQTT） | 打通 OT/IT | 4–6 周 |
-| **中高** | 3 Agent A1–A2 | 规则审核不依赖 AI | 3–4 周 |
-| **后续** | 3 A3 AI、2 P4 写 Modbus、1 M4 增强 | 安全与合规评审 | 各 2–4 周 |
+
+| 优先级    | 项目                            | 理由                        | 粗估（1 人） |
+| ------ | ----------------------------- | ------------------------- | ------- |
+| **高**  | 1 悬浮窗 M1–M2                   | 复用 Bridge `queue` API，见效快 | 2–3 周   |
+| **中**  | 2 Bridge P2–P3（Modbus/MQTT）   | 打通 OT/IT                  | 4–6 周   |
+| **中高** | 3 Agent A1–A2                 | 规则审核不依赖 AI                | 3–4 周   |
+| **后续** | 3 A3 AI、2 P4 写 Modbus、1 M4 增强 | 安全与合规评审                   | 各 2–4 周 |
+
 
 ### 建议里程碑
 
@@ -286,32 +310,25 @@ flowchart LR
 
 ## 仓库与文档建议
 
-| 目录/包 | 说明 |
-|---------|------|
-| `CornerstoneCLI` / `cornerstone-cli` | 共享协议库 |
-| `CornerstoneBridge` / `cornerstone-bridge` | 网关 + 解析 + REST（`cornerstone-bridge`）；后续 Modbus/MQTT |
-| `CornerstoneWeb` / **`cornerstone-web`** | 静态 UI + 可选 BFF；入口 `cornerstone-web`、`cornerstone-web-dev` |
-| `CornerstoneQueue` | 悬浮窗，仅 HTTP 客户端 |
-| `CornerstoneAgent` | 边缘 Agent |
+
+| 目录/包                                       | 说明                                                        |
+| ------------------------------------------ | --------------------------------------------------------- |
+| `CornerstoneCLI` / `cornerstone-cli`       | 共享协议库                                                     |
+| `CornerstoneBridge` / `cornerstone-bridge` | 网关 + 解析 + REST（`cornerstone-bridge`）；后续 Modbus/MQTT       |
+| `CornerstoneWeb` / `**cornerstone-web`**   | 静态 UI + 可选 BFF；入口 `cornerstone-web`、`cornerstone-web-dev` |
+| `CornerstoneQueue`                         | 悬浮窗，仅 HTTP 客户端                                            |
+| `CornerstoneAgent`                         | 边缘 Agent                                                  |
+
 
 - 新程序建议**独立目录**（或后续独立仓库），pip 依赖 `cornerstone-cli` 或 HTTP 调用 Bridge。
 - 根目录 `README.md` 链到本文件；集成说明随 Bridge/Web 拆分逐步更新。
-
-### 拆分对照（决策记录）
-
-| 维度 | 维持单进程 Mock | Web + Bridge（已选） |
-|------|-------------------|----------------------|
-| 本地开发 | 最简单 | `cornerstone-web-dev` 合并启动 |
-| Queue/Agent | 依赖全量 Mock | 只依赖 Bridge API |
-| Modbus/IoT | 易与 Web 缠在一起 | 自然落在 Bridge |
-| 重构成本 | 无 | 中（先模块化再拆进程） |
-| 与三条产品线 | 弱 | 强 |
 
 ---
 
 ## 待细化（按需展开）
 
-- [ ] 悬浮窗：配置项 schema、错误码与 UI 文案
-- [ ] Bridge：Modbus 寄存器表初稿、MQTT 主题命名规范；REST 与现 `/api/*` 差异清单
-- [x] Web：从 `cornerstone-mock` 重命名为 `cornerstone-web`（包名、入口、`cornerstone-web.config.example.json`）
-- [ ] Agent：审核报告 JSON Schema、告警级别与静默策略
+- 悬浮窗：配置项 schema、错误码与 UI 文案
+- Bridge：Modbus 寄存器表初稿、MQTT 主题命名规范；REST 与现 `/api/`* 差异清单
+- Web：从 `cornerstone-mock` 重命名为 `cornerstone-web`（包名、入口、`cornerstone-web.config.example.json`）
+- Agent：审核报告 JSON Schema、告警级别与静默策略
+

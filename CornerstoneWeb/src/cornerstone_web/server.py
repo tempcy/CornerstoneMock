@@ -8,7 +8,12 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from .config import bridge_base_url_from_args, load_web_config_defaults
+from .config import (
+    bridge_base_url_from_args,
+    load_web_config_defaults,
+    resolve_explicit_config_path,
+    resolve_web_config_path,
+)
 from .http_server import handle_web_http
 
 
@@ -63,12 +68,26 @@ def main() -> int:
     parser.add_argument("--bridge-api-port", type=int, default=None)
 
     if pre_args.config:
-        cfg_path = Path(pre_args.config).expanduser()
-        if not cfg_path.is_file():
-            print(f"[cornerstone-web] 配置文件不存在: {cfg_path}", file=sys.stderr)
+        cfg_path = resolve_explicit_config_path(pre_args.config)
+        if cfg_path is None:
+            tried = Path(pre_args.config).expanduser()
+            hint = Path(__file__).resolve().parents[2] / "cornerstone-web.config.json"
+            print(
+                f"[cornerstone-web] 配置文件不存在: {tried}\n"
+                f"  当前目录: {Path.cwd()}\n"
+                f"  可尝试: {hint}\n"
+                f"  或省略 -c（将自动查找 Web 包内配置）",
+                file=sys.stderr,
+            )
             return 2
         try:
             parser.set_defaults(**load_web_config_defaults(cfg_path))
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            print(f"[cornerstone-web] 读取配置失败: {e}", file=sys.stderr)
+            return 2
+    elif (auto_cfg := resolve_web_config_path()) is not None:
+        try:
+            parser.set_defaults(**load_web_config_defaults(auto_cfg))
         except (OSError, ValueError, json.JSONDecodeError) as e:
             print(f"[cornerstone-web] 读取配置失败: {e}", file=sys.stderr)
             return 2

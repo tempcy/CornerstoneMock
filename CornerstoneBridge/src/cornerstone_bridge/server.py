@@ -8,7 +8,11 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from .config import load_bridge_config_defaults
+from .config import (
+    load_bridge_config_defaults,
+    resolve_bridge_config_path,
+    resolve_explicit_config_path,
+)
 from .gateway import _handle_client
 from .http_api import handle_bridge_http
 from .hub import GatewayHub
@@ -191,19 +195,36 @@ def main() -> int:
     parser.add_argument("--upstream-heartbeat-interval", type=float, default=60.0, metavar="SEC")
     parser.add_argument("--no-upstream-auto-reconnect", action="store_true")
 
+    cfg_resolved: Optional[Path] = None
     if pre_args.config:
-        cfg_path = Path(pre_args.config).expanduser()
-        if not cfg_path.is_file():
-            print(f"[cornerstone-bridge] 配置文件不存在: {cfg_path}", file=sys.stderr)
+        cfg_path = resolve_explicit_config_path(pre_args.config)
+        if cfg_path is None:
+            tried = Path(pre_args.config).expanduser()
+            hint = Path(__file__).resolve().parents[2] / "cornerstone-bridge.config.json"
+            print(
+                f"[cornerstone-bridge] 配置文件不存在: {tried}\n"
+                f"  当前目录: {Path.cwd()}\n"
+                f"  可尝试: {hint}\n"
+                f"  或在 CornerstoneWeb 下: ..\\CornerstoneBridge\\cornerstone-bridge.config.json\n"
+                f"  也可省略 -c（将自动查找 Bridge 包内配置）",
+                file=sys.stderr,
+            )
             return 2
+        cfg_resolved = cfg_path
         try:
             parser.set_defaults(**load_bridge_config_defaults(cfg_path))
         except (OSError, ValueError, json.JSONDecodeError, argparse.ArgumentTypeError) as e:
             print(f"[cornerstone-bridge] 读取配置失败: {e}", file=sys.stderr)
             return 2
+    elif (auto_cfg := resolve_bridge_config_path()) is not None:
+        cfg_resolved = auto_cfg.resolve()
+        try:
+            parser.set_defaults(**load_bridge_config_defaults(auto_cfg))
+        except (OSError, ValueError, json.JSONDecodeError, argparse.ArgumentTypeError) as e:
+            print(f"[cornerstone-bridge] 读取配置失败: {e}", file=sys.stderr)
+            return 2
 
     args = parser.parse_args(argv_rest)
-    cfg_resolved: Optional[Path] = None
     if args.config:
         cfg_resolved = Path(args.config).expanduser().resolve()
 

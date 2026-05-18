@@ -1,12 +1,58 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
+_WEB_PKG_DIR = Path(__file__).resolve().parents[2]
+
+_WEB_CONFIG_FILENAMES = (
+    "cornerstone-web.config.json",
+    "cornerstone-web.config.example.json",
+    "cornerstone-mock.config.json",
+    "cornerstone-mock.config.example.json",
+)
+
+
+def resolve_explicit_config_path(path: str) -> Optional[Path]:
+    """解析 ``-c`` 路径（cwd → Web 包目录 → 仓库根）。"""
+    raw = Path(path).expanduser()
+    if raw.is_file():
+        return raw.resolve()
+    search_roots = (Path.cwd(), _WEB_PKG_DIR, _WEB_PKG_DIR.parent)
+    for root in search_roots:
+        cand = root / raw
+        if cand.is_file():
+            return cand.resolve()
+        by_name = root / raw.name
+        if by_name.is_file():
+            return by_name.resolve()
+    return None
+
+
+def resolve_web_config_path() -> Optional[Path]:
+    """查找 Web JSON：``CORNERSTONE_WEB_CONFIG`` / ``CORNERSTONE_MOCK_CONFIG`` → cwd → 包目录。"""
+    for env_name in ("CORNERSTONE_WEB_CONFIG", "CORNERSTONE_MOCK_CONFIG"):
+        env = (os.environ.get(env_name) or "").strip()
+        if env:
+            p = Path(env).expanduser()
+            return p if p.is_file() else None
+    cwd = Path.cwd()
+    for name in _WEB_CONFIG_FILENAMES:
+        cand = cwd / name
+        if cand.is_file():
+            return cand
+    for name in _WEB_CONFIG_FILENAMES:
+        cand = _WEB_PKG_DIR / name
+        if cand.is_file():
+            return cand
+    return None
 
 
 def load_web_config_defaults(config_path: Path) -> Dict[str, Any]:
+    """读取 Web JSON（浏览器监听与 Bridge REST 代理目标）。"""
     allowed = {
         "web_host",
         "web_port",

@@ -1,0 +1,69 @@
+<Window
+    x:Class="CornerstoneQueue.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Cornerstone 样品队列">
+
+  <Grid Padding="8,6" RowSpacing="4">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6">
+      <Ellipse x:Name="DotBridge" Width="8" Height="8" VerticalAlignment="Center" Fill="Gray" />
+      <TextBlock
+        x:Name="TxtStatusLine"
+        VerticalAlignment="Center"
+        FontSize="11"
+        TextTrimming="CharacterEllipsis"
+        TextWrapping="NoWrap"
+        Text="…" />
+    </StackPanel>
+
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6">
+      <Button x:Name="BtnRefresh" Padding="8,4" Content="刷新" Click="OnRefreshClick" />
+      <Button
+        x:Name="BtnSend"
+        Padding="8,4"
+        Content="发送"
+        Style="{StaticResource AccentButtonStyle}"
+        Click="OnSendClick" />
+    </StackPanel>
+
+    <ListView
+      Grid.Row="2"
+      x:Name="QueueList"
+      MinHeight="48"
+      MaxHeight="140"
+      SelectionMode="Extended"
+      IsItemClickEnabled="False">
+      <ListView.ItemContainerStyle>
+        <Style TargetType="ListViewItem">
+          <Setter Property="MinHeight" Value="22" />
+          <Setter Property="Padding" Value="4,1" />
+        </Style>
+      </ListView.ItemContainerStyle>
+      <ListView.ItemTemplate>
+        <DataTemplate>
+          <TextBlock
+            FontSize="12"
+            Text="{Binding DisplayLine}"
+            TextTrimming="CharacterEllipsis"
+            TextWrapping="NoWrap" />
+        </DataTemplate>
+      </ListView.ItemTemplate>
+    </ListView>
+
+    <TextBlock
+      Grid.Row="3"
+      x:Name="TxtResultLine"
+      FontSize="11"
+      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+      TextTrimming="CharacterEllipsis"
+      TextWrapping="NoWrap"
+      Visibility="Collapsed" />
+  </Grid>
+</Window>

@@ -5,64 +5,87 @@
 
     python -m cornerstone_web.dev_web
     cornerstone-web-dev
+
+配置：``CornerstoneBridge/cornerstone-bridge.config.json``（网关/上游/REST）
++ ``CornerstoneWeb/cornerstone-web.config.json``（浏览器与 API 代理）。
+若仅有旧版合并的 ``cornerstone-web.config.json``，将自动兼作 Bridge 配置并提示拆分。
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
-from cornerstone_bridge.config import load_bridge_config_defaults
+from cornerstone_bridge.config import (
+    load_bridge_config_defaults,
+    merge_web_config_into_bridge,
+    resolve_bridge_config_path,
+)
 from cornerstone_bridge.server import run_bridge
 
-from .config import bridge_base_url_from_args
+from .config import bridge_base_url_from_args, load_web_config_defaults, resolve_web_config_path
 from .server import run_web
 
 
-def _resolve_default_config() -> Optional[Path]:
-    env = (os.environ.get("CORNERSTONE_WEB_CONFIG") or os.environ.get("CORNERSTONE_MOCK_CONFIG") or "").strip()
-    if env:
-        p = Path(env).expanduser()
-        return p if p.is_file() else None
-    cwd = Path.cwd()
-    for name in (
-        "cornerstone-web.config.json",
-        "cornerstone-web.config.example.json",
-        "cornerstone-mock.config.json",
-        "cornerstone-mock.config.example.json",
-    ):
-        cand = cwd / name
-        if cand.is_file():
-            return cand
-    here = Path(__file__).resolve()
-    for name in ("cornerstone-web.config.example.json", "cornerstone-mock.config.example.json"):
-        repo_example = here.parents[2] / name
-        if repo_example.is_file():
-            return repo_example
-    return None
+def _resolve_dev_config_paths() -> Tuple[Path, Path, bool]:
+    """
+    返回 (bridge_config_path, web_config_path, legacy_combined)。
+
+    legacy_combined：仅找到旧版「单文件含 Bridge+Web」时为 True。
+    """
+    bridge_path = resolve_bridge_config_path()
+    web_path = resolve_web_config_path()
+    legacy = False
+
+    if bridge_path is None and web_path is not None:
+        bridge_path = web_path
+        legacy = True
+    if bridge_path is None:
+        raise FileNotFoundError(
+            "未找到 Bridge 配置。请设置 CORNERSTONE_BRIDGE_CONFIG，"
+            "或在当前目录 / CornerstoneBridge 下放置 cornerstone-bridge.config.json。"
+        )
+    if web_path is None:
+        web_path = bridge_path
+    return bridge_path, web_path, legacy
 
 
-def _load_shared_config(cfg: Path) -> dict:
-    """Bridge 配置已含 web_host / bridge_api_* 等；勿再调 load_web_config_defaults 以免误报忽略键。"""
-    merged = load_bridge_config_defaults(cfg)
-    merged["_config_path"] = cfg
-    return merged
+def _load_dev_merged_config(
+    bridge_path: Path, web_path: Path
+) -> tuple[dict, Path]:
+    bridge_m = load_bridge_config_defaults(bridge_path)
+    web_m = (
+        load_web_config_defaults(web_path)
+        if web_path.is_file()
+        else {}
+    )
+    merged = merge_web_config_into_bridge(bridge_m, web_m)
+    merged["_config_path"] = bridge_path
+    return merged, bridge_path
 
 
 def main() -> int:
-    cfg = _resolve_default_config()
-    if cfg is None:
-        print(
-            "[cornerstone-web-dev] 未找到配置文件。请设置 CORNERSTONE_WEB_CONFIG，"
-            "或在当前目录放置 cornerstone-web.config.json。",
-            file=sys.stderr,
-        )
+    try:
+        bridge_path, web_path, legacy = _resolve_dev_config_paths()
+    except FileNotFoundError as e:
+        print(f"[cornerstone-web-dev] {e}", file=sys.stderr)
         return 2
 
-    m = _load_shared_config(cfg)
+    if legacy:
+        print(
+            "[cornerstone-web-dev] 未找到 cornerstone-bridge.config.json，"
+            f"正从 {web_path.name} 读取 Bridge 字段（建议拆分为 Bridge + Web 两份配置）。",
+            file=sys.stderr,
+        )
+
+    try:
+        m, cfg_path = _load_dev_merged_config(bridge_path, web_path)
+    except (OSError, ValueError) as e:
+        print(f"[cornerstone-web-dev] 读取配置失败: {e}", file=sys.stderr)
+        return 2
+
     cfg_path = m.pop("_config_path")
 
     web_host = str(m.get("web_host") or "127.0.0.1")
@@ -107,7 +130,9 @@ def main() -> int:
             run_web(web_host=web_host, web_port=web_port, bridge_base_url=bridge_url),
         )
 
-    print(f"[cornerstone-web-dev] 使用配置: {cfg_path}")
+    print(f"[cornerstone-web-dev] Bridge 配置: {bridge_path.resolve()}")
+    if web_path.resolve() != bridge_path.resolve():
+        print(f"[cornerstone-web-dev] Web 配置: {web_path.resolve()}")
     try:
         asyncio.run(_run())
     except KeyboardInterrupt:

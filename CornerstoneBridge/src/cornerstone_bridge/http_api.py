@@ -112,6 +112,8 @@ def _q_bool(q: Dict[str, str], key: str, default: bool) -> bool:
         return default
     return v in ("1", "true", "yes", "on")
 
+
+def _queue_item_to_api_dict(p: PendingAddSamples) -> Dict[str, Any]:
     return {
         "id": p.entry_id,
         "receivedAt": p.received_at,

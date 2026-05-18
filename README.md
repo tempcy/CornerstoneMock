@@ -23,7 +23,7 @@
 | **CLI** | `cornerstone-cli` | 直连仪器 TCP 或云端 HTTP；脚本与协议调试。 |
 | **Bridge** | `cornerstone-bridge` | TCP 网关 + `/api/*` REST（队列、instrument_rq、解析 JSON）。 |
 | **Web** | `cornerstone-web` | 静态 SPA；`/api/*` 反向代理到 Bridge。 |
-| **本地开发** | `cornerstone-web-dev` / `dev.ps1` | 同进程启动 Bridge + Web（读 `cornerstone-web.config.json`）。 |
+| **本地开发** | `cornerstone-web-dev` / `dev.ps1` | 同进程启动 Bridge + Web（读 Bridge + Web 两份配置，或兼容旧版单文件）。 |
 
 `cornerstone-mock` / `cornerstone-mock-dev` 仍可用，内部转调 `cornerstone-web-dev`（**已弃用**，仅兼容旧脚本）。
 
@@ -40,7 +40,12 @@
                     └── 上游 TCP ──► Cornerstone 仪器
 ```
 
-配置文件：`CornerstoneWeb/cornerstone-web.config.example.json`（复制为 `cornerstone-web.config.json` 后修改）。关键字段：`upstream_*`（仪器）、`host`/`port`（TCP 网关）、`bridge_api_*`（REST）、`web_*`（浏览器）、`web_user`/`web_password`（网页发令账号）。
+配置文件拆为两份（复制对应 `.example.json` 为 `.config.json` 后修改）：
+
+| 文件 | 职责 |
+| --- | --- |
+| `CornerstoneBridge/cornerstone-bridge.config.example.json` | 网关 TCP、`upstream_*`、REST `bridge_api_*`、`web_user`/`web_password` 等 |
+| `CornerstoneWeb/cornerstone-web.config.example.json` | 浏览器 `web_*`、Web 代理目标的 `bridge_api_*` |
 
 ## 安装
 
@@ -63,23 +68,33 @@ Web 界面由 **Bridge**（网关 + `/api/*`）与 **Web**（静态页 + API 代
 复制示例配置并按本机环境修改（至少核对 **上游仪器** 与 **网页登录账号**）：
 
 ```bash
-cd CornerstoneWeb
+cd CornerstoneBridge
+copy cornerstone-bridge.config.example.json cornerstone-bridge.config.json
+cd ..\CornerstoneWeb
 copy cornerstone-web.config.example.json cornerstone-web.config.json
 ```
+
+**Bridge**（`cornerstone-bridge.config.json`）：
 
 | 配置项 | 含义 |
 | --- | --- |
 | `upstream_host` / `upstream_port` | 真实 Cornerstone 仪器 TCP 地址 |
 | `host` / `port` | 网关对 **TCP 客户端**（含 C# 远程客户端）的监听 |
 | `bridge_api_host` / `bridge_api_port` | Bridge 对内 REST（默认 `8081`） |
-| `web_host` / `web_port` | 浏览器访问的 Web 地址（默认 `http://127.0.0.1:8080/`） |
 | `web_user` / `web_password` | 网页「发送到仪器」、环境/分析页拉数用的仪器远程账号 |
 
-也可将 `cornerstone-web.config.json` 放在**仓库根目录**或任意工作目录；或通过环境变量 `CORNERSTONE_WEB_CONFIG` 指定绝对路径。
+**Web**（`cornerstone-web.config.json`）：
+
+| 配置项 | 含义 |
+| --- | --- |
+| `web_host` / `web_port` | 浏览器访问地址（默认 `http://127.0.0.1:8080/`） |
+| `bridge_api_host` / `bridge_api_port` | Web 将 `/api/*` 代理到的 Bridge REST |
+
+环境变量：`CORNERSTONE_BRIDGE_CONFIG`、`CORNERSTONE_WEB_CONFIG`（或兼容旧名 `CORNERSTONE_MOCK_CONFIG`）。也可将 `.config.json` 放在**当前工作目录**。`cornerstone-web-dev` 会合并两份配置；若仍只有旧版单文件 `cornerstone-web.config.json`，会自动兼作 Bridge 配置并提示拆分。
 
 ### 2. 启动（推荐：开发一键）
 
-在 **`CornerstoneWeb`** 目录（或已放置 `cornerstone-web.config.json` 的目录）下执行：
+在仓库根目录或 **`CornerstoneWeb`** 目录（已放置两份 `.config.json` 或旧版单文件）下执行：
 
 ```bash
 python -m cornerstone_web.dev_web
@@ -120,7 +135,7 @@ cornerstone-web-dev
 
 ```bash
 # 终端 1：网关 + API
-cornerstone-bridge -c CornerstoneWeb/cornerstone-web.config.json
+cornerstone-bridge -c CornerstoneBridge/cornerstone-bridge.config.json
 
 # 终端 2：静态页 + /api 代理
 cornerstone-web -c CornerstoneWeb/cornerstone-web.config.json
@@ -323,7 +338,7 @@ cornerstone-cli tcp session --host 127.0.0.1 --port 12345 --heartbeat 5
 仅起 Bridge（无浏览器 UI）：
 
 ```bash
-cornerstone-bridge -c CornerstoneWeb/cornerstone-web.config.json
+cornerstone-bridge -c CornerstoneBridge/cornerstone-bridge.config.json
 ```
 
 CLI 经网关访问仪器：
