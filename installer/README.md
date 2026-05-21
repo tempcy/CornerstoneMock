@@ -2,6 +2,8 @@
 
 生成 **Bridge（必选）**、**Web / Queue / CLI（可选）** 的 Windows 安装包；支持将 **Bridge**、**Web** 注册为 Windows 服务（默认勾选）。
 
+`staging/`、`pydist/`、`pywork/`、`.venv-build/`、`_qtest/` 及 `dist/` 安装包为本地构建产物，已列入仓库根目录 `.gitignore`，**不会**提交到 GitHub。
+
 ## 前置条件
 
 | 工具 | 用途 |

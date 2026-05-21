@@ -48,5 +48,20 @@ ehthumbs.db
 # Local / scratch
 /68
 
+# 本机配置（保留 *.example.json）
+CornerstoneBridge/cornerstone-bridge.config.json
+CornerstoneWeb/cornerstone-web.config.json
+
+# 安装包构建产物（build-release.ps1 / ISCC）
+installer/staging/
+installer/pydist/
+installer/pywork/
+installer/.venv-build/
+installer/_qtest/
+installer/_queue_pub_tmp/
+installer/tools/nssm.zip
+installer/tools/nssm-2.24/
+installer/Cornerstone-test-minimal.iss
+
 # 原始 C# 客户端：不纳入版本库（本地保留）
 Cornerstone_RemoteControlClient/
