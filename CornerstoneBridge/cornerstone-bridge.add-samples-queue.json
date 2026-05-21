@@ -2,14 +2,6 @@
   "version": 1,
   "items": [
     {
-      "entry_id": "2e35b514bf13768c",
-      "received_at": 1779119324.6197882,
-      "source_peer": "('127.0.0.1', 1808)",
-      "payload_xml": "<AddSamples Cookie=\"8e88f7b723e5aa2fac853cecbac1c5e8\" Culture=\"en-US\"><Set><Field Id=\"SampleType\">Sample</Field><Field Id=\"Name\">MySet</Field><Field Id=\"MethodKey\">0</Field></Set><Replicates><Replicate><Field Id=\"Mass\">1.0</Field><Field Id=\"Comments\" /></Replicate></Replicates></AddSamples>",
-      "sample_name": "MySet",
-      "sample_description": "—"
-    },
-    {
       "entry_id": "fcfb59e80dcb4bb7",
       "received_at": 1779119349.345102,
       "source_peer": "('192.168.1.97', 1846)",
@@ -55,6 +47,22 @@
       "source_peer": "('192.168.1.97', 8408)",
       "payload_xml": "<AddSamples Cookie=\"faa6270926592efabd85957a634a512a\" Culture=\"en-US\"><Set><Field Id=\"SampleType\">Sample</Field><Field Id=\"Name\">MySet2</Field><Field Id=\"MethodKey\">0</Field></Set><Replicates><Replicate><Field Id=\"Mass\">1</Field></Replicate></Replicates></AddSamples>",
       "sample_name": "MySet2",
+      "sample_description": "—"
+    },
+    {
+      "entry_id": "c60672d7bb287f44",
+      "received_at": 1779153295.1321058,
+      "source_peer": "('127.0.0.1', 51529)",
+      "payload_xml": "<AddSamples Cookie=\"f2ada7563e8c90c73a4466a404136e69\" Culture=\"en-US\"><Set><Field Id=\"SampleType\">Sample</Field><Field Id=\"Name\">MySet</Field><Field Id=\"MethodKey\">0</Field></Set><Replicates><Replicate><Field Id=\"Mass\">1</Field></Replicate></Replicates></AddSamples>",
+      "sample_name": "MySet",
+      "sample_description": "—"
+    },
+    {
+      "entry_id": "ad1e282fcf073a84",
+      "received_at": 1779153336.0197294,
+      "source_peer": "('127.0.0.1', 51649)",
+      "payload_xml": "<AddSamples Cookie=\"21d82460f6ef686b37ddb4244bdbcbe4\" Culture=\"en-US\"><Set><Field Id=\"SampleType\">Sample</Field><Field Id=\"Name\">MySet3</Field><Field Id=\"MethodKey\">0</Field></Set><Replicates><Replicate><Field Id=\"Mass\">1</Field></Replicate></Replicates></AddSamples>",
+      "sample_name": "MySet3",
       "sample_description": "—"
     }
   ]

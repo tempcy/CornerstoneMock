@@ -1,6 +1,18 @@
 # CornerstoneWeb 后续开发计划
 
-基于当前仓库（`cornerstone-cli` + `cornerstone-bridge` + `cornerstone-web`），分三条产品线规划、分阶段落地。
+基于当前仓库（`cornerstone-cli` + `cornerstone-bridge` + `cornerstone-web` + `CornerstoneQueue`），分三条产品线规划、分阶段落地。
+
+### 进度快照（2026-05）
+
+
+| 组件                   | 阶段    | 状态                                                                     |
+| -------------------- | ----- | ---------------------------------------------------------------------- |
+| Bridge / Web         | 0–1   | ✅ 分包、独立进程、配置拆分为 `cornerstone-bridge.config` + `cornerstone-web.config` |
+| **CornerstoneQueue** | M1–M3 | ✅ 见下文 §1                                                               |
+| **CornerstoneQueue** | M4    | ⏳ 通知、全局快捷键；自动点击仪器 UI 仅讨论未做                                             |
+| Bridge 北向            | P2+   | ⏳ Modbus/MQTT                                                          |
+| CornerstoneAgent     | A1+   | ⏳ 未启动                                                                  |
+
 
 **已确定架构**：**Bridge = 网关 + 协议适配（Modbus / IoT，阶段 2）**；`**cornerstone-web`** 仅静态 SPA + `/api/`* 反向代理，不持有 `GatewayHub` 或仪器会话。
 
@@ -15,6 +27,7 @@ flowchart TB
   subgraph clients [客户端]
     TCP[TCP 远程客户端]
     Browser[浏览器]
+    Queue[CornerstoneQueue 悬浮窗]
   end
   subgraph web [cornerstone-web : web_port]
     SPA[web_static / index.html]
@@ -29,6 +42,7 @@ flowchart TB
   CS[Cornerstone 仪器]
   TCP --> GW
   Browser --> SPA
+  Queue --> API
   SPA --> PROXY
   PROXY --> API
   GW --> HUB
@@ -83,12 +97,13 @@ flowchart LR
 ### 实施顺序（不必一步拆光）
 
 
-| 阶段      | 内容                                                                                                                       |
-| ------- | ------------------------------------------------------------------------------------------------------------------------ |
-| **0** ✅ | 仓内逻辑分包：`cornerstone_bridge` 下 `protocol.py` / `parsers.py` / `http_api.py` / `hub.py` / `gateway.py`                     |
-| **1** ✅ | `**cornerstone-bridge`** 独立包与 `cornerstone-bridge` 入口；`**cornerstone-web`** 静态页 + `/api/*` 代理；`cornerstone-web-dev` 一键启动 |
-| **2**   | Bridge 增加 Modbus/MQTT（映射与 `instrument_rq` 读数共用）                                                                          |
-| **3**   | Agent 只依赖 Bridge API；不再碰 TCP Cookie                                                                                      |
+| 阶段       | 内容                                                                                                                                   |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **0** ✅  | 仓内逻辑分包：`cornerstone_bridge` 下 `protocol.py` / `parsers.py` / `http_api.py` / `hub.py` / `gateway.py`                                 |
+| **1** ✅  | `cornerstone-bridge` / `cornerstone-web` 独立进程；配置拆为 `cornerstone-bridge.config` + `cornerstone-web.config`；`cornerstone-web-dev` 一键启动 |
+| **1b** ✅ | `CornerstoneQueue` 悬浮窗 M1–M3（WinUI 3，仅 HTTP 调 Bridge REST）                                                                           |
+| **2**    | Bridge 增加 Modbus/MQTT（映射与 `instrument_rq` 读数共用）                                                                                      |
+| **3**    | Agent 只依赖 Bridge API；不再碰 TCP Cookie                                                                                                  |
 
 
 ### Bridge 第一版 REST（与现有 `/api/`* 对齐）
@@ -106,11 +121,11 @@ Bridge 至少提供：
 ## 总览（三条产品线）
 
 
-| 序号  | 方向         | 定位                       | 与仓库关系                                                 |
-| --- | ---------- | ------------------------ | ----------------------------------------------------- |
-| 1   | 缓存样品悬浮窗    | 轻量桌面端，专注队列查看与「发送至仪器」     | 消费 **Bridge** 的 `GET/POST /api/queue`*                |
-| 2   | 协议转换网关     | 厂家私有协议 ↔ Modbus / 通用 IoT | **即 cornerstone-bridge**（南向 TCP/XML + 北向 Modbus/MQTT） |
-| 3   | 仪器本机 Agent | 驻场采集 + 规则/AI 审核与告警       | 连 **Bridge 对内 API** 或 `cornerstone-cli`；不嵌套网关         |
+| 序号  | 方向         | 定位                       | 与仓库关系                                                             |
+| --- | ---------- | ------------------------ | ----------------------------------------------------------------- |
+| 1   | 缓存样品悬浮窗    | 轻量桌面端，专注队列查看与「发送至仪器」     | `**CornerstoneQueue/`**（WinUI 3）；消费 Bridge `GET/POST /api/queue`* |
+| 2   | 协议转换网关     | 厂家私有协议 ↔ Modbus / 通用 IoT | **即 cornerstone-bridge**（南向 TCP/XML + 北向 Modbus/MQTT）             |
+| 3   | 仪器本机 Agent | 驻场采集 + 规则/AI 审核与告警       | 连 **Bridge 对内 API** 或 `cornerstone-cli`；不嵌套网关                     |
 
 
 ```mermaid
@@ -173,18 +188,28 @@ flowchart LR
 ### 阶段划分
 
 
-| 阶段         | 内容                                 | 验收               |
-| ---------- | ---------------------------------- | ---------------- |
-| **M1**     | 只读：轮询/手动刷新队列，展示连接状态                | 与 Web 队列数据一致     |
-| **M2**     | 多选 +「发送至仪器」+ 结果提示（成功/上游 XML 摘要）    | 行为与 Web「发送至仪器」一致 |
-| **M3**     | 设置页（Bridge URL、刷新间隔、窗口置顶/透明度）；断线重连 | 7×24 挂机可用        |
-| **M4**（可选） | 系统通知（发送失败、队列满）、快捷键全局唤起             | 提升产线体验           |
+| 阶段         | 内容                                 | 验收               | 状态  |
+| ---------- | ---------------------------------- | ---------------- | --- |
+| **M1**     | 只读：轮询/手动刷新队列，展示连接状态                | 与 Web 队列数据一致     | ✅   |
+| **M2**     | 多选 +「发送至仪器」+ 结果提示（成功/上游 XML 摘要）    | 行为与 Web「发送至仪器」一致 | ✅   |
+| **M3**     | 设置页（Bridge URL、刷新间隔、窗口置顶/透明度）；断线重连 | 7×24 挂机可用        | ✅   |
+| **M4**（可选） | 系统通知（发送失败、队列满）、快捷键全局唤起             | 提升产线体验           | ⏳   |
 
+
+### 已实现要点（`CornerstoneQueue/`）
+
+- **技术**：WinUI 3（Windows App SDK 1.6）、`net8.0-windows10.0.19041.0`、x64；`WindowsAppSDKSelfContained` 便于未预装运行时的本机部署。
+- **API**：`GET /api/queue`、`POST /api/queue/send`、`GET /api/status`、`GET /api/config`；默认 Bridge `http://127.0.0.1:8081`（设置可改）。
+- **UI**：顶栏单行状态、列表每试样一行（`样品名 → 说明`）、底栏单行发送结果；队列指纹未变时不刷新列表（防闪烁）。
+- **M3 设置**：`%LocalAppData%\CornerstoneQueue\settings.json` — Bridge 基址、状态/队列轮询秒数、置顶、透明度、字号与窗体缩放、断线重连间隔。
+- **增强（超出原 M3 文案）**：屏幕边缘拖放收纳（上侧滑出屏外，左右侧细条唤回）；禁用系统贴靠布局干扰（`SystemSnapDisabler`）。
+- **构建**：`CornerstoneQueue.sln`，Visual Studio 2026/2022；说明见根目录 [README.md](README.md#cornerstonequeue缓存样品悬浮窗)。
 
 ### 风险与约束
 
 - Bridge 未对 TCP 客户端做鉴权时，悬浮窗应仅连**内网**。
-- 若未配置网页账号（`web_user` / `web_password`），发送会失败，需在 UI 明确提示。
+- 若未配置网页账号（`web_user` / `web_password`），发送会失败，需在 UI 明确提示（状态栏/发送结果已提示）。
+- **仪器桌面确认**：`AddSamples` 协议成功（`ErrorCode=0`）后，Cornerstone 本机仍可能需鼠标确认；**未**做自动点击（M4/专项评估）；优先查仪器 RSL 免确认或补充协议命令。
 
 ---
 
@@ -225,7 +250,7 @@ flowchart LR
 | **P1** ✅ | `cornerstone-bridge` 独立进程 + REST；Web 代理 `/api/`*     | 已完成              |
 | **P2**   | 只读映射：`Status`、`RemoteControlState`、队列 `queueCurrent` | Modbus + MQTT 可读 |
 | **P3**   | 扩展：`Ambients`、`Counters`；文档化寄存器表                     | 与仪器/Web 读数一致     |
-| **P4**   | 写侧（谨慎）：白名单 RQ / Modbus 触发刷新                          | 权限与互锁            |
+| **P4**   | 写侧（谨慎）：白名单 RC / Modbus 触发刷新                          | 权限与互锁            |
 | **P5**   | 第二厂家协议插件（`SouthboundAdapter`）                        | 插件接入             |
 
 
@@ -291,17 +316,17 @@ flowchart LR
 ## 推荐实施顺序与资源粗估
 
 
-| 优先级    | 项目                            | 理由                        | 粗估（1 人） |
-| ------ | ----------------------------- | ------------------------- | ------- |
-| **高**  | 1 悬浮窗 M1–M2                   | 复用 Bridge `queue` API，见效快 | 2–3 周   |
-| **中**  | 2 Bridge P2–P3（Modbus/MQTT）   | 打通 OT/IT                  | 4–6 周   |
-| **中高** | 3 Agent A1–A2                 | 规则审核不依赖 AI                | 3–4 周   |
-| **后续** | 3 A3 AI、2 P4 写 Modbus、1 M4 增强 | 安全与合规评审                   | 各 2–4 周 |
+| 优先级    | 项目                            | 理由                   | 粗估（1 人） |
+| ------ | ----------------------------- | -------------------- | ------- |
+| **高**  | 1 悬浮窗 M1–M3                   | M1–M3 已落地；M4 与产线硬化待定 | —       |
+| **中**  | 2 Bridge P2–P3（Modbus/MQTT）   | 打通 OT/IT             | 4–6 周   |
+| **中高** | 3 Agent A1–A2                 | 规则审核不依赖 AI           | 3–4 周   |
+| **后续** | 3 A3 AI、2 P4 写 Modbus、1 M4 增强 | 安全与合规评审              | 各 2–4 周 |
 
 
 ### 建议里程碑
 
-1. **Q1 末**：悬浮窗 beta；Bridge queue/status API 与 Web/Bridge 拆分已落地，进入 WinUI 3 客户端开发。
+1. **Q1 末**：~~悬浮窗 beta~~ **悬浮窗 M1–M3 已可用**；Bridge/Web 配置拆分已完成；后续 M4（通知/快捷键）与产线反馈迭代。
 2. **Q2 中**：Modbus/MQTT 只读点表 v1 + Agent 规则监控试点。
 3. **Q2 末**：Agent 审核报告 v1 + AI 可选 POC。
 4. **Q3**：多厂家适配插件、生产硬化（鉴权、TLS、审计）。
@@ -311,13 +336,13 @@ flowchart LR
 ## 仓库与文档建议
 
 
-| 目录/包                                       | 说明                                                        |
-| ------------------------------------------ | --------------------------------------------------------- |
-| `CornerstoneCLI` / `cornerstone-cli`       | 共享协议库                                                     |
-| `CornerstoneBridge` / `cornerstone-bridge` | 网关 + 解析 + REST（`cornerstone-bridge`）；后续 Modbus/MQTT       |
-| `CornerstoneWeb` / `**cornerstone-web`**   | 静态 UI + 可选 BFF；入口 `cornerstone-web`、`cornerstone-web-dev` |
-| `CornerstoneQueue`                         | 悬浮窗，仅 HTTP 客户端                                            |
-| `CornerstoneAgent`                         | 边缘 Agent                                                  |
+| 目录/包                                       | 说明                                                                                              |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `CornerstoneCLI` / `cornerstone-cli`       | 共享协议库                                                                                           |
+| `CornerstoneBridge` / `cornerstone-bridge` | 网关 + 解析 + REST（`cornerstone-bridge`）；后续 Modbus/MQTT                                             |
+| `CornerstoneWeb` / `**cornerstone-web`**   | 静态 UI + 可选 BFF；入口 `cornerstone-web`、`cornerstone-web-dev`                                       |
+| `CornerstoneQueue`                         | WinUI 3 悬浮窗（M1–M3 ✅）；`CornerstoneQueue.sln`；设置见 `%LocalAppData%\CornerstoneQueue\settings.json` |
+| `CornerstoneAgent`                         | 边缘 Agent                                                                                        |
 
 
 - 新程序建议**独立目录**（或后续独立仓库），pip 依赖 `cornerstone-cli` 或 HTTP 调用 Bridge。
@@ -327,8 +352,7 @@ flowchart LR
 
 ## 待细化（按需展开）
 
-- 悬浮窗：配置项 schema、错误码与 UI 文案
+- 悬浮窗 **M4**：通知、全局快捷键；可选 UI 自动化（点击仪器确认）的风险评估与校准流程
 - Bridge：Modbus 寄存器表初稿、MQTT 主题命名规范；REST 与现 `/api/`* 差异清单
-- Web：从 `cornerstone-mock` 重命名为 `cornerstone-web`（包名、入口、`cornerstone-web.config.example.json`）
 - Agent：审核报告 JSON Schema、告警级别与静默策略
 

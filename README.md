@@ -7,6 +7,7 @@
 - `**CornerstoneCLI/`**：`cornerstone-cli`（协议与 TCP 通信内核）。
 - `**CornerstoneBridge/`**：`cornerstone-bridge`（TCP 网关、XML 解析、`/api/`* REST）。
 - `**CornerstoneWeb/`**：`cornerstone-web`（静态页 + 将 `/api/`* 代理到 Bridge）；`cornerstone-web-dev` 一键起 Bridge + Web。
+- `**CornerstoneQueue/`**：WinUI 3 桌面悬浮窗（缓存样品队列，仅 HTTP 调 Bridge REST）。
 
 下文所述 **Python 版通信内核** 与配套工具位于上述三个子目录中，用于替代/复用原客户端中的核心通信逻辑：
 
@@ -23,6 +24,7 @@
 | **CLI**    | `cornerstone-cli`                 | 直连仪器 TCP 或云端 HTTP；脚本与协议调试。                        |
 | **Bridge** | `cornerstone-bridge`              | TCP 网关 + `/api/`* REST（队列、instrument_rq、解析 JSON）。 |
 | **Web**    | `cornerstone-web`                 | 静态 SPA；`/api/`* 反向代理到 Bridge。                     |
+| **Queue**  | `CornerstoneQueue`（VS 生成 exe）   | 精简悬浮窗：队列查看/发送、状态一行、连 Bridge `:8081`。              |
 | **本地开发**   | `cornerstone-web-dev` / `dev.ps1` | 同进程启动 Bridge + Web（读 Bridge + Web 两份配置，或兼容旧版单文件）。 |
 
 
@@ -35,7 +37,8 @@
 ```
 浏览器 ──► cornerstone-web :8080  (/ 静态页, /api/* 代理)
                     │
-                    ▼
+CornerstoneQueue ───┤
+  (悬浮窗 REST)     ▼
             cornerstone-bridge :8081  (/api/* REST)
                     ├── TCP 网关 :54321  ◄── 远程客户端 / CLI
                     └── 上游 TCP ──► Cornerstone 仪器
@@ -367,6 +370,44 @@ cornerstone-cli tcp logon --host 127.0.0.1 --port 54321 --user demo --password d
 - **网页功能**（与分析/诊断/设置/仪器各页）：与拆分前一致；REST 清单见 Bridge `http_api.py`。`/legacy` 旧版队列页已重定向到 `/`。
 
 **主要 REST**（均由 Bridge 提供，Web 代理）：`GET /api/queue`、`POST /api/queue/send`、`GET /api/status`、`GET|PUT /api/settings`、`GET /api/config`、`GET /api/environment/ambients`、`GET /api/diagnostic/`*、`GET /api/instrument/`*、`GET /api/settings/transports` 等。
+
+## CornerstoneQueue（缓存样品悬浮窗）
+
+独立 **WinUI 3** 程序（`CornerstoneQueue/CornerstoneQueue.sln`），仅通过 HTTP 消费 Bridge API，不持有 TCP 网关。详细阶段见 [PLAN.md §1](PLAN.md#1-缓存样品指令悬浮窗独立程序)。
+
+### 已实现（M1–M3）
+
+| 能力 | 说明 |
+| --- | --- |
+| 队列只读 | `GET /api/queue`，自动/手动刷新；数据未变时不重绘列表（避免闪烁） |
+| 发送至仪器 | 多选 + `POST /api/queue/send`；底部单行结果摘要 |
+| 状态一行 | `GET /api/status` + `GET /api/config`（上游/队列/RCS、未配置 web 账号提示） |
+| 精简 UI | 顶栏状态一行、试样一行（`样品名 → 说明`）、底栏结果一行；默认小窗 |
+| 设置（M3） | Bridge URL、状态/队列轮询间隔、置顶、透明度、字号/窗体缩放、断线重连 |
+| 贴边收纳 | 拖至屏幕上/左/右边缘可滑出隐藏或显示细条唤回（`EdgeDockController`） |
+
+用户配置保存在 `%LocalAppData%\CornerstoneQueue\settings.json`（与 Bridge 的 `cornerstone-bridge.config.json` 无关）。
+
+### 构建与运行
+
+需要 **Visual Studio 2026**（或 2022）+ **.NET 8 SDK** + **Windows App SDK 1.6**（本机可 `winget install Microsoft.WindowsAppRuntime.1.6`）。工程已启用 `WindowsAppSDKSelfContained`，请从生成输出目录运行 exe，或在 VS 中 **F5**。
+
+```text
+CornerstoneQueue\CornerstoneQueue\bin\x64\Debug\net8.0-windows10.0.19041.0\win-x64\CornerstoneQueue.exe
+```
+
+联调前须先启动 Bridge（`bridge_api_port`，默认 `8081`），例如：
+
+```bash
+cornerstone-bridge -c CornerstoneBridge/cornerstone-bridge.config.json
+```
+
+悬浮窗默认连 `http://127.0.0.1:8081`，可在「设置」中修改。
+
+### 未实现 / 后续（M4）
+
+- 系统通知（发送失败、队列满）、全局快捷键唤起  
+- 发送后自动点击 Cornerstone 桌面确认框（脆弱，需单独评估；优先查仪器 RSL 免确认设置）
 
 ## Remote Sample Login Commands（远程样品登录命令）
 
