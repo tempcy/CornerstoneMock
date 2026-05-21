@@ -7,7 +7,7 @@
 - `**CornerstoneCLI/`**：`cornerstone-cli`（协议与 TCP 通信内核）。
 - `**CornerstoneBridge/`**：`cornerstone-bridge`（TCP 网关、XML 解析、`/api/`* REST）。
 - `**CornerstoneWeb/`**：`cornerstone-web`（静态页 + 将 `/api/`* 代理到 Bridge）；`cornerstone-web-dev` 一键起 Bridge + Web。
-- `**CornerstoneQueue/`**：WinUI 3 桌面悬浮窗（缓存样品队列，仅 HTTP 调 Bridge REST）。
+- `**CornerstoneQueue/`**：WinUI 3 桌面悬浮窗（缓存样品队列，HTTP 调 Bridge REST；可选仪器 UI 自动点击确认）。
 
 下文所述 **Python 版通信内核** 与配套工具位于上述三个子目录中，用于替代/复用原客户端中的核心通信逻辑：
 
@@ -24,7 +24,7 @@
 | **CLI**    | `cornerstone-cli`                 | 直连仪器 TCP 或云端 HTTP；脚本与协议调试。                        |
 | **Bridge** | `cornerstone-bridge`              | TCP 网关 + `/api/`* REST（队列、instrument_rq、解析 JSON）。 |
 | **Web**    | `cornerstone-web`                 | 静态 SPA；`/api/`* 反向代理到 Bridge。                     |
-| **Queue**  | `CornerstoneQueue`（VS 生成 exe）   | 精简悬浮窗：队列查看/发送、状态一行、连 Bridge `:8081`。              |
+| **Queue**  | `CornerstoneQueue`（VS 生成 exe）   | 精简悬浮窗：队列查看/发送、状态一行、连 Bridge `:8081`；可选 FlaUI 自动点击仪器确认。 |
 | **本地开发**   | `cornerstone-web-dev` / `dev.ps1` | 同进程启动 Bridge + Web（读 Bridge + Web 两份配置，或兼容旧版单文件）。 |
 
 
@@ -396,7 +396,7 @@ cornerstone-cli tcp logon --host 127.0.0.1 --port 54321 --user demo --password d
 
 独立 **WinUI 3** 程序（`CornerstoneQueue/CornerstoneQueue.sln`），仅通过 HTTP 消费 Bridge API，不持有 TCP 网关。详细阶段见 [PLAN.md §1](PLAN.md#1-缓存样品指令悬浮窗独立程序)。
 
-### 已实现（M1–M3）
+### 已实现（M1–M3 + 仪器 UI 自动点击）
 
 | 能力 | 说明 |
 | --- | --- |
@@ -406,8 +406,11 @@ cornerstone-cli tcp logon --host 127.0.0.1 --port 54321 --user demo --password d
 | 精简 UI | 顶栏状态一行、试样一行（`样品名 → 说明`）、底栏结果一行；默认小窗 |
 | 设置（M3） | Bridge URL、状态/队列轮询间隔、置顶、透明度、字号/窗体缩放、断线重连 |
 | 贴边收纳 | 拖至屏幕上/左/右边缘可滑出隐藏或显示细条唤回（`EdgeDockController`） |
+| 仪器 UI 自动点击 | 发送成功后可选：FlaUI 点击 Cornerstone「消息」→「添加试样」（设置中开关、AutomationId、延时；**Inspect 检查控件** / **测试点击**）。默认关闭，需按本机仪器版本校准 |
 
-用户配置保存在 `%LocalAppData%\CornerstoneQueue\settings.json`（与 Bridge 的 `cornerstone-bridge.config.json` 无关）。
+用户配置保存在 `%LocalAppData%\CornerstoneQueue\settings.json`（与 Bridge 的 `cornerstone-bridge.config.json` 无关）。相关字段：`autoClickInstrumentUi`、`instrumentWindowTitleContains`、`notificationButtonAutomationId`、`addSampleButtonAutomationId`、`uiClickDelay*` 等。
+
+**不在范围内（已取消）**：Windows 系统通知（发送失败/队列满 Toast）、全局快捷键唤起悬浮窗。
 
 ### 构建与运行
 
@@ -426,11 +429,6 @@ cornerstone-bridge -c CornerstoneBridge/cornerstone-bridge.config.json
 ```
 
 悬浮窗默认连 `http://127.0.0.1:8081`，可在「设置」中修改。
-
-### 未实现 / 后续（M4）
-
-- 系统通知（发送失败、队列满）、全局快捷键唤起  
-- 发送后自动点击 Cornerstone 桌面确认框（脆弱，需单独评估；优先查仪器 RSL 免确认设置）
 
 ## Remote Sample Login Commands（远程样品登录命令）
 

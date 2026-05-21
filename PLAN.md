@@ -8,8 +8,7 @@
 | 组件                   | 阶段    | 状态                                                                     |
 | -------------------- | ----- | ---------------------------------------------------------------------- |
 | Bridge / Web         | 0–1   | ✅ 分包、独立进程、配置拆分为 `cornerstone-bridge.config` + `cornerstone-web.config` |
-| **CornerstoneQueue** | M1–M3 | ✅ 见下文 §1                                                               |
-| **CornerstoneQueue** | M4    | ⏳ 通知、全局快捷键；自动点击仪器 UI 仅讨论未做                                             |
+| **CornerstoneQueue** | M1–M3 + 仪器 UI 自动点击 | ✅ 见下文 §1（发送成功后可选 FlaUI 点击确认；**不**做系统通知/全局快捷键） |
 | Bridge 北向            | P2+   | ⏳ Modbus/MQTT                                                          |
 | CornerstoneAgent     | A1+   | ⏳ 未启动                                                                  |
 
@@ -101,7 +100,7 @@ flowchart LR
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | **0** ✅  | 仓内逻辑分包：`cornerstone_bridge` 下 `protocol.py` / `parsers.py` / `http_api.py` / `hub.py` / `gateway.py`                                 |
 | **1** ✅  | `cornerstone-bridge` / `cornerstone-web` 独立进程；配置拆为 `cornerstone-bridge.config` + `cornerstone-web.config`；`cornerstone-web-dev` 一键启动 |
-| **1b** ✅ | `CornerstoneQueue` 悬浮窗 M1–M3（WinUI 3，仅 HTTP 调 Bridge REST）                                                                           |
+| **1b** ✅ | `CornerstoneQueue` 悬浮窗 M1–M3 + 仪器 UI 自动点击（WinUI 3，HTTP 调 Bridge REST）                                                                  |
 | **2**    | Bridge 增加 Modbus/MQTT（映射与 `instrument_rq` 读数共用）                                                                                      |
 | **3**    | Agent 只依赖 Bridge API；不再碰 TCP Cookie                                                                                                  |
 
@@ -193,7 +192,7 @@ flowchart LR
 | **M1**     | 只读：轮询/手动刷新队列，展示连接状态                | 与 Web 队列数据一致     | ✅   |
 | **M2**     | 多选 +「发送至仪器」+ 结果提示（成功/上游 XML 摘要）    | 行为与 Web「发送至仪器」一致 | ✅   |
 | **M3**     | 设置页（Bridge URL、刷新间隔、窗口置顶/透明度）；断线重连 | 7×24 挂机可用        | ✅   |
-| **M4**（可选） | 系统通知（发送失败、队列满）、快捷键全局唤起             | 提升产线体验           | ⏳   |
+| **仪器 UI 自动点击** | 发送成功后可选点击 Cornerstone 消息/添加试样（FlaUI；设置内 Inspect/测试） | 与 Web 发送行为一致时可减少手工确认 | ✅   |
 
 
 ### 已实现要点（`CornerstoneQueue/`）
@@ -201,15 +200,17 @@ flowchart LR
 - **技术**：WinUI 3（Windows App SDK 1.6）、`net8.0-windows10.0.19041.0`、x64；`WindowsAppSDKSelfContained` 便于未预装运行时的本机部署。
 - **API**：`GET /api/queue`、`POST /api/queue/send`、`GET /api/status`、`GET /api/config`；默认 Bridge `http://127.0.0.1:8081`（设置可改）。
 - **UI**：顶栏单行状态、列表每试样一行（`样品名 → 说明`）、底栏单行发送结果；队列指纹未变时不刷新列表（防闪烁）。
-- **M3 设置**：`%LocalAppData%\CornerstoneQueue\settings.json` — Bridge 基址、状态/队列轮询秒数、置顶、透明度、字号与窗体缩放、断线重连间隔。
+- **M3 设置**：`%LocalAppData%\CornerstoneQueue\settings.json` — Bridge 基址、状态/队列轮询秒数、置顶、透明度、字号与窗体缩放、断线重连间隔；仪器 UI 自动点击相关项见上。
 - **增强（超出原 M3 文案）**：屏幕边缘拖放收纳（上侧滑出屏外，左右侧细条唤回）；禁用系统贴靠布局干扰（`SystemSnapDisabler`）。
+- **仪器 UI 自动点击（✅）**：`InstrumentUiAutomationService`（FlaUI UIA3）；设置中开关「发送后自动点击仪器 UI」、窗口标题/AutomationId、步骤延时；**Inspect 检查控件** / **测试点击**（`InstrumentUiInspectWindow`）。默认关闭，因仪器版本与分辨率差异需现场校准。
+- **明确不做**：Windows **系统通知**（发送失败、队列满 Toast）、**全局快捷键**唤起悬浮窗——已从路线图移除，不再开发。
 - **构建**：`CornerstoneQueue.sln`，Visual Studio 2026/2022；说明见根目录 [README.md](README.md#cornerstonequeue缓存样品悬浮窗)。
 
 ### 风险与约束
 
 - Bridge 未对 TCP 客户端做鉴权时，悬浮窗应仅连**内网**。
 - 若未配置网页账号（`web_user` / `web_password`），发送会失败，需在 UI 明确提示（状态栏/发送结果已提示）。
-- **仪器桌面确认**：`AddSamples` 协议成功（`ErrorCode=0`）后，Cornerstone 本机仍可能需鼠标确认；**未**做自动点击（M4/专项评估）；优先查仪器 RSL 免确认或补充协议命令。
+- **仪器桌面确认**：协议 `ErrorCode=0` 后本机 UI 仍可能需确认；可在设置中启用 **自动点击仪器 UI**（脆弱，依赖 AutomationId/控件树）。仍建议优先查仪器 RSL 免确认；失败时查看发送结果栏中的「UI 点击」摘要。
 
 ---
 
@@ -318,15 +319,15 @@ flowchart LR
 
 | 优先级    | 项目                            | 理由                   | 粗估（1 人） |
 | ------ | ----------------------------- | -------------------- | ------- |
-| **高**  | 1 悬浮窗 M1–M3                   | M1–M3 已落地；M4 与产线硬化待定 | —       |
+| **高**  | 1 悬浮窗 M1–M3 + UI 自动点击        | 已落地；产线校准与硬化待定     | —       |
 | **中**  | 2 Bridge P2–P3（Modbus/MQTT）   | 打通 OT/IT             | 4–6 周   |
 | **中高** | 3 Agent A1–A2                 | 规则审核不依赖 AI           | 3–4 周   |
-| **后续** | 3 A3 AI、2 P4 写 Modbus、1 M4 增强 | 安全与合规评审              | 各 2–4 周 |
+| **后续** | 3 A3 AI、2 P4 写 Modbus、Queue 产线硬化 | 安全与合规评审              | 各 2–4 周 |
 
 
 ### 建议里程碑
 
-1. **Q1 末**：~~悬浮窗 beta~~ **悬浮窗 M1–M3 已可用**；Bridge/Web 配置拆分已完成；后续 M4（通知/快捷键）与产线反馈迭代。
+1. **Q1 末**：~~悬浮窗 beta~~ **悬浮窗 M1–M3 与仪器 UI 自动点击已可用**；Bridge/Web 配置拆分已完成；后续产线反馈与安装包迭代。
 2. **Q2 中**：Modbus/MQTT 只读点表 v1 + Agent 规则监控试点。
 3. **Q2 末**：Agent 审核报告 v1 + AI 可选 POC。
 4. **Q3**：多厂家适配插件、生产硬化（鉴权、TLS、审计）。
@@ -341,7 +342,7 @@ flowchart LR
 | `CornerstoneCLI` / `cornerstone-cli`       | 共享协议库                                                                                           |
 | `CornerstoneBridge` / `cornerstone-bridge` | 网关 + 解析 + REST（`cornerstone-bridge`）；后续 Modbus/MQTT                                             |
 | `CornerstoneWeb` / `**cornerstone-web`**   | 静态 UI + 可选 BFF；入口 `cornerstone-web`、`cornerstone-web-dev`                                       |
-| `CornerstoneQueue`                         | WinUI 3 悬浮窗（M1–M3 ✅）；`CornerstoneQueue.sln`；设置见 `%LocalAppData%\CornerstoneQueue\settings.json` |
+| `CornerstoneQueue`                         | WinUI 3 悬浮窗（M1–M3 + 可选 UI 自动点击 ✅）；`CornerstoneQueue.sln`；设置见 `%LocalAppData%\CornerstoneQueue\settings.json` |
 | `installer/`                               | PyInstaller + Inno Setup：Bridge 必选，Web/Queue/CLI 可选；Bridge/Web 可注册系统服务（默认全选） |
 | `CornerstoneAgent`                         | 边缘 Agent                                                                                        |
 
@@ -353,8 +354,8 @@ flowchart LR
 
 ## 待细化（按需展开）
 
-- 悬浮窗 **M4**：通知、全局快捷键；可选 UI 自动化（点击仪器确认）的风险评估与校准流程
 - 安装包：服务账户权限、升级/覆盖安装策略、Python 运行时与 WinUI 依赖的离线体积优化
+- 悬浮窗：仪器 UI 自动点击在不同 Cornerstone 版本上的控件树差异与校准文档
 - Bridge：Modbus 寄存器表初稿、MQTT 主题命名规范；REST 与现 `/api/`* 差异清单
 - Agent：审核报告 JSON Schema、告警级别与静默策略
 
