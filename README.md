@@ -28,8 +28,6 @@
 | **本地开发**   | `cornerstone-web-dev` / `dev.ps1` | 同进程启动 Bridge + Web（读 Bridge + Web 两份配置，或兼容旧版单文件）。 |
 
 
-`cornerstone-mock` / `cornerstone-mock-dev` 仍可用，内部转调 `cornerstone-web-dev`（**已弃用**，仅兼容旧脚本）。
-
 **典型组合**：`cornerstone-web-dev` 或分开起 Bridge + Web；TCP 客户端与 `cornerstone-cli tcp …` 的 `--host/--port` 指向配置中的 `**host`/`port`**（网关端口，非 `web_port`）。
 
 ### 运行时架构（当前）
@@ -49,8 +47,8 @@ CornerstoneQueue ───┤
 
 | 文件                                                         | 职责                                                                  |
 | ---------------------------------------------------------- | ------------------------------------------------------------------- |
-| `CornerstoneBridge/cornerstone-bridge.config.example.json` | 网关 TCP、`upstream_*`、REST `bridge_api_*`、`web_user`/`web_password` 等 |
-| `CornerstoneWeb/cornerstone-web.config.example.json`       | 浏览器 `web_*`、Web 代理目标的 `bridge_api_*`                                |
+| `CornerstoneBridge/cornerstone-bridge.config.example.json` | **本机安装默认**（`upstream_*` / 特权 IP 均为 `127.0.0.1`）；安装包复制到 `%APPDATA%\CornerstoneMock\`。异地/防火墙调试请改 **本地** `cornerstone-bridge.config.json`，勿改 example |
+| `CornerstoneWeb/cornerstone-web.config.example.json`       | 浏览器 `web_*`、Web 代理目标的 `bridge_api_*`（安装包会复制到同目录） |
 
 
 ## 安装
@@ -64,6 +62,30 @@ python -m pip install -e ./CornerstoneWeb
 ```
 
 仅需命令行时，可只安装 `CornerstoneCLI`。
+
+## Windows 安装程序（exe + 安装包）
+
+使用 `installer/` 目录可打包**全部可执行程序**并生成 Inno Setup 安装向导：
+
+```powershell
+cd installer
+.\build-release.ps1
+```
+
+生成 `installer\dist\CornerstoneMock-Setup-0.1.0.exe`。说明见 [installer/README.md](installer/README.md)。
+
+默认程序目录 `C:\Program Files\CornerstoneMock\`；配置与队列缓存 `%APPDATA%\CornerstoneMock\`（安装时从包内 example 复制）。安装结束前会检测端口与特权 IP，并引导打开配置目录修改。
+
+| 安装组件 | 默认 | 说明 |
+| --- | --- | --- |
+| **Bridge** | **必选**（不可取消） | `cornerstone-bridge.exe`（PyInstaller 目录发行版） |
+| **Web** | 选中 | `cornerstone-web.exe` |
+| **Queue** | 选中 | `CornerstoneQueue.exe`（自包含 .NET 8 + WASDK，仪器机无需另装运行时） |
+| **CLI** | 选中 | `cornerstone-cli.exe` |
+| **Bridge 系统服务** | 选中 | 服务名 `CornerstoneBridge`，配置 `%APPDATA%\CornerstoneMock\` |
+| **Web 系统服务** | 选中 | 服务名 `CornerstoneWeb` |
+
+安装后请编辑 `%APPDATA%\CornerstoneMock\cornerstone-bridge.config.json`（上游仪器地址、`privileged_add_samples_host`、端口等）。开发调试仍可用 pip 可编辑安装，不必使用安装包。
 
 ## 启用 Web
 
@@ -173,7 +195,6 @@ cornerstone-web-dev --web-port 9000
 | 页面能开但 `/api/`* 502         | 确认 Bridge 已启动且 `bridge_api_port` 与配置一致                                               |
 | 发送样品失败                     | 检查 `web_user` / `web_password` 是否与仪器远程账号一致                                           |
 | 改 `web_port` / `port` 不生效  | 修改监听端口后需**重启**对应进程（`cornerstone-web-dev` 或 Bridge/Web）                               |
-| 仍使用旧命令                     | `cornerstone-mock-dev` 会转调 `cornerstone-web-dev`，建议改用新入口                             |
 
 
 ## cornerstone-cli 全部命令
@@ -391,6 +412,8 @@ cornerstone-cli tcp logon --host 127.0.0.1 --port 54321 --user demo --password d
 ### 构建与运行
 
 需要 **Visual Studio 2026**（或 2022）+ **.NET 8 SDK** + **Windows App SDK 1.6**（本机可 `winget install Microsoft.WindowsAppRuntime.1.6`）。工程已启用 `WindowsAppSDKSelfContained`，请从生成输出目录运行 exe，或在 VS 中 **F5**。
+
+**VS Release 调试**：若提示“符号未加载”属正常（Release 优化 +“仅我的代码”）。若进程退出 `0xC000027B`，多为工作目录不是输出目录或 XAML 启动异常；工程已设置 `LocalDebuggerWorkingDirectory=$(TargetDir)`。请取消“仅我的代码”或改用 Debug 配置调试；崩溃详情见 `%LocalAppData%\CornerstoneQueue\startup-crash.log`。
 
 ```text
 CornerstoneQueue\CornerstoneQueue\bin\x64\Debug\net8.0-windows10.0.19041.0\win-x64\CornerstoneQueue.exe

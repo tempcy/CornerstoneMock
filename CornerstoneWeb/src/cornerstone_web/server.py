@@ -52,6 +52,10 @@ async def run_web(*, web_host: str, web_port: int, bridge_base_url: str) -> None
 
 
 def main() -> int:
+    from cornerstone_cli.single_instance import ensure_single_instance
+
+    ensure_single_instance("cornerstone-web", log_prefix="web")
+
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("-c", "--config", type=str, default=None, metavar="PATH", help=argparse.SUPPRESS)
     pre_args, argv_rest = pre.parse_known_args()

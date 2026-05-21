@@ -6,6 +6,11 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .paths import (
+    appdata_cornerstone_dir,
+    default_bridge_config_path,
+    expand_config_path,
+)
 from .protocol import _normalize_encoding
 
 _BRIDGE_PKG_DIR = Path(__file__).resolve().parents[2]
@@ -45,11 +50,14 @@ def resolve_explicit_config_path(path: str) -> Optional[Path]:
 
 
 def resolve_bridge_config_path() -> Optional[Path]:
-    """查找 Bridge JSON：``CORNERSTONE_BRIDGE_CONFIG`` → 当前目录 → 包目录示例。"""
+    """查找 Bridge JSON：环境变量 → ``%APPDATA%\\CornerstoneMock`` → cwd → 包目录。"""
     env = (os.environ.get("CORNERSTONE_BRIDGE_CONFIG") or "").strip()
     if env:
-        p = Path(env).expanduser()
+        p = Path(expand_config_path(env))
         return p if p.is_file() else None
+    pd = default_bridge_config_path()
+    if pd.is_file():
+        return pd
     cwd = Path.cwd()
     for name in _BRIDGE_CONFIG_FILENAMES:
         cand = cwd / name
@@ -127,7 +135,22 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
         if k == "upstream_auto_reconnect":
             out["no_upstream_auto_reconnect"] = not bool(v)
             continue
+        if k == "add_samples_queue_persist_file":
+            out[k] = expand_config_path(str(v)) if v is not None else ""
+            continue
         if v is None:
             continue
         out[k] = v if isinstance(v, str) else str(v)
     return out
+
+
+def ensure_app_data_config_dir() -> Path:
+    """确保 ``%APPDATA%\\CornerstoneMock`` 存在。"""
+    d = appdata_cornerstone_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def ensure_program_data_config_dir() -> Path:
+    """已弃用别名，等同于 :func:`ensure_app_data_config_dir`。"""
+    return ensure_app_data_config_dir()

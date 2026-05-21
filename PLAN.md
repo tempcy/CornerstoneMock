@@ -342,6 +342,7 @@ flowchart LR
 | `CornerstoneBridge` / `cornerstone-bridge` | 网关 + 解析 + REST（`cornerstone-bridge`）；后续 Modbus/MQTT                                             |
 | `CornerstoneWeb` / `**cornerstone-web`**   | 静态 UI + 可选 BFF；入口 `cornerstone-web`、`cornerstone-web-dev`                                       |
 | `CornerstoneQueue`                         | WinUI 3 悬浮窗（M1–M3 ✅）；`CornerstoneQueue.sln`；设置见 `%LocalAppData%\CornerstoneQueue\settings.json` |
+| `installer/`                               | PyInstaller + Inno Setup：Bridge 必选，Web/Queue/CLI 可选；Bridge/Web 可注册系统服务（默认全选） |
 | `CornerstoneAgent`                         | 边缘 Agent                                                                                        |
 
 
@@ -353,6 +354,7 @@ flowchart LR
 ## 待细化（按需展开）
 
 - 悬浮窗 **M4**：通知、全局快捷键；可选 UI 自动化（点击仪器确认）的风险评估与校准流程
+- 安装包：服务账户权限、升级/覆盖安装策略、Python 运行时与 WinUI 依赖的离线体积优化
 - Bridge：Modbus 寄存器表初稿、MQTT 主题命名规范；REST 与现 `/api/`* 差异清单
 - Agent：审核报告 JSON Schema、告警级别与静默策略
 

@@ -6,13 +6,13 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from cornerstone_bridge.paths import default_web_config_path, expand_config_path
+
 _WEB_PKG_DIR = Path(__file__).resolve().parents[2]
 
 _WEB_CONFIG_FILENAMES = (
     "cornerstone-web.config.json",
     "cornerstone-web.config.example.json",
-    "cornerstone-mock.config.json",
-    "cornerstone-mock.config.example.json",
 )
 
 
@@ -33,12 +33,15 @@ def resolve_explicit_config_path(path: str) -> Optional[Path]:
 
 
 def resolve_web_config_path() -> Optional[Path]:
-    """查找 Web JSON：``CORNERSTONE_WEB_CONFIG`` / ``CORNERSTONE_MOCK_CONFIG`` → cwd → 包目录。"""
-    for env_name in ("CORNERSTONE_WEB_CONFIG", "CORNERSTONE_MOCK_CONFIG"):
+    """查找 Web JSON：环境变量 → ``%APPDATA%\\CornerstoneMock`` → cwd → 包目录。"""
+    for env_name in ("CORNERSTONE_WEB_CONFIG",):
         env = (os.environ.get(env_name) or "").strip()
         if env:
-            p = Path(env).expanduser()
+            p = Path(expand_config_path(env))
             return p if p.is_file() else None
+    pd = default_web_config_path()
+    if pd.is_file():
+        return pd
     cwd = Path.cwd()
     for name in _WEB_CONFIG_FILENAMES:
         cand = cwd / name

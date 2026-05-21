@@ -50,23 +50,36 @@
       x:Name="QueueList"
       MinHeight="72"
       MaxHeight="280"
+      FontFamily="{StaticResource QueueMonoFont}"
       SelectionMode="Extended"
-      IsItemClickEnabled="False">
+      IsItemClickEnabled="True"
+      DoubleTapped="OnQueueListDoubleTapped">
       <ListView.ItemContainerStyle>
         <Style TargetType="ListViewItem">
-          <Setter Property="MinHeight" Value="30" />
-          <Setter Property="Padding" Value="8,4" />
+          <Setter Property="MinHeight" Value="24" />
+          <Setter Property="Padding" Value="4,2" />
           <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         </Style>
       </ListView.ItemContainerStyle>
       <ListView.ItemTemplate>
         <DataTemplate>
-          <TextBlock
-            x:Name="ItemLine"
-            Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-            Text="{Binding DisplayLine}"
-            TextTrimming="CharacterEllipsis"
-            TextWrapping="NoWrap" />
+          <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="120" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock
+              FontFamily="{StaticResource QueueMonoFont}"
+              Text="{Binding SampleNameDisplay}"
+              TextTrimming="CharacterEllipsis"
+              TextWrapping="NoWrap" />
+            <TextBlock
+              Grid.Column="1"
+              FontFamily="{StaticResource QueueMonoFont}"
+              Text="{Binding SampleDescriptionDisplay}"
+              TextTrimming="CharacterEllipsis"
+              TextWrapping="NoWrap" />
+          </Grid>
         </DataTemplate>
       </ListView.ItemTemplate>
     </ListView>
