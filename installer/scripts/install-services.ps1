@@ -44,6 +44,7 @@ if (-not (Test-Path $nssm)) {
 
 $logDir = Join-Path $ConfigDir "logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+Write-Host "[install-services] AppDir=$AppDir ConfigDir=$ConfigDir Bridge=$InstallBridge Web=$InstallWeb"
 Write-InstallSvcLog "start AppDir=$AppDir InstallBridge=$InstallBridge InstallWeb=$InstallWeb admin=True"
 
 function Invoke-Nssm {
@@ -57,7 +58,9 @@ function Invoke-Nssm {
     }
     $code = $LASTEXITCODE
     $cmd = "nssm $($NssmArgs -join ' ')"
-    Write-InstallSvcLog "$cmd -> exit=$code $(if ($output) { ($output -join ' | ') } else { '' })"
+    $detail = if ($output) { ($output -join ' | ') } else { '' }
+    Write-Host "  nssm: $cmd -> exit=$code $detail"
+    Write-InstallSvcLog "$cmd -> exit=$code $detail"
     if ($code -ne 0) {
         throw "NSSM failed (exit $code): $cmd ; $($output -join ' ')"
     }
@@ -77,15 +80,15 @@ function Ensure-Removed([string]$Name) {
     # 用 sc delete 卸载旧服务；勿用 nssm stop/remove（非提升时 OpenService 会拒绝访问）
     $scOut = & sc.exe delete $Name 2>&1 | ForEach-Object { "$_" }
     Write-InstallSvcLog "sc delete $Name -> $LASTEXITCODE $(if ($scOut) { $scOut -join ' | ' } else { '' })"
-    $deadline = (Get-Date).AddSeconds(20)
+    $deadline = (Get-Date).AddSeconds(8)
     while ((Get-Date) -lt $deadline) {
         if (-not (Get-Service -Name $Name -ErrorAction SilentlyContinue)) {
             Write-InstallSvcLog "Ensure-Removed $Name : gone"
             return
         }
-        Start-Sleep -Milliseconds 500
+        Start-Sleep -Milliseconds 300
     }
-    throw "Could not remove existing service $Name (run this script as Administrator)"
+    Write-InstallSvcLog "Ensure-Removed $Name : still listed after sc delete; continuing install"
 }
 
 function Install-OneService {
@@ -120,10 +123,7 @@ function Install-OneService {
     Invoke-Nssm set $Name Description $Description
     Invoke-Nssm set $Name Start SERVICE_AUTO_START
     Invoke-Nssm set $Name ObjectName LocalSystem
-<<<<<<< HEAD
     Invoke-Nssm set $Name AppEnvironmentExtra "PYTHONUTF8=1`nPYTHONIOENCODING=utf-8"
-=======
->>>>>>> 3fa2e1c7c126607004b404060edf4d5e3dc3bd97
     Invoke-Nssm set $Name AppStdout (Join-Path $logDir "$LogPrefix-stdout.log")
     Invoke-Nssm set $Name AppStderr (Join-Path $logDir "$LogPrefix-stderr.log")
     Invoke-Nssm set $Name AppRotateFiles 1
@@ -136,7 +136,7 @@ function Install-OneService {
     }
 
     $svc = Get-Service -Name $Name
-    Write-Host "[install] Registered service: $Name ($DisplayName) Status=$($svc.Status)"
+    Write-Host "[install-services] 已注册: $Name ($DisplayName) 状态=$($svc.Status)" -ForegroundColor Green
     Write-InstallSvcLog "done $Name Status=$($svc.Status)"
 }
 

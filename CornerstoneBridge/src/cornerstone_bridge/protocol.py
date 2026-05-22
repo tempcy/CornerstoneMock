@@ -31,6 +31,22 @@ def _normalize_encoding(value: str) -> str:
     raise argparse.ArgumentTypeError(f"不支持的 encoding: {value}（可选: utf16/utf8/ascii）")
 
 
+_CLIENT_GONE_EXC = (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)
+
+
+async def _safe_stream_drain(writer: asyncio.StreamWriter) -> bool:
+    """向客户端写完后 drain；对端已断开时静默返回 False。"""
+    try:
+        await writer.drain()
+        return True
+    except _CLIENT_GONE_EXC:
+        return False
+    except OSError as e:
+        if getattr(e, "winerror", None) in (64, 10054, 995):
+            return False
+        raise
+
+
 async def _async_close_stream_writer(writer: Optional[asyncio.StreamWriter]) -> None:
     """``close()`` 后必须 ``await wait_closed()``，避免 Windows Proactor 在事件循环关闭后析构报警。"""
     if writer is None or writer.is_closing():

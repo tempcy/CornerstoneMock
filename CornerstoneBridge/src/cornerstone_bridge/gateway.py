@@ -20,6 +20,7 @@ from xml.sax.saxutils import escape as _xml_escape
 
 from cornerstone_cli.communications.tcp_engine import HEARTBEAT_XML
 
+from .bridge_logging import get_logger, log_gateway_xml
 from .hub import GatewayHub, PendingAddSamples
 from .hub_helpers import _peer_host_from_peername, _peer_host_matches_privileged
 from .parsers import _xml_local_tag
@@ -33,6 +34,9 @@ from .protocol import (
     _synthetic_logon_success,
 )
 
+_log = get_logger("client")
+
+
 async def _handle_client(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
@@ -42,7 +46,7 @@ async def _handle_client(
 ) -> None:
     peer = writer.get_extra_info("peername")
     peer_s = str(peer)
-    print(f"[gateway] client connected: {peer_s}")
+    _log.info("client connected: %s", peer_s)
 
     async_task: Optional[asyncio.Task[None]] = None
 
@@ -67,15 +71,15 @@ async def _handle_client(
                 continue
             payload_bytes = await reader.readexactly(length)
             text = payload_bytes.decode(enc, errors="replace")
-            print(f"[gateway] client IN: {text[:400]}{'...' if len(text) > 400 else ''}")
 
             tag = _xml_local_tag(_root_tag(text))
             cookie = _parse_cookie_from_payload(text)
+            log_gateway_xml(_log, "client IN", text, cookie=cookie)
 
             if tag == "Logon":
                 if hub._synthetic_logon_after_first and hub._logon_seen_upstream_success:
                     resp = _synthetic_logon_success(cookie)
-                    print(f"[gateway] synthetic Logon for {peer_s}")
+                    _log.info("synthetic Logon for %s", peer_s)
                     writer.write(_frame(resp, enc))
                     await writer.drain()
                     continue
@@ -88,9 +92,10 @@ async def _handle_client(
                     peer_host, hub._privileged_add_samples_host
                 )
                 if direct_upstream:
-                    print(
-                        f"[gateway] AddSamples direct upstream (privileged host) "
-                        f"peer={peer_s} host={peer_host!r}"
+                    _log.info(
+                        "AddSamples direct upstream (privileged host) peer=%s host=%r",
+                        peer_s,
+                        peer_host,
                     )
                     await hub.forward_client_frame(text, writer)
                     continue
@@ -106,7 +111,7 @@ async def _handle_client(
                     )
                 )
                 resp = _synthetic_add_samples_held(cookie)
-                print(f"[gateway] AddSamples held -> queue size={len(hub._pending_add_samples)}")
+                _log.info("AddSamples held -> queue size=%d", len(hub._pending_add_samples))
                 writer.write(_frame(resp, enc))
                 await writer.drain()
                 continue
@@ -120,5 +125,4 @@ async def _handle_client(
             with contextlib.suppress(Exception):
                 await async_task
         await _async_close_stream_writer(writer)
-        print(f"[gateway] client disconnected: {peer_s}")
-
+        _log.info("client disconnected: %s", peer_s)

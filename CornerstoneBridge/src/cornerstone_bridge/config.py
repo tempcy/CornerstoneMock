@@ -104,6 +104,13 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
         "privileged_add_samples_host",
         "persist_add_samples_queue",
         "add_samples_queue_persist_file",
+        "log_level",
+        "log_verbose_gateway",
+        "log_file",
+        "log_file_level",
+        "log_file_max_mb",
+        "log_file_backup_count",
+        "log_throttle_interval_s",
     }
     text = config_path.read_text(encoding="utf-8")
     raw = json.loads(text)
@@ -123,6 +130,19 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
         if k == "async_message_interval":
             out[k] = float(v)
             continue
+        if k == "log_verbose_gateway":
+            out[k] = bool(v)
+            continue
+        if k in ("log_file_max_mb", "log_throttle_interval_s"):
+            out[k] = float(v)
+            continue
+        if k == "log_file_backup_count":
+            out[k] = int(v)
+            continue
+        if k in ("log_level", "log_file", "log_file_level"):
+            if v is not None and str(v).strip() != "":
+                out[k] = str(v).strip()
+            continue
         if k in ("no_synthetic_logon", "persist_add_samples_queue"):
             out[k] = bool(v)
             continue
@@ -135,7 +155,7 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
         if k == "upstream_auto_reconnect":
             out["no_upstream_auto_reconnect"] = not bool(v)
             continue
-        if k == "add_samples_queue_persist_file":
+        if k in ("add_samples_queue_persist_file", "log_file"):
             out[k] = expand_config_path(str(v)) if v is not None else ""
             continue
         if v is None:

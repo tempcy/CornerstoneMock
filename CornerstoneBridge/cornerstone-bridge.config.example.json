@@ -16,5 +16,12 @@
   "async_message_interval": 0,
   "instrument_long_connection": true,
   "web_user": "remote",
-  "web_password": "control"
+  "web_password": "control",
+  "log_level": "info",
+  "log_verbose_gateway": false,
+  "log_file": "%APPDATA%\\CornerstoneMock\\logs\\bridge.log",
+  "log_file_level": "info",
+  "log_file_max_mb": 2,
+  "log_file_backup_count": 3,
+  "log_throttle_interval_s": 300
 }

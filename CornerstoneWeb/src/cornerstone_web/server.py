@@ -32,7 +32,17 @@ async def _async_drain_remaining_tasks() -> None:
 
 async def run_web(*, web_host: str, web_port: int, bridge_base_url: str) -> None:
     async def http_cb(r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
-        await handle_web_http(r, w, bridge_base_url=bridge_base_url)
+        try:
+            await handle_web_http(r, w, bridge_base_url=bridge_base_url)
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+            pass
+        except OSError as e:
+            if getattr(e, "winerror", None) not in (64, 10054, 995):
+                print(f"[web] http handler: {e}", file=sys.stderr)
+        except asyncio.TimeoutError:
+            pass
+        except Exception as e:
+            print(f"[web] http handler: {e}", file=sys.stderr)
 
     srv = await asyncio.start_server(http_cb, web_host, web_port)
     addrs = ", ".join(str(s.getsockname()) for s in srv.sockets or [])
@@ -52,15 +62,10 @@ async def run_web(*, web_host: str, web_port: int, bridge_base_url: str) -> None
 
 
 def main() -> int:
-<<<<<<< HEAD
     from cornerstone_cli.console_io import configure_stdio_utf8
     from cornerstone_cli.single_instance import ensure_single_instance
 
     configure_stdio_utf8()
-=======
-    from cornerstone_cli.single_instance import ensure_single_instance
-
->>>>>>> 3fa2e1c7c126607004b404060edf4d5e3dc3bd97
     ensure_single_instance("cornerstone-web", log_prefix="web")
 
     pre = argparse.ArgumentParser(add_help=False)

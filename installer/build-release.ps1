@@ -253,6 +253,7 @@ foreach ($scriptName in @(
         "install-services.ps1",
         "uninstall-services.ps1",
         "post-install.ps1",
+        "merge-config.ps1",
         "validate-install.ps1",
         "register-services.cmd"
     )) {

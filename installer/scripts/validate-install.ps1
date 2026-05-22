@@ -8,7 +8,14 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-Add-Type -AssemblyName System.Windows.Forms | Out-Null
+
+function Write-ValidateLog {
+    param([string]$Message)
+    Write-Host "  $Message"
+    $logDir = Join-Path $ConfigDir "logs"
+    New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+    Add-Content -Path (Join-Path $logDir "validate-install.log") -Value "$(Get-Date -Format o) $Message" -Encoding UTF8
+}
 
 function Read-JsonFile([string]$Path) {
     if (-not (Test-Path $Path)) { return $null }
@@ -19,32 +26,17 @@ function Read-JsonFile([string]$Path) {
 
 function Test-PortFree([int]$Port) {
     if ($Port -lt 1 -or $Port -gt 65535) { return $false, "端口号无效" }
-    $owner = ""
-    try {
-        $conns = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
-        if ($conns.Count -gt 0) {
-            $owningPid = $conns[0].OwningProcess
-            if ($owningPid) {
-                $proc = Get-Process -Id $owningPid -ErrorAction SilentlyContinue
-                if ($proc) {
-                    $owner = '{0} (PID {1})' -f $proc.ProcessName, $owningPid
-                } else {
-                    $owner = "PID $owningPid"
-                }
-            }
-            if ($owner) { return $false, "已被占用: $owner" }
-            return $false, "已被占用"
-        }
-    } catch {
-        # fall through to bind test
-    }
     try {
         $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $Port)
         $l.Start()
         $l.Stop()
         return $true, ""
     } catch {
-        return $false, $_.Exception.Message
+        $msg = $_.Exception.Message
+        if ($msg -match "address already in use|已在使用中|10048") {
+            return $false, "已被占用"
+        }
+        return $false, $msg
     }
 }
 
@@ -114,6 +106,8 @@ function Show-ValidationDialog {
         [string]$WebPath
     )
 
+    Add-Type -AssemblyName System.Windows.Forms
+
     $lines = @(
         "安装前检查发现以下问题。请修改配置后点「取消」重新检测，或点「否」继续安装（服务可能启动失败）。",
         "",
@@ -137,22 +131,21 @@ function Show-ValidationDialog {
     )
 }
 
+Write-ValidateLog "start NonInteractive=$($NonInteractive.IsPresent)"
+
 $bridgeCfgPath = Join-Path $ConfigDir "cornerstone-bridge.config.json"
 $webCfgPath = Join-Path $ConfigDir "cornerstone-web.config.json"
 $bridge = Read-JsonFile $bridgeCfgPath
 $web = Read-JsonFile $webCfgPath
 
 if ($NonInteractive) {
+    Write-ValidateLog "collecting issues"
     $issues, $bp, $wp = Collect-Issues -BridgeCfg $bridge -WebCfg $web
-    $logDir = Join-Path $ConfigDir "logs"
-    New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-    $logPath = Join-Path $logDir "validate-install.log"
     if ($issues.Count -eq 0) {
-        Add-Content -Path $logPath -Value "$(Get-Date -Format o) OK" -Encoding UTF8
+        Write-ValidateLog "OK"
         exit 0
     }
-    $body = @("Port/network warnings (install continues):", "") + $issues
-    Add-Content -Path $logPath -Value "$(Get-Date -Format o) $($body -join [Environment]::NewLine)" -Encoding UTF8
+    Write-ValidateLog ("warnings ({0}): {1}" -f $issues.Count, ($issues -join " ; "))
     exit 0
 }
 

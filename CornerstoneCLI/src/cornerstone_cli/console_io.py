@@ -6,7 +6,7 @@ import sys
 
 
 def configure_stdio_utf8() -> None:
-    """将 stdout/stderr 设为 UTF-8（无法配置时忽略）。"""
+    """将 stdout/stderr 设为 UTF-8（NSSM 捕获日志前应先调用，避免中文乱码）。"""
     for stream in (sys.stdout, sys.stderr):
         if stream is None:
             continue

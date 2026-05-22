@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .hub import GatewayHub
 from .hub_types import PendingAddSamples
-from .protocol import _async_close_stream_writer
+from .protocol import _async_close_stream_writer, _safe_stream_drain
 
 async def _http_send(
     writer: asyncio.StreamWriter,
@@ -31,7 +31,7 @@ async def _http_send(
         f"Connection: close\r\n\r\n"
     )
     writer.write(head.encode("latin-1", errors="replace") + body)
-    await writer.drain()
+    await _safe_stream_drain(writer)
 
 
 def _hub_settings_public_dict(hub: GatewayHub) -> Dict[str, Any]:

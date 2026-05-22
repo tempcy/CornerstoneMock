@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import urllib.parse
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -36,7 +37,14 @@ async def _http_send(
         lines.append(f"{k}: {v}\r\n")
     lines.append("Connection: close\r\n\r\n")
     writer.write("".join(lines).encode("latin-1", errors="replace") + body)
-    await writer.drain()
+    try:
+        await writer.drain()
+    except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+        return
+    except OSError as e:
+        if getattr(e, "winerror", None) in (64, 10054, 995):
+            return
+        raise
 
 
 def _safe_static_path(path: str) -> Optional[Path]:
@@ -131,13 +139,34 @@ async def _proxy_to_bridge(
     ).encode("latin-1", errors="replace") + body
     bw.write(req)
     await bw.drain()
-    resp = await asyncio.wait_for(br.read(16 * 1024 * 1024), timeout=300.0)
-    await _async_close_stream_writer(bw)
+    try:
+        resp = await asyncio.wait_for(br.read(16 * 1024 * 1024), timeout=300.0)
+    except asyncio.TimeoutError:
+        await _async_close_stream_writer(bw)
+        await _http_send(
+            writer,
+            504,
+            json.dumps(
+                {"ok": False, "error": "Bridge 应答超时（>300s），可能仪器忙或请求排队"},
+                ensure_ascii=False,
+            ).encode("utf-8"),
+            "application/json; charset=utf-8",
+        )
+        return
+    finally:
+        await _async_close_stream_writer(bw)
     if not resp:
         await _http_send(writer, 502, b"Empty bridge response", "text/plain; charset=utf-8")
         return
-    writer.write(resp)
-    await writer.drain()
+    try:
+        writer.write(resp)
+        await writer.drain()
+    except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+        return
+    except OSError as e:
+        if getattr(e, "winerror", None) in (64, 10054, 995):
+            return
+        raise
 
 
 async def handle_web_http(

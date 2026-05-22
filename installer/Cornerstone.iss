@@ -12,7 +12,7 @@
 
 #define MyAppName "Cornerstone Mock"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.0"
+  #define MyAppVersion "0.1.1"
 #endif
 #define MyAppPublisher "LECO"
 #define MyAppId "{{A7B3C2E1-9F4D-4A2B-8C1E-5D6F7A8B9C0D}"
@@ -41,6 +41,10 @@ SetupLogging=yes
 ; 官方安装包默认不含简体中文，使用仓库内 languages\ChineseSimplified.isl（来自 issrc Unofficial）
 Name: "chinesesimplified"; MessagesFile: "languages\ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[CustomMessages]
+chinesesimplified.ExistingInstallAppName=Cornerstone Mock
+english.ExistingInstallAppName=Cornerstone Mock
 
 [Types]
 Name: "full"; Description: "完整安装（推荐）"
@@ -79,12 +83,16 @@ Name: "{group}\打开配置目录"; Filename: "{sys}\explorer.exe"; Parameters: 
 Name: "{autodesktop}\Cornerstone Queue"; Filename: "{app}\Queue\CornerstoneQueue.exe"; WorkingDir: "{app}\Queue"; Tasks: desktopicon; Components: queue
 
 [Run]
-Filename: "powershell.exe"; Parameters: "{code:GetPostInstallPsArgs}"; Flags: runhidden waituntilterminated; StatusMsg: "正在完成配置与服务注册..."; Description: "配置与服务"
+; 显示 PowerShell 窗口，便于查看配置合并与服务注册进度（勿用 runhidden）
+Filename: "powershell.exe"; Parameters: "{code:GetPostInstallPsArgs}"; WorkingDir: "{app}\scripts"; Flags: waituntilterminated; StatusMsg: "正在完成配置与服务注册..."; Description: "配置与服务"
 
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\uninstall-services.ps1"" -AppDir ""{app}"""; Flags: runhidden waituntilterminated; RunOnceId: "UninstallServices"
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\uninstall-services.ps1"" -AppDir ""{app}"" -ConfigDir ""{userappdata}\CornerstoneMock"" -PreserveConfig 1"; Flags: runhidden waituntilterminated; RunOnceId: "UninstallServices"
 
 [Code]
+const
+  UninstallRegSubkey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{A7B3C2E1-9F4D-4A2B-8C1E-5D6F7A8B9C0D}_is1';
+
 function BoolToStr(Value: Boolean): String;
 begin
   if Value then
@@ -93,9 +101,84 @@ begin
     Result := '0';
 end;
 
+function GetUninstallExePath(): String;
+var
+  S: String;
+begin
+  Result := '';
+  if RegQueryStringValue(HKLM, UninstallRegSubkey, 'UninstallString', S) then
+    Result := RemoveQuotes(S);
+end;
+
+function PreviousInstallDirExists(): Boolean;
+begin
+  Result := FileExists(ExpandConstant('{autopf}\CornerstoneMock\Bridge\cornerstone-bridge.exe'));
+end;
+
+function ExistingInstallDetected(): Boolean;
+begin
+  { IsUpgrade 在 InitializeSetup 中不可用（语言节尚未加载），改用注册表 + 安装目录检测 }
+  Result := (GetUninstallExePath() <> '') or PreviousInstallDirExists();
+end;
+
+function InitializeSetup(): Boolean;
+var
+  UninstallExe: String;
+  ErrorCode: Integer;
+  Prompt: String;
+begin
+  Result := True;
+  if not ExistingInstallDetected() then
+    Exit;
+
+  Prompt :=
+    '检测到本机已安装 ' + ExpandConstant('{cm:ExistingInstallAppName}') + '。' + #13#10 + #13#10 +
+    '请先卸载原版本后再安装，以免服务或进程占用文件。' + #13#10 +
+    '卸载将停止 CornerstoneBridge / CornerstoneWeb 服务并结束相关进程；' + #13#10 +
+    '用户配置目录（%APPDATA%\CornerstoneMock 下的 *.json 与样品队列）会保留。' + #13#10 + #13#10 +
+    '是否现在运行卸载程序？' + #13#10 +
+    '（建议卸载完成后重新运行本安装包；点击「否」将退出安装）';
+
+  if MsgBox(Prompt, mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDNO then
+  begin
+    Result := False;
+    Exit;
+  end;
+
+  UninstallExe := GetUninstallExePath();
+  if UninstallExe = '' then
+  begin
+    MsgBox(
+      '未找到卸载程序注册信息，但检测到旧版安装文件。' + #13#10 + #13#10 +
+      '请从「设置 → 应用」卸载 Cornerstone Mock，或删除目录后重试：' + #13#10 +
+      ExpandConstant('{autopf}\CornerstoneMock'),
+      mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  if not Exec(UninstallExe, '/VERYSILENT /NORESTART /SUPPRESSMSGBOXES', '', SW_HIDE, ewWaitUntilTerminated, ErrorCode) then
+  begin
+    MsgBox('无法启动卸载程序。请先在「设置 → 应用」中卸载 Cornerstone Mock。', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  Sleep(2500);
+
+  if ExistingInstallDetected() then
+  begin
+    MsgBox(
+      '卸载已执行。若旧版仍未完全移除，请重启电脑或从「设置 → 应用」确认卸载后，' + #13#10 +
+      '再重新运行本安装程序。',
+      mbInformation, MB_OK);
+    Result := False;
+  end;
+end;
+
 function GetPostInstallPsArgs(Param: String): String;
 begin
-  Result := ExpandConstant('-ExecutionPolicy Bypass -File "{app}\scripts\post-install.ps1" ') +
+  Result := ExpandConstant('-NoProfile -ExecutionPolicy Bypass -File "{app}\scripts\post-install.ps1" ') +
     '-AppDir "' + ExpandConstant('{app}') + '" ' +
     '-ConfigDir "' + ExpandConstant('{userappdata}\CornerstoneMock') + '" ' +
     '-InstallBridgeSvc ' + BoolToStr(WizardIsComponentSelected('bridge') and WizardIsTaskSelected('svcbridge')) + ' ' +

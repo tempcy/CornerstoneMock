@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.1
+
+现场联调问题修复（在 0.1.0 基线上）。
+
+### 网关 (Bridge)
+
+- `instrument_rq` 长连接模式不再全局串行等待：仅 Logon 与短连接路径持 `_instrument_sidecar_lock`，避免网页多个 `/api/instrument/*` 排队超过 Web 代理 300s。
+- HTTP 应答写入时对 `ConnectionResetError` / 断连静默处理，消除 `Unhandled exception in client_connected_cb` 刷屏。
+- **分级日志**：`logging` 输出带时间戳与等级；RQ 类（Status/Prerequisites/Sets 等）默认 INFO 仅控制台（需 `log_verbose_gateway`），**不写入** `%APPDATA%\CornerstoneMock\logs\bridge.log`；业务事件与 WARNING+ 写入轮转文件。Heartbeat/重连类 WARNING 5 分钟限流。
+
+### Web
+
+- 代理 Bridge 超时返回 **504** JSON（`Bridge 应答超时`），不再未捕获 `TimeoutError`。
+- 合并冲突与 UTF-8 控制台初始化（`configure_stdio_utf8`）恢复一致。
+
+### 安装程序
+
+- 版本号回退为 **0.1.1**（`VERSION` / Python 包 / `CornerstoneMock-Setup-0.1.1.exe`）。
+- 检测到已安装时提示先卸载；卸载脚本先停服务/进程再删程序目录，**保留** `%APPDATA%\CornerstoneMock` 配置。
+- 安装时合并已有 JSON 配置（含从 `%ProgramData%\CornerstoneMock` 迁移）。
+
+---
+
 ## 0.2.0
 
 现场联调通过后的首个定稿安装包版本。

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .bridge_logging import setup_bridge_logging
 from .config import (
     load_bridge_config_defaults,
     resolve_bridge_config_path,
@@ -17,6 +18,35 @@ from .gateway import _handle_client
 from .http_api import handle_bridge_http
 from .hub import GatewayHub
 from .protocol import _normalize_encoding
+
+_bridge_log = None
+
+
+def _bridge_logger():
+    from .bridge_logging import get_logger
+
+    global _bridge_log
+    if _bridge_log is None:
+        _bridge_log = get_logger("server")
+    return _bridge_log
+
+
+def _apply_logging_from_args(
+    args: argparse.Namespace,
+    *,
+    config_dir: Optional[Path] = None,
+) -> None:
+    max_mb = float(getattr(args, "log_file_max_mb", 2.0) or 2.0)
+    setup_bridge_logging(
+        log_level=str(getattr(args, "log_level", "info") or "info"),
+        log_verbose_gateway=bool(getattr(args, "log_verbose_gateway", False)),
+        log_file=str(getattr(args, "log_file", "") or ""),
+        log_file_level=str(getattr(args, "log_file_level", "info") or "info"),
+        log_file_max_bytes=int(max_mb * 1024 * 1024),
+        log_file_backup_count=int(getattr(args, "log_file_backup_count", 3) or 3),
+        log_throttle_interval_s=float(getattr(args, "log_throttle_interval_s", 300.0) or 300.0),
+        config_dir=config_dir,
+    )
 
 
 async def _async_drain_remaining_tasks() -> None:
@@ -81,55 +111,68 @@ async def run_bridge(
         await _handle_client(r, w, hub=hub, async_message_interval=async_message_interval)
 
     async def http_cb(r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
-        await handle_bridge_http(r, w, hub=hub)
+        try:
+            await handle_bridge_http(r, w, hub=hub)
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+            pass
+        except OSError as e:
+            if getattr(e, "winerror", None) not in (64, 10054, 995):
+                _bridge_logger().error("http handler: %s", e)
+        except Exception as e:
+            _bridge_logger().error("http handler: %s", e)
 
     srv_client = await asyncio.start_server(client_cb, listen_host, listen_port)
     srv_api = await asyncio.start_server(http_cb, api_host, api_port)
 
     c_addrs = ", ".join(str(s.getsockname()) for s in srv_client.sockets or [])
     a_addrs = ", ".join(str(s.getsockname()) for s in srv_api.sockets or [])
-    print(f"[bridge] TCP 网关监听 (客户端连这里): {c_addrs} (encoding={encoding})")
-    print(f"[bridge] REST API: http://{api_host}:{api_port}/  ({a_addrs})")
-    print(
-        f"[bridge] 上游仪器 (Bridge 主动连): {upstream_host}:{upstream_port} ; "
-        f"synthetic 2nd+ Logon={'on' if synthetic_logon_after_first else 'off'} ; "
-        f"instrument API={'short TCP' if instrument_short_connection else 'long (reuse upstream)'} ; "
-        f"upstream heartbeat={upstream_heartbeat_interval}s ; "
-        f"upstream auto-reconnect={'on' if upstream_auto_reconnect else 'off'}"
+    log = _bridge_logger()
+    log.info("TCP 网关监听 (客户端连这里): %s (encoding=%s)", c_addrs, encoding)
+    log.info("REST API: http://%s:%s/ (%s)", api_host, api_port, a_addrs)
+    log.info(
+        "上游仪器 (Bridge 主动连): %s:%s ; synthetic 2nd+ Logon=%s ; "
+        "instrument API=%s ; upstream heartbeat=%ss ; upstream auto-reconnect=%s",
+        upstream_host,
+        upstream_port,
+        "on" if synthetic_logon_after_first else "off",
+        "short TCP" if instrument_short_connection else "long (reuse upstream)",
+        upstream_heartbeat_interval,
+        "on" if upstream_auto_reconnect else "off",
     )
     if hub.web_user:
-        print(
-            f"[bridge] Web→upstream Logon user: {hub.web_user!r} "
-            f"(password {'set' if hub.web_password else 'empty'})"
+        log.info(
+            "Web→upstream Logon user: %r (password %s)",
+            hub.web_user,
+            "set" if hub.web_password else "empty",
         )
     else:
-        print(
-            "[bridge] Web→upstream Logon: --web-user not set "
+        log.warning(
+            "Web→upstream Logon: --web-user not set "
             "(web send will fail until configured or a TCP client logs upstream in)"
         )
     if hub._privileged_add_samples_host:
-        print(
-            f"[bridge] AddSamples 直通上位机 IP: {hub._privileged_add_samples_host!r} "
-            f"(其余 TCP 客户端仍截留)"
+        log.info(
+            "AddSamples 直通上位机 IP: %r (其余 TCP 客户端仍截留)",
+            hub._privileged_add_samples_host,
         )
     if hub._queue_persist_path is not None:
-        print(f"[bridge] AddSamples 队列持久化: {hub._queue_persist_path}")
+        log.info("AddSamples 队列持久化: %s", hub._queue_persist_path)
 
     async def _preconnect_upstream_long_instrument() -> None:
         if hub._instrument_short_connection:
             return
         try:
             await hub._ensure_upstream()
-            print("[bridge] upstream TCP connected at startup (instrument long mode)")
+            log.info("upstream TCP connected at startup (instrument long mode)")
         except Exception as e:
-            print(f"[bridge] startup upstream TCP connect failed: {e}")
+            log.warning("startup upstream TCP connect failed: %s", e)
             return
         if hub.web_user and hub.web_password:
             ok, err = await hub._ensure_upstream_instrument_logon_for_web()
             if ok:
-                print("[bridge] upstream web Logon completed at startup")
+                log.info("upstream web Logon completed at startup")
             else:
-                print(f"[bridge] startup upstream web Logon failed: {err}")
+                log.warning("startup upstream web Logon failed: %s", err)
 
     async with srv_client, srv_api:
         await _preconnect_upstream_long_instrument()
@@ -138,7 +181,7 @@ async def run_bridge(
         except asyncio.CancelledError:
             pass
         finally:
-            print("[bridge] shutting down: Logoff upstream and closing connections...")
+            _bridge_logger().info("shutting down: Logoff upstream and closing connections...")
             srv_client.close()
             srv_api.close()
             await hub.shutdown_gracefully()
@@ -165,15 +208,10 @@ def _resolve_api_endpoint(args: argparse.Namespace) -> tuple[str, int]:
 
 
 def main() -> int:
-<<<<<<< HEAD
     from cornerstone_cli.console_io import configure_stdio_utf8
     from cornerstone_cli.single_instance import ensure_single_instance
 
     configure_stdio_utf8()
-=======
-    from cornerstone_cli.single_instance import ensure_single_instance
-
->>>>>>> 3fa2e1c7c126607004b404060edf4d5e3dc3bd97
     ensure_single_instance("cornerstone-bridge", log_prefix="bridge")
 
     pre = argparse.ArgumentParser(add_help=False)
@@ -230,6 +268,17 @@ def main() -> int:
         metavar="PATH",
         help="队列缓存 JSON 路径（默认 %APPDATA%\\CornerstoneMock\\cornerstone-bridge.add-samples-queue.json）",
     )
+    parser.add_argument(
+        "--log-level",
+        default=None,
+        choices=["debug", "info", "warning", "error"],
+        help="控制台日志级别（默认 info；配置文件可覆盖）",
+    )
+    parser.add_argument(
+        "--log-verbose-gateway",
+        action="store_true",
+        help="控制台输出 RQ 类 INFO（Status/Prerequisites 等；默认不写文件）",
+    )
 
     cfg_resolved: Optional[Path] = None
     if pre_args.config:
@@ -261,12 +310,17 @@ def main() -> int:
             return 2
 
     args = parser.parse_args(argv_rest)
-    if cfg_resolved is not None:
-        print(f"[bridge] 配置文件: {cfg_resolved}")
-    else:
-        print("[bridge] 未加载配置文件（使用命令行默认 port=54321 / upstream_port=12345）", file=sys.stderr)
+    if getattr(args, "log_level", None) is None:
+        args.log_level = "info"
     if args.config:
         cfg_resolved = Path(args.config).expanduser().resolve()
+    config_dir = cfg_resolved.parent if cfg_resolved is not None else None
+    _apply_logging_from_args(args, config_dir=config_dir)
+    log = _bridge_logger()
+    if cfg_resolved is not None:
+        log.info("配置文件: %s", cfg_resolved)
+    else:
+        log.warning("未加载配置文件（使用命令行默认 port=54321 / upstream_port=12345）")
 
     api_host, api_port = _resolve_api_endpoint(args)
 
@@ -303,6 +357,6 @@ def main() -> int:
             )
         )
     except KeyboardInterrupt:
-        print("\n[bridge] interrupted")
+        _bridge_logger().info("interrupted")
         return 130
     return 0

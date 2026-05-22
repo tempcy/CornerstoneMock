@@ -31,6 +31,9 @@ from .queue_persistence import (
 )
 
 from .hub_helpers import *
+from .bridge_logging import get_logger, log_gateway_xml, log_throttled_warning
+
+_log = get_logger("gateway")
 
 _UPSTREAM_READ_DISCONNECT_EXC = (
     ConnectionResetError,
@@ -116,8 +119,10 @@ class GatewayHub:
             restored, maxlen=self._add_samples_max
         )
         if restored and self._queue_persist_path is not None:
-            print(
-                f"[bridge] 已从磁盘恢复 {len(restored)} 条 AddSamples 队列: {self._queue_persist_path}"
+            _log.info(
+                "已从磁盘恢复 %d 条 AddSamples 队列: %s",
+                len(restored),
+                self._queue_persist_path,
             )
             self._persist_add_samples_queue()
 
@@ -198,16 +203,16 @@ class GatewayHub:
                 uw = self._upstream_writer
                 if uw is None or uw.is_closing():
                     return
-                print(f"[gateway] upstream Logoff (cookie={logoff_cookie!r})")
+                _log.info("upstream Logoff cookie=%r", logoff_cookie)
                 uw.write(_frame(payload, self.encoding))
                 await uw.drain()
             await asyncio.wait_for(fut, timeout=15.0)
         except asyncio.TimeoutError:
-            print("[gateway] upstream Logoff wait timeout (proceeding to disconnect)")
+            _log.warning("upstream Logoff wait timeout (proceeding to disconnect)")
         except (asyncio.CancelledError, OSError, RuntimeError):
             pass
         except Exception as e:
-            print(f"[gateway] upstream Logoff error: {e}")
+            _log.warning("upstream Logoff error: %s", e)
         finally:
             async with self._cookie_lock:
                 self._cookie_to_target.pop(logoff_cookie, None)
@@ -317,14 +322,14 @@ class GatewayHub:
         except asyncio.TimeoutError:
             async with self._cookie_lock:
                 self._cookie_to_target.pop(hb_cookie, None)
-            print("[gateway] upstream Heartbeat wait timeout")
+            log_throttled_warning(_log, "upstream_heartbeat_timeout", "upstream Heartbeat wait timeout")
         except (asyncio.CancelledError, OSError, RuntimeError):
             async with self._cookie_lock:
                 self._cookie_to_target.pop(hb_cookie, None)
         except Exception as e:
             async with self._cookie_lock:
                 self._cookie_to_target.pop(hb_cookie, None)
-            print(f"[gateway] upstream Heartbeat error: {e}")
+            _log.warning("upstream Heartbeat error: %s", e)
 
     async def _upstream_reconnect_worker(self) -> None:
         if not self._upstream_auto_reconnect:
@@ -338,18 +343,21 @@ class GatewayHub:
                     if w is not None and not w.is_closing():
                         return
                 await self._ensure_upstream()
-                print("[gateway] upstream reconnected after drop")
+                _log.info("upstream reconnected after drop")
                 if self.web_user and self.web_password:
                     ok, err = await self._ensure_upstream_instrument_logon_for_web()
                     if not ok:
-                        print(f"[gateway] post-reconnect web Logon: {err}")
+                        _log.warning("post-reconnect web Logon: %s", err)
                 return
             except asyncio.CancelledError:
                 return
             except Exception as ex:
-                print(
-                    f"[gateway] upstream reconnect attempt failed: {ex} "
-                    f"(next in {min(delay * 2, 60.0):.0f}s)"
+                log_throttled_warning(
+                    _log,
+                    "upstream_reconnect_failed",
+                    "upstream reconnect attempt failed: %s (next in %.0fs)",
+                    ex,
+                    min(delay * 2, 60.0),
                 )
                 delay = min(delay * 2, 60.0)
 
@@ -371,12 +379,14 @@ class GatewayHub:
                 assert self._upstream_reader is not None
                 return self._upstream_reader, self._upstream_writer
         if self._upstream_writer is not None or self._upstream_reader_task is not None:
-            print("[gateway] upstream transport stale after drop; reconnecting")
+            _log.warning("upstream transport stale after drop; reconnecting")
             await self._drop_upstream_transport()
         async with self._upstream_connect_lock:
-            print(
-                f"[gateway] connecting upstream {self._upstream_host}:{self._upstream_port} "
-                f"(encoding={self.encoding})"
+            _log.info(
+                "connecting upstream %s:%s (encoding=%s)",
+                self._upstream_host,
+                self._upstream_port,
+                self.encoding,
             )
             r, w = await asyncio.open_connection(self._upstream_host, self._upstream_port)
             self._upstream_reader = r
@@ -401,7 +411,7 @@ class GatewayHub:
                 except (asyncio.IncompleteReadError, asyncio.CancelledError):
                     break
                 except _UPSTREAM_READ_DISCONNECT_EXC as ex:
-                    print(f"[gateway] upstream read disconnected: {ex}")
+                    _log.warning("upstream read disconnected: %s", ex)
                     break
                 (length,) = struct.unpack("<I", header)
                 if length == 0:
@@ -411,7 +421,7 @@ class GatewayHub:
                 except (asyncio.IncompleteReadError, asyncio.CancelledError):
                     break
                 except _UPSTREAM_READ_DISCONNECT_EXC as ex:
-                    print(f"[gateway] upstream read disconnected: {ex}")
+                    _log.warning("upstream read disconnected: %s", ex)
                     break
                 text = payload_bytes.decode(enc, errors="replace")
                 cookie = _parse_cookie_from_payload(text)
@@ -425,15 +435,13 @@ class GatewayHub:
                         self._logon_seen_upstream_success = True
                         self._upstream_session_authenticated = True
 
-                print(
-                    f"[gateway] upstream IN (cookie={cookie!r}): {text[:500]}{'...' if len(text) > 500 else ''}"
-                )
+                log_gateway_xml(_log, "upstream IN", text, cookie=cookie)
                 async with self._cookie_lock:
                     target = self._cookie_to_target.pop(cookie, None) if cookie else None
                 if target is None:
                     if tag and "heartbeat" in str(tag).lower():
                         continue
-                    print(f"[gateway] orphan upstream response (cookie={cookie!r})")
+                    _log.warning("orphan upstream response cookie=%r tag=%s", cookie, tag)
                     continue
                 if isinstance(target, _FutureWaiter):
                     if not target.fut.done():
@@ -445,12 +453,12 @@ class GatewayHub:
                     target.write(_frame(text, enc))
                     await target.drain()
                 except Exception as e:
-                    print(f"[gateway] failed to deliver to client: {e}")
+                    _log.warning("failed to deliver to client: %s", e)
         except Exception as ex:
             if not isinstance(ex, asyncio.CancelledError):
-                print(f"[gateway] upstream read loop error: {ex}")
+                _log.error("upstream read loop error: %s", ex)
         finally:
-            print("[gateway] upstream read loop ended")
+            _log.info("upstream read loop ended")
             if self._shutting_down:
                 return
             await self._drop_upstream_transport()
@@ -477,43 +485,46 @@ class GatewayHub:
         """网页发往仪器前：若上游会话尚未登录，则用 --web-user/--web-password 发 Logon。"""
         if self._upstream_session_authenticated:
             return True, ""
-        if not self.web_user or not self.web_password:
-            return (
-                False,
-                "网页发往仪器前需要先登录上游会话：请使用启动参数 --web-user 与 --web-password 配置仪器远程账号（与 cornerstone-cli tcp logon 一致）。",
-            )
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future[str] = loop.create_future()
-        logon_cookie = secrets.token_hex(16)
-        raw_logon = _web_logon_xml(self.web_user, self.web_password)
-        payload = self._inject_cookie_culture(raw_logon, logon_cookie)
-        await self._register(logon_cookie, _FutureWaiter(fut))
-        try:
-            await self._ensure_upstream()
-            uw = self._upstream_writer
-            assert uw is not None
-            async with self._write_upstream_lock:
-                print(f"[gateway] web upstream Logon (cookie={logon_cookie!r})")
-                uw.write(_frame(payload, self.encoding))
-                await uw.drain()
-            resp = await asyncio.wait_for(fut, timeout=60.0)
-        except asyncio.TimeoutError:
-            async with self._cookie_lock:
-                self._cookie_to_target.pop(logon_cookie, None)
-            return False, "上游 Logon 等待应答超时。"
-        except OSError as e:
-            async with self._cookie_lock:
-                self._cookie_to_target.pop(logon_cookie, None)
-            return False, f"上游连接错误: {e}"
-        except Exception as e:
-            async with self._cookie_lock:
-                self._cookie_to_target.pop(logon_cookie, None)
-            return False, str(e)
-        if _upstream_logon_response_ok(resp):
-            self._upstream_session_authenticated = True
-            self._logon_seen_upstream_success = True
-            return True, ""
-        return False, f"上游 Logon 未成功: {(resp or '')[:800]}"
+        async with self._instrument_sidecar_lock:
+            if self._upstream_session_authenticated:
+                return True, ""
+            if not self.web_user or not self.web_password:
+                return (
+                    False,
+                    "网页发往仪器前需要先登录上游会话：请使用启动参数 --web-user 与 --web-password 配置仪器远程账号（与 cornerstone-cli tcp logon 一致）。",
+                )
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[str] = loop.create_future()
+            logon_cookie = secrets.token_hex(16)
+            raw_logon = _web_logon_xml(self.web_user, self.web_password)
+            payload = self._inject_cookie_culture(raw_logon, logon_cookie)
+            await self._register(logon_cookie, _FutureWaiter(fut))
+            try:
+                await self._ensure_upstream()
+                uw = self._upstream_writer
+                assert uw is not None
+                async with self._write_upstream_lock:
+                    _log.info("web upstream Logon cookie=%r", logon_cookie)
+                    uw.write(_frame(payload, self.encoding))
+                    await uw.drain()
+                resp = await asyncio.wait_for(fut, timeout=60.0)
+            except asyncio.TimeoutError:
+                async with self._cookie_lock:
+                    self._cookie_to_target.pop(logon_cookie, None)
+                return False, "上游 Logon 等待应答超时。"
+            except OSError as e:
+                async with self._cookie_lock:
+                    self._cookie_to_target.pop(logon_cookie, None)
+                return False, f"上游连接错误: {e}"
+            except Exception as e:
+                async with self._cookie_lock:
+                    self._cookie_to_target.pop(logon_cookie, None)
+                return False, str(e)
+            if _upstream_logon_response_ok(resp):
+                self._upstream_session_authenticated = True
+                self._logon_seen_upstream_success = True
+                return True, ""
+            return False, f"上游 Logon 未成功: {(resp or '')[:800]}"
 
     async def _register(self, cookie: str, target: Union[asyncio.StreamWriter, _FutureWaiter]) -> None:
         if not cookie:
@@ -528,7 +539,7 @@ class GatewayHub:
         elif self.web_user and self.web_password:
             ok, err = await self._ensure_upstream_instrument_logon_for_web()
             if not ok:
-                print(f"[gateway] TCP→upstream: 上游网页账号登录未就绪（{err}），仍尝试转发。")
+                _log.warning("TCP→upstream: 上游网页账号登录未就绪（%s），仍尝试转发", err)
         cookie = _parse_cookie_from_payload(text)
         if not cookie:
             cookie = secrets.token_hex(16)
@@ -538,9 +549,7 @@ class GatewayHub:
         uw = self._upstream_writer
         assert uw is not None
         async with self._write_upstream_lock:
-            print(
-                f"[gateway] upstream OUT (cookie={cookie!r}): {text[:500]}{'...' if len(text) > 500 else ''}"
-            )
+            log_gateway_xml(_log, "upstream OUT", text, cookie=cookie)
             uw.write(_frame(text, self.encoding))
             await uw.drain()
 
@@ -585,10 +594,7 @@ class GatewayHub:
             uw = self._upstream_writer
             assert uw is not None
             async with self._write_upstream_lock:
-                print(
-                    f"[gateway] web upstream instrument_rq long (cookie={web_cookie!r}): "
-                    f"{text[:400]}{'...' if len(text) > 400 else ''}"
-                )
+                log_gateway_xml(_log, "web instrument_rq OUT", text, cookie=web_cookie, web_rq=True)
                 uw.write(_frame(text, self.encoding))
                 await uw.drain()
             resp = await asyncio.wait_for(fut, timeout=timeout_s)
@@ -659,7 +665,7 @@ class GatewayHub:
             uw = self._upstream_writer
             assert uw is not None
             async with self._write_upstream_lock:
-                print(f"[gateway] web OUT AddSamples (cookie={web_cookie!r})")
+                _log.info("web OUT AddSamples cookie=%r", web_cookie)
                 uw.write(_frame(text, self.encoding))
                 await uw.drain()
             return await asyncio.wait_for(fut, timeout=120.0)
@@ -685,10 +691,10 @@ class GatewayHub:
         """
         if not self.web_user or not self.web_password:
             return {"ok": False, "error": "未配置 --web-user / --web-password", "xml": "", "rootTag": ""}
-        async with self._instrument_sidecar_lock:
-            if self._instrument_short_connection:
+        if self._instrument_short_connection:
+            async with self._instrument_sidecar_lock:
                 return await self._instrument_rq_tcp_short(command_xml, timeout_s=timeout_s)
-            return await self._instrument_rq_upstream_long(command_xml, timeout_s=timeout_s)
+        return await self._instrument_rq_upstream_long(command_xml, timeout_s=timeout_s)
 
     def upstream_connected(self) -> bool:
         w = self._upstream_writer
@@ -704,7 +710,7 @@ class GatewayHub:
             except asyncio.CancelledError:
                 raise
             except Exception as ex:
-                print(f"[gateway] RemoteControlState after upstream connect: {ex}")
+                _log.warning("RemoteControlState after upstream connect: %s", ex)
 
         try:
             asyncio.create_task(_runner(), name="gateway_rcs_after_upstream_connect")
