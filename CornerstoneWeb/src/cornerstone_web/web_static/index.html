@@ -84,28 +84,38 @@
         <div id="status-widgets-err" class="status-widgets-msg muted hidden"></div>
       </div>
     </div>
-    <section class="toolbar">
-      <button type="button" id="btn-refresh-queue" class="btn">刷新列表</button>
-      <button type="button" id="btn-send-queue" class="btn primary">发送至仪器</button>
-    </section>
-    <div id="queue-banner" class="banner hidden"></div>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th class="col-check"><input type="checkbox" id="queue-check-all" title="全选"/></th>
-            <th>ID</th>
-            <th>样品名称</th>
-            <th>样品说明</th>
-            <th>时间</th>
-            <th>来源</th>
-            <th>XML</th>
-          </tr>
-        </thead>
-        <tbody id="queue-tbody"></tbody>
-      </table>
+    <div id="queue-cache-strip" class="instrument-status-strip collapsed" aria-expanded="false">
+      <div class="status-strip-toolbar">
+        <button type="button" id="btn-queue-cache-toggle" class="status-strip-toggle" aria-expanded="false" title="展开/折叠试样指令缓存（AddSamples 截留队列）">
+          <span class="status-strip-toggle-icon" aria-hidden="true">▼</span>
+          <span class="status-strip-title">试样指令缓存</span>
+        </button>
+      </div>
+      <div class="status-strip-body">
+        <section class="toolbar">
+          <button type="button" id="btn-refresh-queue" class="btn">刷新列表</button>
+          <button type="button" id="btn-send-queue" class="btn primary">发送至仪器</button>
+        </section>
+        <div id="queue-banner" class="banner hidden"></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th class="col-check"><input type="checkbox" id="queue-check-all" title="全选"/></th>
+                <th>ID</th>
+                <th>样品名称</th>
+                <th>样品说明</th>
+                <th>时间</th>
+                <th>来源</th>
+                <th>XML</th>
+              </tr>
+            </thead>
+            <tbody id="queue-tbody"></tbody>
+          </table>
+        </div>
+        <pre id="queue-send-result" class="result-log hidden"></pre>
+      </div>
     </div>
-    <pre id="queue-send-result" class="result-log hidden"></pre>
 
     <section
       class="panel"

@@ -2208,6 +2208,25 @@
       setStatusStripCollapsed(!s.classList.contains("collapsed"));
     });
   }
+
+  function setQueueCacheStripCollapsed(collapsed) {
+    var s = $("queue-cache-strip");
+    var btn = $("btn-queue-cache-toggle");
+    if (!s || !btn) return;
+    s.classList.toggle("collapsed", collapsed);
+    var exp = !collapsed;
+    s.setAttribute("aria-expanded", exp ? "true" : "false");
+    btn.setAttribute("aria-expanded", exp ? "true" : "false");
+  }
+
+  var btnQueueCache = $("btn-queue-cache-toggle");
+  if (btnQueueCache) {
+    btnQueueCache.addEventListener("click", function () {
+      var s = $("queue-cache-strip");
+      if (!s) return;
+      setQueueCacheStripCollapsed(!s.classList.contains("collapsed"));
+    });
+  }
   if ($("btn-status-widgets-refresh")) {
     $("btn-status-widgets-refresh").addEventListener("click", function () {
       var row = $("status-widgets-row");

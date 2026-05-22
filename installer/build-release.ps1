@@ -8,6 +8,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$AppVersion = (Get-Content -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) "VERSION") -Raw).Trim()
+if (-not $AppVersion) { $AppVersion = "0.2.0" }
 if ($PSVersionTable.PSVersion.Major -ge 6) {
     $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 }
@@ -275,10 +277,10 @@ if (-not $SkipInstaller) {
     Write-Host "[build] Compile installer (output: $Dist) ..."
     $stagingIss = Convert-IssDefinePath $Staging
     $distIss = Convert-IssDefinePath $Dist
-    & $iscc (Join-Path $InstallerDir "Cornerstone.iss") "/DStagingRoot=$stagingIss" "/DOutputDir=$distIss"
+    & $iscc (Join-Path $InstallerDir "Cornerstone.iss") "/DStagingRoot=$stagingIss" "/DOutputDir=$distIss" "/DMyAppVersion=$AppVersion"
     if ($LASTEXITCODE -ne 0) { throw "ISCC failed (exit $LASTEXITCODE)" }
 
-    $setupExe = Join-Path $Dist "CornerstoneMock-Setup-0.1.0.exe"
+    $setupExe = Join-Path $Dist "CornerstoneMock-Setup-$AppVersion.exe"
     Test-InstallerExeReady $setupExe
     try {
         Publish-InstallerToRepo $setupExe

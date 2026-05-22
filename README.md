@@ -1,5 +1,7 @@
 # Cornerstone 远程控制（Python CLI + Bridge + Web）
 
+**当前版本：0.2.0**（变更见 [CHANGELOG.md](CHANGELOG.md)）
+
 后续开发路线图见 [PLAN.md](PLAN.md)。
 
 本仓库为 **Python CLI（`CornerstoneCLI`）**、**Bridge（`CornerstoneBridge`）** 与 **Web UI（`CornerstoneWeb` 目录，包名 `cornerstone-web`）**。原始 C# WPF 客户端请放在本地 `**Cornerstone_RemoteControlClient/`** 目录自行对照（该目录已列入 `.gitignore`，**不会**推送到 Git）。
@@ -72,7 +74,7 @@ cd installer
 .\build-release.ps1
 ```
 
-生成 `installer\dist\CornerstoneMock-Setup-0.1.0.exe`。说明见 [installer/README.md](installer/README.md)。
+生成 `installer\dist\CornerstoneMock-Setup-0.2.0.exe`。说明见 [installer/README.md](installer/README.md)。
 
 默认程序目录 `C:\Program Files\CornerstoneMock\`；配置与队列缓存 `%APPDATA%\CornerstoneMock\`（安装时从包内 example 复制）。安装结束前会检测端口与特权 IP，并引导打开配置目录修改。
 

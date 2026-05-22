@@ -11,7 +11,9 @@
 #endif
 
 #define MyAppName "Cornerstone Mock"
-#define MyAppVersion "0.1.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.2.0"
+#endif
 #define MyAppPublisher "LECO"
 #define MyAppId "{{A7B3C2E1-9F4D-4A2B-8C1E-5D6F7A8B9C0D}"
 
