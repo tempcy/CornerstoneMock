@@ -37,7 +37,7 @@ async def run_web(*, web_host: str, web_port: int, bridge_base_url: str) -> None
     srv = await asyncio.start_server(http_cb, web_host, web_port)
     addrs = ", ".join(str(s.getsockname()) for s in srv.sockets or [])
     print(f"[web] UI: http://{web_host}:{web_port}/  ({addrs})")
-    print(f"[web] Bridge API proxy → {bridge_base_url}")
+    print(f"[web] Bridge API proxy -> {bridge_base_url}")
 
     async with srv:
         try:
@@ -52,6 +52,12 @@ async def run_web(*, web_host: str, web_port: int, bridge_base_url: str) -> None
 
 
 def main() -> int:
+    from cornerstone_cli.console_io import configure_stdio_utf8
+    from cornerstone_cli.single_instance import ensure_single_instance
+
+    configure_stdio_utf8()
+    ensure_single_instance("cornerstone-web", log_prefix="web")
+
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("-c", "--config", type=str, default=None, metavar="PATH", help=argparse.SUPPRESS)
     pre_args, argv_rest = pre.parse_known_args()

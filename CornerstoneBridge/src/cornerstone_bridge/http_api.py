@@ -80,22 +80,6 @@ def _persist_hub_settings_to_config(hub: GatewayHub) -> Tuple[bool, str]:
         return False, str(e)
 
 
-def _safe_static_path(path: str) -> Optional[Path]:
-    """只允许 mock_web_static 下的文件。"""
-    if not path.startswith("/static/"):
-        return None
-    rel = path[len("/static/") :].lstrip("/").replace("\\", "/")
-    if not rel or ".." in rel.split("/"):
-        return None
-    base = _STATIC_DIR.resolve()
-    fp = (base / rel).resolve()
-    try:
-        fp.relative_to(base)
-    except ValueError:
-        return None
-    return fp if fp.is_file() else None
-
-
 def _q_int(q: Dict[str, str], key: str, default: int) -> int:
     v = (q.get(key) or "").strip()
     if not v:
@@ -333,7 +317,7 @@ async def handle_bridge_http(
                     hub._web_listen_port = p
                     restart_required = True
             if restart_required:
-                notes.append("客户端监听或网页监听地址已更改：须重启 cornerstone-mock 进程后方可生效。")
+                notes.append("客户端监听或网页监听地址已更改：须重启 cornerstone-bridge 进程后方可生效。")
             if "upstreamHost" in obj:
                 nh = str(obj.get("upstreamHost") or "").strip()
                 if nh != hub._upstream_host:

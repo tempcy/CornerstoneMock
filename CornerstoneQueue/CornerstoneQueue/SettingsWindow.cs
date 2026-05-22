@@ -1,4 +1,5 @@
 using CornerstoneQueue.Models;
+using CornerstoneQueue.Services;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -9,13 +10,15 @@ namespace CornerstoneQueue;
 
 public sealed class SettingsWindow : Window
 {
-    private const int WindowWidth = 440;
-    private const int WindowHeight = 560;
+    private const int WindowWidth = 480;
+    private const int WindowHeight = 720;
 
     private readonly SettingsPanel _panel;
     private readonly TextBlock _txtError;
     private readonly Action<AppSettings?> _onClosed;
+    private readonly InstrumentUiAutomationService _uiAutomation = new();
     private AppSettings? _result;
+    private InstrumentUiInspectWindow? _inspectWindow;
 
     public SettingsWindow(AppSettings current, Action<AppSettings?> onClosed)
     {
@@ -23,6 +26,8 @@ public sealed class SettingsWindow : Window
         Title = "Cornerstone 队列 — 设置";
 
         _panel = new SettingsPanel();
+        _panel.InspectRequested += OnInspectRequestedAsync;
+        _panel.TestClickRequested += OnTestClickRequestedAsync;
         _panel.LoadFrom(current);
 
         _txtError = new TextBlock
@@ -77,6 +82,7 @@ public sealed class SettingsWindow : Window
         root.Children.Add(buttons);
 
         Content = root;
+        AppIconHelper.HookWindow(this);
 
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
@@ -127,6 +133,60 @@ public sealed class SettingsWindow : Window
     {
         _txtError.Text = message;
         _txtError.Visibility = Visibility.Visible;
+    }
+
+    private void ClearError()
+    {
+        _txtError.Visibility = Visibility.Collapsed;
+        _txtError.Text = "";
+    }
+
+    private AppSettings DraftSettings()
+    {
+        var draft = _panel.ToSettings();
+        draft.Normalize();
+        return draft;
+    }
+
+    private async Task OnInspectRequestedAsync()
+    {
+        ClearError();
+        var draft = DraftSettings();
+        try
+        {
+            var report = await _uiAutomation.InspectInstrumentUiAsync(draft);
+            if (_inspectWindow is not null)
+            {
+                _inspectWindow.Activate();
+                return;
+            }
+
+            _inspectWindow = new InstrumentUiInspectWindow(report);
+            _inspectWindow.Closed += (_, _) => _inspectWindow = null;
+            _inspectWindow.Activate();
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Inspect 失败：{ex.Message}");
+        }
+    }
+
+    private async Task OnTestClickRequestedAsync()
+    {
+        ClearError();
+        var draft = DraftSettings();
+        draft.AutoClickInstrumentUi = true;
+        try
+        {
+            var result = await _uiAutomation.TestClickSequenceAsync(draft);
+            ShowError(result.Ok ? result.Message : result.Message);
+            _txtError.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                result.Ok ? Microsoft.UI.Colors.Green : Microsoft.UI.Colors.OrangeRed);
+        }
+        catch (Exception ex)
+        {
+            ShowError($"测试点击失败：{ex.Message}");
+        }
     }
 
     private static bool TryValidateBridgeUrl(string url, out string error)

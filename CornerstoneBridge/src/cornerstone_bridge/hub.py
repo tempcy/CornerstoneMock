@@ -32,6 +32,14 @@ from .queue_persistence import (
 
 from .hub_helpers import *
 
+_UPSTREAM_READ_DISCONNECT_EXC = (
+    ConnectionResetError,
+    ConnectionAbortedError,
+    BrokenPipeError,
+    OSError,
+)
+
+
 class GatewayHub:
     """
     多客户端 -> 单上游 Cornerstone：按应答中的 Cookie 将电文路由回对应客户端。
@@ -221,14 +229,9 @@ class GatewayHub:
         await self._send_upstream_logoff()
         await self._force_close_upstream()
 
-    async def _force_close_upstream(self) -> None:
+    async def _drop_upstream_transport(self) -> None:
+        """关闭上游 TCP 与读循环；不清除 Cookie 路由表（客户端仍可在重连后重试）。"""
         await self._stop_upstream_heartbeat()
-        rct = self._upstream_reconnect_task
-        if rct is not None and not rct.done():
-            rct.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await rct
-        self._upstream_reconnect_task = None
         t = self._upstream_reader_task
         self._upstream_reader_task = None
         if t is not None and not t.done():
@@ -242,6 +245,15 @@ class GatewayHub:
         await _async_close_stream_writer(uw)
         self._logon_seen_upstream_success = False
         self._upstream_session_authenticated = False
+
+    async def _force_close_upstream(self) -> None:
+        rct = self._upstream_reconnect_task
+        if rct is not None and not rct.done():
+            rct.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await rct
+        self._upstream_reconnect_task = None
+        await self._drop_upstream_transport()
         async with self._cookie_lock:
             self._cookie_to_target.clear()
 
@@ -341,12 +353,27 @@ class GatewayHub:
                 )
                 delay = min(delay * 2, 60.0)
 
+    def _upstream_transport_usable(self) -> bool:
+        w = self._upstream_writer
+        t = self._upstream_reader_task
+        return (
+            w is not None
+            and not w.is_closing()
+            and self._upstream_reader is not None
+            and t is not None
+            and not t.done()
+        )
+
     async def _ensure_upstream(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         created_new = False
         async with self._upstream_connect_lock:
-            if self._upstream_writer is not None and not self._upstream_writer.is_closing():
+            if self._upstream_transport_usable():
                 assert self._upstream_reader is not None
                 return self._upstream_reader, self._upstream_writer
+        if self._upstream_writer is not None or self._upstream_reader_task is not None:
+            print("[gateway] upstream transport stale after drop; reconnecting")
+            await self._drop_upstream_transport()
+        async with self._upstream_connect_lock:
             print(
                 f"[gateway] connecting upstream {self._upstream_host}:{self._upstream_port} "
                 f"(encoding={self.encoding})"
@@ -367,68 +394,71 @@ class GatewayHub:
     async def _upstream_read_loop(self) -> None:
         assert self._upstream_reader is not None
         enc = self.encoding
-        while self._upstream_reader is not None:
-            try:
-                header = await self._upstream_reader.readexactly(4)
-            except (asyncio.IncompleteReadError, asyncio.CancelledError):
-                break
-            (length,) = struct.unpack("<I", header)
-            if length == 0:
-                continue
-            try:
-                payload_bytes = await self._upstream_reader.readexactly(length)
-            except (asyncio.IncompleteReadError, asyncio.CancelledError):
-                break
-            text = payload_bytes.decode(enc, errors="replace")
-            cookie = _parse_cookie_from_payload(text)
-            tag = _root_tag(text)
-            if tag == "Logon":
-                ec = ""
-                with contextlib.suppress(ET.ParseError):
-                    root = ET.fromstring(text)
-                    ec = (root.attrib.get("ErrorCode") or "").strip()
-                if ec == "0":
-                    self._logon_seen_upstream_success = True
-                    self._upstream_session_authenticated = True
-
-            print(
-                f"[gateway] upstream IN (cookie={cookie!r}): {text[:500]}{'...' if len(text) > 500 else ''}"
-            )
-            async with self._cookie_lock:
-                target = self._cookie_to_target.pop(cookie, None) if cookie else None
-            if target is None:
-                if tag and "heartbeat" in str(tag).lower():
+        try:
+            while self._upstream_reader is not None:
+                try:
+                    header = await self._upstream_reader.readexactly(4)
+                except (asyncio.IncompleteReadError, asyncio.CancelledError):
+                    break
+                except _UPSTREAM_READ_DISCONNECT_EXC as ex:
+                    print(f"[gateway] upstream read disconnected: {ex}")
+                    break
+                (length,) = struct.unpack("<I", header)
+                if length == 0:
                     continue
-                print(f"[gateway] orphan upstream response (cookie={cookie!r})")
-                continue
-            if isinstance(target, _FutureWaiter):
-                if not target.fut.done():
-                    target.fut.set_result(text)
-                continue
-            if target.is_closing():
-                continue
-            try:
-                target.write(_frame(text, enc))
-                await target.drain()
-            except Exception as e:
-                print(f"[gateway] failed to deliver to client: {e}")
+                try:
+                    payload_bytes = await self._upstream_reader.readexactly(length)
+                except (asyncio.IncompleteReadError, asyncio.CancelledError):
+                    break
+                except _UPSTREAM_READ_DISCONNECT_EXC as ex:
+                    print(f"[gateway] upstream read disconnected: {ex}")
+                    break
+                text = payload_bytes.decode(enc, errors="replace")
+                cookie = _parse_cookie_from_payload(text)
+                tag = _root_tag(text)
+                if tag == "Logon":
+                    ec = ""
+                    with contextlib.suppress(ET.ParseError):
+                        root = ET.fromstring(text)
+                        ec = (root.attrib.get("ErrorCode") or "").strip()
+                    if ec == "0":
+                        self._logon_seen_upstream_success = True
+                        self._upstream_session_authenticated = True
 
-        print("[gateway] upstream read loop ended")
-        if self._shutting_down:
-            return
-        await self._stop_upstream_heartbeat()
-        async with self._upstream_connect_lock:
-            uw = self._upstream_writer
-            self._upstream_reader = None
-            self._upstream_writer = None
-        await _async_close_stream_writer(uw)
-        self._logon_seen_upstream_success = False
-        self._upstream_session_authenticated = False
-        if self._upstream_auto_reconnect:
-            if self._upstream_reconnect_task is None or self._upstream_reconnect_task.done():
-                self._upstream_reconnect_task = asyncio.create_task(
-                    self._upstream_reconnect_worker(), name="gateway_upstream_reconnect"
+                print(
+                    f"[gateway] upstream IN (cookie={cookie!r}): {text[:500]}{'...' if len(text) > 500 else ''}"
                 )
+                async with self._cookie_lock:
+                    target = self._cookie_to_target.pop(cookie, None) if cookie else None
+                if target is None:
+                    if tag and "heartbeat" in str(tag).lower():
+                        continue
+                    print(f"[gateway] orphan upstream response (cookie={cookie!r})")
+                    continue
+                if isinstance(target, _FutureWaiter):
+                    if not target.fut.done():
+                        target.fut.set_result(text)
+                    continue
+                if target.is_closing():
+                    continue
+                try:
+                    target.write(_frame(text, enc))
+                    await target.drain()
+                except Exception as e:
+                    print(f"[gateway] failed to deliver to client: {e}")
+        except Exception as ex:
+            if not isinstance(ex, asyncio.CancelledError):
+                print(f"[gateway] upstream read loop error: {ex}")
+        finally:
+            print("[gateway] upstream read loop ended")
+            if self._shutting_down:
+                return
+            await self._drop_upstream_transport()
+            if self._upstream_auto_reconnect:
+                if self._upstream_reconnect_task is None or self._upstream_reconnect_task.done():
+                    self._upstream_reconnect_task = asyncio.create_task(
+                        self._upstream_reconnect_worker(), name="gateway_upstream_reconnect"
+                    )
 
     def _inject_cookie_culture(self, xml: str, cookie: str) -> str:
         s = (xml or "").lstrip()
@@ -500,6 +530,9 @@ class GatewayHub:
             if not ok:
                 print(f"[gateway] TCP→upstream: 上游网页账号登录未就绪（{err}），仍尝试转发。")
         cookie = _parse_cookie_from_payload(text)
+        if not cookie:
+            cookie = secrets.token_hex(16)
+            text = self._inject_cookie_culture(text, cookie)
         await self._register(cookie, client_writer)
         await self._ensure_upstream()
         uw = self._upstream_writer

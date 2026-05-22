@@ -88,10 +88,10 @@ async def run_bridge(
 
     c_addrs = ", ".join(str(s.getsockname()) for s in srv_client.sockets or [])
     a_addrs = ", ".join(str(s.getsockname()) for s in srv_api.sockets or [])
-    print(f"[bridge] TCP clients: {c_addrs} (encoding={encoding})")
+    print(f"[bridge] TCP 网关监听 (客户端连这里): {c_addrs} (encoding={encoding})")
     print(f"[bridge] REST API: http://{api_host}:{api_port}/  ({a_addrs})")
     print(
-        f"[bridge] Upstream Cornerstone: {upstream_host}:{upstream_port} ; "
+        f"[bridge] 上游仪器 (Bridge 主动连): {upstream_host}:{upstream_port} ; "
         f"synthetic 2nd+ Logon={'on' if synthetic_logon_after_first else 'off'} ; "
         f"instrument API={'short TCP' if instrument_short_connection else 'long (reuse upstream)'} ; "
         f"upstream heartbeat={upstream_heartbeat_interval}s ; "
@@ -148,6 +148,14 @@ async def run_bridge(
             await _async_drain_remaining_tasks()
 
 
+def _bridge_defaults_for_parser(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """JSON 键名 → argparse ``set_defaults``（含 ``persist_add_samples_queue``）。"""
+    out = dict(cfg)
+    if out.pop("persist_add_samples_queue", True) is False:
+        out["no_persist_add_samples_queue"] = True
+    return out
+
+
 def _resolve_api_endpoint(args: argparse.Namespace) -> tuple[str, int]:
     api_host = (getattr(args, "bridge_api_host", None) or args.web_host or "127.0.0.1").strip()
     api_port = getattr(args, "bridge_api_port", None)
@@ -157,6 +165,12 @@ def _resolve_api_endpoint(args: argparse.Namespace) -> tuple[str, int]:
 
 
 def main() -> int:
+    from cornerstone_cli.console_io import configure_stdio_utf8
+    from cornerstone_cli.single_instance import ensure_single_instance
+
+    configure_stdio_utf8()
+    ensure_single_instance("cornerstone-bridge", log_prefix="bridge")
+
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("-c", "--config", type=str, default=None, metavar="PATH", help=argparse.SUPPRESS)
     pre_args, argv_rest = pre.parse_known_args()
@@ -173,8 +187,8 @@ def main() -> int:
         metavar="PATH",
         help="JSON 配置文件路径（命令行参数优先覆盖文件）",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="TCP 客户端监听地址")
-    parser.add_argument("--port", type=int, default=12345, help="TCP 客户端监听端口")
+    parser.add_argument("--host", default="0.0.0.0", help="TCP 网关监听地址（远程客户端/CLI 连此端口）")
+    parser.add_argument("--port", type=int, default=54321, help="TCP 网关监听端口")
     parser.add_argument(
         "--bridge-api-host",
         default=None,
@@ -188,8 +202,8 @@ def main() -> int:
     )
     parser.add_argument("--web-host", default="127.0.0.1", help="配置/UI 中展示的 Web 地址")
     parser.add_argument("--web-port", type=int, default=8080, help="配置/UI 中展示的 Web 端口")
-    parser.add_argument("--upstream-host", default="127.0.0.1", help="真实 Cornerstone 地址")
-    parser.add_argument("--upstream-port", type=int, default=54321, help="真实 Cornerstone 端口")
+    parser.add_argument("--upstream-host", default="127.0.0.1", help="真实 Cornerstone 仪器地址")
+    parser.add_argument("--upstream-port", type=int, default=12345, help="真实 Cornerstone 仪器端口")
     parser.add_argument("--encoding", type=_normalize_encoding, default="utf-16-le")
     parser.add_argument("--add-samples-queue-size", type=int, default=8)
     parser.add_argument("--no-synthetic-logon", action="store_true")
@@ -209,7 +223,7 @@ def main() -> int:
         "--add-samples-queue-persist-file",
         default="",
         metavar="PATH",
-        help="队列缓存 JSON 路径（默认与配置文件同目录）",
+        help="队列缓存 JSON 路径（默认 %APPDATA%\\CornerstoneMock\\cornerstone-bridge.add-samples-queue.json）",
     )
 
     cfg_resolved: Optional[Path] = None
@@ -229,19 +243,23 @@ def main() -> int:
             return 2
         cfg_resolved = cfg_path
         try:
-            parser.set_defaults(**load_bridge_config_defaults(cfg_path))
+            parser.set_defaults(**_bridge_defaults_for_parser(load_bridge_config_defaults(cfg_path)))
         except (OSError, ValueError, json.JSONDecodeError, argparse.ArgumentTypeError) as e:
             print(f"[cornerstone-bridge] 读取配置失败: {e}", file=sys.stderr)
             return 2
     elif (auto_cfg := resolve_bridge_config_path()) is not None:
         cfg_resolved = auto_cfg.resolve()
         try:
-            parser.set_defaults(**load_bridge_config_defaults(auto_cfg))
+            parser.set_defaults(**_bridge_defaults_for_parser(load_bridge_config_defaults(auto_cfg)))
         except (OSError, ValueError, json.JSONDecodeError, argparse.ArgumentTypeError) as e:
             print(f"[cornerstone-bridge] 读取配置失败: {e}", file=sys.stderr)
             return 2
 
     args = parser.parse_args(argv_rest)
+    if cfg_resolved is not None:
+        print(f"[bridge] 配置文件: {cfg_resolved}")
+    else:
+        print("[bridge] 未加载配置文件（使用命令行默认 port=54321 / upstream_port=12345）", file=sys.stderr)
     if args.config:
         cfg_resolved = Path(args.config).expanduser().resolve()
 

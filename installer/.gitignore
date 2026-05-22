@@ -1,0 +1,6 @@
+.venv-build/
+pywork/
+pydist/
+staging/
+dist/
+tools/nssm.zip

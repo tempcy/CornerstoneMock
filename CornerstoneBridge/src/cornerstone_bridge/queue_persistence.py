@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import List, Optional
 
 from .hub_types import PendingAddSamples
+from .paths import default_queue_persist_path, expand_config_path
 
 _QUEUE_FILE_VERSION = 1
-_DEFAULT_FILENAME = "cornerstone-bridge.add-samples-queue.json"
 
 
 def resolve_queue_persist_path(
@@ -25,17 +25,16 @@ def resolve_queue_persist_path(
     if env:
         return Path(env).expanduser().resolve()
     if explicit_path and str(explicit_path).strip():
-        return Path(explicit_path).expanduser().resolve()
-    if config_file_path is not None:
-        return config_file_path.parent / _DEFAULT_FILENAME
-    return (Path.cwd() / _DEFAULT_FILENAME).resolve()
+        return Path(expand_config_path(str(explicit_path))).resolve()
+    return default_queue_persist_path()
 
 
 def load_add_samples_queue(path: Optional[Path]) -> List[PendingAddSamples]:
     if path is None or not path.is_file():
         return []
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig：兼容无 BOM（Python 写入）与带 BOM（PowerShell Set-Content -Encoding UTF8）
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as e:
         print(f"[bridge] 无法读取样品队列缓存 {path}: {e}", file=sys.stderr)
         return []

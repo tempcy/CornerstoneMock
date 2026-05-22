@@ -12,14 +12,38 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <WindowsPackageType>None</WindowsPackageType>
-    <!-- 未安装 VS AppxPackage/PRI 任务时，避免 MrtCore.PriGen 依赖 Microsoft.Build.AppxPackage.dll -->
+    <!-- 使用 NuGet 内 Microsoft.Build.Msix 生成 CornerstoneQueue.pri（WindowsPackageType=None 不产 MSIX） -->
     <EnableCoreMrtTooling>false</EnableCoreMrtTooling>
+    <EnablePriGenTooling>false</EnablePriGenTooling>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <GenerateAppxPackageOnBuild>false</GenerateAppxPackageOnBuild>
+    <AppxGeneratePriEnabled>true</AppxGeneratePriEnabled>
     <!-- 自包含：输出目录携带 WASDK；由 SDK 自动 bootstrap（勿在 App 静态构造里手动 Initialize） -->
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- 语言裁剪仅在 installer publish 时通过 -p:SatelliteResourceLanguages 传入，避免 VS Release 构建缺 MUI -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <!-- WinUI 须从输出目录启动（WASDK 自包含 DLL / .pri）；否则 VS Release F5 易出现 0xC000027B -->
+    <RunWorkingDirectory>$(TargetDir)</RunWorkingDirectory>
+    <LocalDebuggerWorkingDirectory>$(TargetDir)</LocalDebuggerWorkingDirectory>
     <AssemblyName>CornerstoneQueue</AssemblyName>
+    <ApplicationIcon>Assets\CornerstoneQueue.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <DebugType>portable</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+    <EnableXamlHotReload>false</EnableXamlHotReload>
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="Assets\CornerstoneQueue.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.240923002" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
   </ItemGroup>

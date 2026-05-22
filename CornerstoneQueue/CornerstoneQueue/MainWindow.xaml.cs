@@ -35,6 +35,7 @@ public sealed partial class MainWindow : Window
     private string _lastResultLine = "";
 
     private readonly EdgeDockController _edgeDock;
+    private readonly InstrumentUiAutomationService _uiAutomation = new();
     private SettingsWindow? _settingsWindow;
 
     public MainWindow()
@@ -43,6 +44,7 @@ public sealed partial class MainWindow : Window
         _api = new BridgeApiClient(_settings.BridgeBaseUrl);
 
         InitializeComponent();
+        AppIconHelper.HookWindow(this);
         _edgeDock = new EdgeDockController(this, DockRoot);
         SystemSnapDisabler.Attach(this);
         Closed += (_, _) =>
@@ -190,10 +192,25 @@ public sealed partial class MainWindow : Window
 
         if (ids.Count == 0)
         {
-            ShowSendResult("请先勾选条目（Ctrl+单击多选）", isError: true);
+            ShowSendResult("请先选中条目（单击多选，或双击单条发送）", isError: true);
             return;
         }
 
+        await SendQueueByIdsAsync(ids);
+    }
+
+    private async void OnQueueListDoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
+    {
+        if (QueueList.SelectedItem is not QueueItemViewModel item || string.IsNullOrWhiteSpace(item.Id))
+        {
+            return;
+        }
+
+        await SendQueueByIdsAsync(new List<string> { item.Id });
+    }
+
+    private async Task SendQueueByIdsAsync(IReadOnlyList<string> ids)
+    {
         BtnSend.IsEnabled = false;
         try
         {
@@ -209,9 +226,22 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            ShowSendResult(
-                SendResultFormatter.FormatOneLine(data, _hasWebCredentials),
-                isError: data is not { Ok: true });
+            var sendOk = data is { Ok: true };
+            var resultLine = SendResultFormatter.FormatOneLine(data, _hasWebCredentials);
+            if (sendOk && _settings.AutoClickInstrumentUi)
+            {
+                var click = await _uiAutomation.RunPostSendSequenceAsync(_settings);
+                if (!click.Ok)
+                {
+                    resultLine += $" · UI 点击：{click.Message}";
+                }
+                else
+                {
+                    resultLine += " · UI 已自动确认";
+                }
+            }
+
+            ShowSendResult(resultLine, isError: !sendOk);
             await RefreshQueueAsync(silent: true, force: true);
             await PollStatusAsync();
         }

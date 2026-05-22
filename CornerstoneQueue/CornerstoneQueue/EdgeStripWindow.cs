@@ -32,6 +32,7 @@ public sealed class EdgeStripWindow : Window
         presenter.IsMinimizable = false;
         presenter.SetBorderAndTitleBar(false, false);
         AppWindow.SetPresenter(presenter);
+        AppIconHelper.HookWindow(this);
 
         _bar = new Border
         {
