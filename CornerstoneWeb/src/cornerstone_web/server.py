@@ -52,10 +52,15 @@ async def run_web(*, web_host: str, web_port: int, bridge_base_url: str) -> None
 
 
 def main() -> int:
+<<<<<<< HEAD
     from cornerstone_cli.console_io import configure_stdio_utf8
     from cornerstone_cli.single_instance import ensure_single_instance
 
     configure_stdio_utf8()
+=======
+    from cornerstone_cli.single_instance import ensure_single_instance
+
+>>>>>>> 3fa2e1c7c126607004b404060edf4d5e3dc3bd97
     ensure_single_instance("cornerstone-web", log_prefix="web")
 
     pre = argparse.ArgumentParser(add_help=False)

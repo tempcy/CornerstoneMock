@@ -1,7 +1,11 @@
 """PyInstaller 入口：cornerstone-web"""
+<<<<<<< HEAD
 from cornerstone_cli.console_io import configure_stdio_utf8
 
 configure_stdio_utf8()
+=======
+import sys
+>>>>>>> 3fa2e1c7c126607004b404060edf4d5e3dc3bd97
 
 from cornerstone_web.server import main
 

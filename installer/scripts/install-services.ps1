@@ -120,7 +120,10 @@ function Install-OneService {
     Invoke-Nssm set $Name Description $Description
     Invoke-Nssm set $Name Start SERVICE_AUTO_START
     Invoke-Nssm set $Name ObjectName LocalSystem
+<<<<<<< HEAD
     Invoke-Nssm set $Name AppEnvironmentExtra "PYTHONUTF8=1`nPYTHONIOENCODING=utf-8"
+=======
+>>>>>>> 3fa2e1c7c126607004b404060edf4d5e3dc3bd97
     Invoke-Nssm set $Name AppStdout (Join-Path $logDir "$LogPrefix-stdout.log")
     Invoke-Nssm set $Name AppStderr (Join-Path $logDir "$LogPrefix-stderr.log")
     Invoke-Nssm set $Name AppRotateFiles 1

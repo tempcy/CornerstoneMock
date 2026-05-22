@@ -157,6 +157,7 @@ C:\Program Files\CornerstoneMock\
 
 服务起不来时看日志：`%APPDATA%\CornerstoneMock\logs\bridge-stderr.log`、`web-stderr.log`。
 
+<<<<<<< HEAD
 **控制台中文乱码、`Task exception ... ConnectionResetError`**
 
 - 乱码：Bridge 以 UTF-8 打印中文，控制台若为西欧代码页会显示成 `Mnö` 等；服务安装已设 `PYTHONUTF8=1`，**手动运行 exe** 前可执行 `chcp 65001` 或设置用户环境变量 `PYTHONUTF8=1`，或改用最新安装包。
@@ -173,6 +174,8 @@ Stop-Service CornerstoneBridge, CornerstoneWeb -Force -ErrorAction SilentlyConti
 Start-Service CornerstoneBridge, CornerstoneWeb
 ```
 
+=======
+>>>>>>> 3fa2e1c7c126607004b404060edf4d5e3dc3bd97
 ## 卸载
 
 安装程序会卸载时停止并移除 `CornerstoneBridge` / `CornerstoneWeb` 服务（若已注册）。

@@ -165,10 +165,15 @@ def _resolve_api_endpoint(args: argparse.Namespace) -> tuple[str, int]:
 
 
 def main() -> int:
+<<<<<<< HEAD
     from cornerstone_cli.console_io import configure_stdio_utf8
     from cornerstone_cli.single_instance import ensure_single_instance
 
     configure_stdio_utf8()
+=======
+    from cornerstone_cli.single_instance import ensure_single_instance
+
+>>>>>>> 3fa2e1c7c126607004b404060edf4d5e3dc3bd97
     ensure_single_instance("cornerstone-bridge", log_prefix="bridge")
 
     pre = argparse.ArgumentParser(add_help=False)
