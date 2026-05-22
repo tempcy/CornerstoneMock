@@ -2,28 +2,57 @@
 
 ## 0.1.1
 
-现场联调问题修复（在 0.1.0 基线上）。
+**定位**：在 0.1.0 可安装基线上的**现场联调 Bug 修正版**（非 0.2.0 功能分支）。组件与安装包统一为 **0.1.1**（`VERSION`、`cornerstone-bridge` / `cornerstone-web` / `cornerstone-cli`、`CornerstoneMock-Setup-0.1.1.exe`）。
 
 ### 网关 (Bridge)
 
-- `instrument_rq` 长连接模式不再全局串行等待：仅 Logon 与短连接路径持 `_instrument_sidecar_lock`，避免网页多个 `/api/instrument/*` 排队超过 Web 代理 300s。
-- HTTP 应答写入时对 `ConnectionResetError` / 断连静默处理，消除 `Unhandled exception in client_connected_cb` 刷屏。
-- **分级日志**：`logging` 输出带时间戳与等级；RQ 类（Status/Prerequisites/Sets 等）默认 INFO 仅控制台（需 `log_verbose_gateway`），**不写入** `%APPDATA%\CornerstoneMock\logs\bridge.log`；业务事件与 WARNING+ 写入轮转文件。Heartbeat/重连类 WARNING 5 分钟限流。
+- **并发与超时**：`instrument_rq` 长连接模式不再对整个请求全程持有 `_instrument_sidecar_lock`；仅上游 Web Logon 与短连接模式串行化，避免多个 `/api/instrument/*` 与 LIMS TCP 流量排队，导致 Web 代理 300s `TimeoutError`。
+- **HTTP 断连**：Bridge REST 与上游转发在客户端提前断开时，对 `ConnectionResetError` / `BrokenPipeError` / WinError 64 等静默处理，不再刷 `Unhandled exception in client_connected_cb`。
+- **分级日志**（`bridge_logging.py`）：
+  - 统一格式：`时间戳` + `等级` + `[模块名]` + 消息。
+  - **控制台**（NSSM `bridge-stdout.log`）：`StreamHandler` 显式绑定 **stdout**（修复此前默认 stderr 导致 stdout 为空、日志全进 stderr 的问题）。
+  - **轮转文件** `bridge.log`：写入 INFO 及以上业务日志；**RQ 类**（`Status` / `Prerequisites` / `RemoteControlState` / `Sets` / `SetReps` 等）为 INFO 但**默认不写文件**；`log_verbose_gateway` 可在控制台查看 RQ。
+  - 服务以 LocalSystem 运行时，`log_file` 中含 `%APPDATA%` 会错误落到 `systemprofile`；若通过 `-c` 指定用户配置目录，轮转日志改写到**该目录** `logs\bridge.log`。
+  - `Heartbeat` 超时、上游重连失败等 WARNING **5 分钟限流**（`log_throttle_interval_s`，可配置）。
+- **配置**：`cornerstone-bridge.config.json` 增加 `log_level`、`log_verbose_gateway`、`log_file`、`log_file_level`、`log_file_max_mb` 等项（example 已同步）。
 
 ### Web
 
-- 代理 Bridge 超时返回 **504** JSON（`Bridge 应答超时`），不再未捕获 `TimeoutError`。
-- 合并冲突与 UTF-8 控制台初始化（`configure_stdio_utf8`）恢复一致。
+- **代理超时**：转发 Bridge 超时返回 **504** JSON（`Bridge 应答超时`），不再未捕获 `TimeoutError` 导致安装/页面长时间无响应。
+- **HTTP 断连**：代理回写与 `_http_send` 对客户端断开做与 Bridge 一致的处理。
+- **启动**：恢复 `configure_stdio_utf8()`，修复合并冲突后控制台中文乱码风险；HTTP 回调外层捕获异常并写日志。
+
+### CLI
+
+- PyInstaller 入口与 Bridge/Web 一致，启动时调用 `configure_stdio_utf8()`。
 
 ### 安装程序
 
-- 版本号回退为 **0.1.1**（`VERSION` / Python 包 / `CornerstoneMock-Setup-0.1.1.exe`）。
-- 检测到已安装时提示先卸载；卸载脚本先停服务/进程再删程序目录，**保留** `%APPDATA%\CornerstoneMock` 配置。
-- 安装时合并已有 JSON 配置（含从 `%ProgramData%\CornerstoneMock` 迁移）。
+- **升级策略**：检测到同 AppId 已注册卸载项或仍存在 `Program Files\CornerstoneMock\Bridge\cornerstone-bridge.exe` 时，提示**先卸载**再继续；可选启动静默卸载（`InitializeSetup` 不使用 `IsUpgrade`，因该函数在 setup 早期不可用）。
+- **卸载**（`uninstall-services.ps1`）：先 `Stop-Service` → NSSM stop/remove → 结束 `cornerstone-bridge` / `cornerstone-web` / `CornerstoneQueue` / `cornerstone-cli` 进程，再删除程序目录；**保留** `%APPDATA%\CornerstoneMock\` 下 JSON 与样品队列。
+- **配置保留与合并**（`merge-config.ps1` + `post-install.ps1`）：
+  - 首次或重装时，若存在 `%ProgramData%\CornerstoneMock\` 旧配置，迁移到 `%APPDATA%\CornerstoneMock\`。
+  - 已有 Roaming 下 JSON 与 `*.example.json` **合并**（用户字段优先，模板仅补全新增键）。
+- **安装卡住修复**：
+  - `validate-install.ps1`：`-NonInteractive` 时**不再加载** `System.Windows.Forms`（隐藏会话会永久挂起）；端口检测改为 `TcpListener` 绑定，移除易挂起的 `Get-NetTCPConnection`。
+  - `post-install.ps1`：不再嵌套隐藏子 PowerShell；安装最后一步 **显示 PowerShell 窗口**，分步输出 1/3 配置、2/3 校验、3/3 服务注册；失败时提示查看日志并按 Enter 关闭。
+- **服务注册**：`install-services.ps1` 控制台输出 NSSM 步骤；删除旧服务等待缩短且超时不再阻断安装。
+- **其它**：解决 `server.py` / `run_*.py` / `install-services.ps1` / `installer/README.md` 等合并冲突；安装脚本 UTF-8 BOM；`AppEnvironmentExtra` 设置 `PYTHONUTF8` / `PYTHONIOENCODING=utf-8`。
+
+### 组件版本
+
+| 组件 | 版本 |
+|------|------|
+| cornerstone-bridge | 0.1.1 |
+| cornerstone-web | 0.1.1 |
+| cornerstone-cli | 0.1.1 |
+| CornerstoneQueue | 随安装包（无独立 semver） |
 
 ---
 
 ## 0.2.0
+
+> 说明：仓库中曾短暂标为 0.2.0 的条目对应功能向迭代；**当前对外发布 Bug 修正版为 0.1.1**。下列内容保留作历史记录。
 
 现场联调通过后的首个定稿安装包版本。
 
