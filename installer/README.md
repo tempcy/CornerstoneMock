@@ -66,7 +66,7 @@ Stop-Service CornerstoneBridge, CornerstoneWeb -Force -ErrorAction SilentlyConti
 
 **管理员权限（Bridge / Queue）**
 
-- **Bridge**：`cornerstone-bridge.exe` 嵌入 `requireAdministrator` 清单；直接双击或命令行启动时会弹出 UAC。注册为 Windows 服务时由 NSSM 以 **LocalSystem** 账户运行（无需交互 UAC，权限等同管理员）。
+- **Bridge**：打包 exe **不**嵌入 `requireAdministrator`（监听端口 >1024，无需 UAC）；否则 NSSM 以 LocalSystem 启动服务时会**立即退出**（services.msc 显示 Paused/Stopped、双击闪退）。需管理员时可对快捷方式选「以管理员身份运行」。服务由 NSSM 以 **LocalSystem** 运行。
 - **Queue**：`CornerstoneQueue.exe` 嵌入 `requireAdministrator` 清单，从快捷方式或直接运行 exe 时均会弹出 UAC。
 
 配置文件与样品队列持久化（首次安装从安装包内 `config\*.example.json` 复制，默认为**与 Cornerstone 同机**的 `127.0.0.1`；现场 IP 请在安装后编辑 Roaming 下 JSON，勿改仓库 example）：
@@ -166,9 +166,11 @@ C:\Program Files\CornerstoneMock\
 - 仪器本机部署时 `upstream_host` 应为 **`127.0.0.1`**、`upstream_port` 与 Cornerstone「Remote Access」端口一致（常见 `12345`）。`privileged_add_samples_host` 填**实际连网关的客户端 IP**（日志里 `client connected` 的地址），否则 `AddSamples` 会进队列而非直通。
 - Web 代理 `TimeoutError` / Bridge `ConnectionResetError`：多为浏览器或 Web 在 Bridge 尚未返回时断开；0.1.1 起会返回 504 JSON 并吞掉对端断开异常，不再刷 `Unhandled exception in client_connected_cb`。
 
-**服务状态为 Paused / 反复重启**
+**服务状态为 Paused / 反复重启 / 程序闪退**
 
-多为进程启动后立即崩溃。若 stderr 出现 `UnicodeEncodeError: 'charmap' codec can't encode`（cp1252），说明旧版 exe 在 NSSM 下打印中文失败；请用**最新** `build-release.ps1` 重打安装包（已强制 UTF-8 控制台并设置 `PYTHONUTF8`）。修复后：
+1. **旧包带 `requireAdministrator` 清单**：服务在 Session 0 无法弹 UAC，进程秒退；请用**最新** `build-release.ps1` 重打（`bridge.spec` 已改为 `uac_admin=False`）。
+2. 查看 `%APPDATA%\CornerstoneMock\logs\bridge-stderr.log` 末尾（配置缺失、端口占用、ImportError 等）。
+3. 若 stderr 出现 `UnicodeEncodeError: 'charmap' codec can't encode`（cp1252），说明旧版 exe 在 NSSM 下打印中文失败；请用**最新**安装包（已强制 UTF-8 并设置 `PYTHONUTF8`）。修复后：
 
 ```powershell
 Stop-Service CornerstoneBridge, CornerstoneWeb -Force -ErrorAction SilentlyContinue

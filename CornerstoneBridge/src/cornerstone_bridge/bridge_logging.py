@@ -122,6 +122,15 @@ def default_bridge_log_file() -> Path:
     return appdata_cornerstone_dir() / "logs" / "bridge.log"
 
 
+def _path_is_under(child: Path, parent: Path) -> bool:
+    """``Path.is_relative_to`` 的 Python 3.8 兼容实现（PyInstaller 目标机常为 3.8）。"""
+    try:
+        child.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def resolve_bridge_log_file_path(
     log_file: str,
     *,
@@ -138,12 +147,8 @@ def resolve_bridge_log_file_path(
         p = Path(expanded)
         if config_dir is not None:
             sys_appdata = (Path(os.environ.get("APPDATA", "")) / "CornerstoneMock").resolve()
-            try:
-                if p.resolve().is_relative_to(sys_appdata) or "systemprofile" in str(p).lower():
-                    return config_dir / "logs" / p.name
-            except ValueError:
-                if "systemprofile" in str(p).lower():
-                    return config_dir / "logs" / p.name
+            if _path_is_under(p, sys_appdata) or "systemprofile" in str(p).lower():
+                return config_dir / "logs" / p.name
         return p
     if config_dir is not None:
         return config_dir / "logs" / "bridge.log"

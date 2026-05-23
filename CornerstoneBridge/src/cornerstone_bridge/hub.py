@@ -35,6 +35,9 @@ from .bridge_logging import get_logger, log_gateway_xml, log_throttled_warning
 
 _log = get_logger("gateway")
 
+# 与官方 RemoteControlClient 一致：无 Cookie 的 CornerstoneMessage 走异步通道，不占用请求应答表
+_UPSTREAM_ASYNC_FANOUT_TAGS = frozenset({"cornerstonemessage"})
+
 _UPSTREAM_READ_DISCONNECT_EXC = (
     ConnectionResetError,
     ConnectionAbortedError,
@@ -129,7 +132,11 @@ class GatewayHub:
         self._upstream_reader_task: Optional[asyncio.Task[None]] = None
         self._upstream_heartbeat_task: Optional[asyncio.Task[None]] = None
         self._upstream_reconnect_task: Optional[asyncio.Task[None]] = None
+        self._upstream_heartbeat_fail_streak = 0
+        self._stale_recover_lock = asyncio.Lock()
         self._instrument_sidecar_lock = asyncio.Lock()
+        self._tcp_clients_lock = asyncio.Lock()
+        self._tcp_client_writers: Set[asyncio.StreamWriter] = set()
 
         self._tcp_listen_host = (tcp_listen_host or "").strip()
         self._tcp_listen_port = int(tcp_listen_port)
@@ -145,6 +152,64 @@ class GatewayHub:
 
     def pending_snapshot(self) -> List[PendingAddSamples]:
         return sorted(self._pending_add_samples, key=lambda p: p.received_at, reverse=True)
+
+    async def register_tcp_client(self, writer: asyncio.StreamWriter) -> None:
+        async with self._tcp_clients_lock:
+            self._tcp_client_writers.add(writer)
+
+    async def unregister_tcp_client(self, writer: asyncio.StreamWriter) -> None:
+        async with self._tcp_clients_lock:
+            self._tcp_client_writers.discard(writer)
+
+    async def _broadcast_upstream_async_to_tcp_clients(self, text: str) -> int:
+        """将仪器主动推送的 XML 广播给当前已连接的 TCP 客户端（对齐 C# MessageDataEvent）。"""
+        frame = _frame(text, self.encoding)
+        async with self._tcp_clients_lock:
+            targets = list(self._tcp_client_writers)
+        delivered = 0
+        for w in targets:
+            if w.is_closing():
+                continue
+            try:
+                w.write(frame)
+                if await _safe_stream_drain(w):
+                    delivered += 1
+            except _UPSTREAM_READ_DISCONNECT_EXC:
+                continue
+            except Exception as e:
+                _log.warning("async fan-out to TCP client failed: %s", e)
+        return delivered
+
+    async def _handle_upstream_unrouted_frame(self, text: str, *, cookie: str, tag: str) -> None:
+        """
+        上游入站帧无法按 Cookie 路由时的策略（保持读循环与业务在线）：
+        - Heartbeat：忽略
+        - CornerstoneMessage 等异步通知：广播给 TCP 客户端
+        - 其它 orphan：仅记录，不断开上游
+        """
+        local = inbound_xml_local_tag(text) or _xml_local_tag(tag)
+        if local.lower() == "heartbeat":
+            return
+        if local.lower() in _UPSTREAM_ASYNC_FANOUT_TAGS:
+            n = await self._broadcast_upstream_async_to_tcp_clients(text)
+            _log.info(
+                "upstream async tag=%r cookie=%r bytes=%d -> %d TCP client(s)",
+                local,
+                cookie,
+                len(text),
+                n,
+            )
+            return
+        preview = (text or "").strip()
+        if len(preview) > 800:
+            preview = preview[:800] + "…"
+        _log.warning(
+            "orphan upstream response cookie=%r tag=%r bytes=%d payload=%r",
+            cookie,
+            tag or local or "?",
+            len(text),
+            preview,
+        )
 
     def _persist_add_samples_queue(self) -> None:
         if self._queue_persist_path is None:
@@ -300,6 +365,59 @@ class GatewayHub:
                 return
             await self._send_upstream_heartbeat_once()
 
+    def _schedule_upstream_reconnect(self) -> None:
+        if self._shutting_down or not self._upstream_auto_reconnect:
+            return
+        if self._upstream_reconnect_task is not None and not self._upstream_reconnect_task.done():
+            return
+        self._upstream_reconnect_task = asyncio.create_task(
+            self._upstream_reconnect_worker(), name="gateway_upstream_reconnect"
+        )
+
+    def _should_recycle_upstream_after_heartbeat_failure(self) -> bool:
+        """连续心跳无应答或距上次成功过久时，回收僵死 TCP 并触发 auto-reconnect。"""
+        interval = max(float(self._upstream_heartbeat_interval_s), 0.5)
+        last_ok = self._last_upstream_heartbeat_reply_at
+        stale_s = max(3.0 * interval, 90.0)
+        if last_ok > 0 and (time.time() - last_ok) > stale_s:
+            return True
+        return self._upstream_heartbeat_fail_streak >= 2
+
+    def _log_upstream_bad_frame(
+        self,
+        reason: str,
+        *,
+        declared_length: int,
+        payload_bytes: bytes,
+        text_preview: str = "",
+    ) -> None:
+        preview = (text_preview or "").strip()
+        if len(preview) > 200:
+            preview = preview[:200] + "…"
+        _log.error(
+            "upstream invalid frame (%s): declared_len=%d payload_len=%d hex=%s text=%r",
+            reason,
+            declared_length,
+            len(payload_bytes),
+            format_frame_hex_preview(payload_bytes),
+            preview,
+        )
+
+    async def _recover_stale_upstream(self) -> None:
+        """Heartbeat 判定上游无应答：关闭读循环与 TCP，由 auto-reconnect 重建会话。"""
+        if self._shutting_down:
+            return
+        async with self._stale_recover_lock:
+            if not self._upstream_transport_usable():
+                return
+            _log.warning(
+                "upstream Heartbeat 无应答，回收僵死 TCP（连续失败 %d 次）",
+                self._upstream_heartbeat_fail_streak,
+            )
+            self._upstream_heartbeat_fail_streak = 0
+            await self._drop_upstream_transport()
+            self._schedule_upstream_reconnect()
+
     async def _send_upstream_heartbeat_once(self) -> None:
         if self._upstream_writer is None or self._upstream_writer.is_closing():
             return
@@ -319,10 +437,16 @@ class GatewayHub:
                 await uw.drain()
             await asyncio.wait_for(fut, timeout=15.0)
             self._last_upstream_heartbeat_reply_at = time.time()
+            self._upstream_heartbeat_fail_streak = 0
         except asyncio.TimeoutError:
             async with self._cookie_lock:
                 self._cookie_to_target.pop(hb_cookie, None)
+            self._upstream_heartbeat_fail_streak += 1
             log_throttled_warning(_log, "upstream_heartbeat_timeout", "upstream Heartbeat wait timeout")
+            if self._should_recycle_upstream_after_heartbeat_failure():
+                asyncio.create_task(
+                    self._recover_stale_upstream(), name="gateway_upstream_stale_recover"
+                )
         except (asyncio.CancelledError, OSError, RuntimeError):
             async with self._cookie_lock:
                 self._cookie_to_target.pop(hb_cookie, None)
@@ -414,8 +538,17 @@ class GatewayHub:
                     _log.warning("upstream read disconnected: %s", ex)
                     break
                 (length,) = struct.unpack("<I", header)
-                if length == 0:
-                    continue
+                length_err = validate_frame_length(length, enc)
+                if length_err:
+                    self._log_upstream_bad_frame(
+                        f"length_header:{length_err}",
+                        declared_length=length,
+                        payload_bytes=b"",
+                    )
+                    asyncio.create_task(
+                        self._recover_stale_upstream(), name="gateway_upstream_bad_frame"
+                    )
+                    break
                 try:
                     payload_bytes = await self._upstream_reader.readexactly(length)
                 except (asyncio.IncompleteReadError, asyncio.CancelledError):
@@ -423,7 +556,39 @@ class GatewayHub:
                 except _UPSTREAM_READ_DISCONNECT_EXC as ex:
                     _log.warning("upstream read disconnected: %s", ex)
                     break
-                text = payload_bytes.decode(enc, errors="replace")
+                if len(payload_bytes) != length:
+                    self._log_upstream_bad_frame(
+                        "short_read",
+                        declared_length=length,
+                        payload_bytes=payload_bytes,
+                    )
+                    asyncio.create_task(
+                        self._recover_stale_upstream(), name="gateway_upstream_short_read"
+                    )
+                    break
+                text, decode_err = decode_frame_payload_bytes(payload_bytes, enc)
+                if decode_err:
+                    self._log_upstream_bad_frame(
+                        decode_err,
+                        declared_length=length,
+                        payload_bytes=payload_bytes,
+                    )
+                    asyncio.create_task(
+                        self._recover_stale_upstream(), name="gateway_upstream_decode_error"
+                    )
+                    break
+                xml_err = frame_xml_defect(text)
+                if xml_err:
+                    self._log_upstream_bad_frame(
+                        xml_err,
+                        declared_length=length,
+                        payload_bytes=payload_bytes,
+                        text_preview=text,
+                    )
+                    asyncio.create_task(
+                        self._recover_stale_upstream(), name="gateway_upstream_bad_xml"
+                    )
+                    break
                 cookie = _parse_cookie_from_payload(text)
                 tag = _root_tag(text)
                 if tag == "Logon":
@@ -439,9 +604,7 @@ class GatewayHub:
                 async with self._cookie_lock:
                     target = self._cookie_to_target.pop(cookie, None) if cookie else None
                 if target is None:
-                    if tag and "heartbeat" in str(tag).lower():
-                        continue
-                    _log.warning("orphan upstream response cookie=%r tag=%s", cookie, tag)
+                    await self._handle_upstream_unrouted_frame(text, cookie=cookie, tag=tag)
                     continue
                 if isinstance(target, _FutureWaiter):
                     if not target.fut.done():
@@ -462,11 +625,7 @@ class GatewayHub:
             if self._shutting_down:
                 return
             await self._drop_upstream_transport()
-            if self._upstream_auto_reconnect:
-                if self._upstream_reconnect_task is None or self._upstream_reconnect_task.done():
-                    self._upstream_reconnect_task = asyncio.create_task(
-                        self._upstream_reconnect_worker(), name="gateway_upstream_reconnect"
-                    )
+            self._schedule_upstream_reconnect()
 
     def _inject_cookie_culture(self, xml: str, cookie: str) -> str:
         s = (xml or "").lstrip()
@@ -697,8 +856,15 @@ class GatewayHub:
         return await self._instrument_rq_upstream_long(command_xml, timeout_s=timeout_s)
 
     def upstream_connected(self) -> bool:
-        w = self._upstream_writer
-        return w is not None and not w.is_closing()
+        if not self._upstream_transport_usable():
+            return False
+        if self._upstream_heartbeat_interval_s <= 0:
+            return True
+        last_ok = self._last_upstream_heartbeat_reply_at
+        if last_ok <= 0:
+            return True
+        interval = max(float(self._upstream_heartbeat_interval_s), 0.5)
+        return (time.time() - last_ok) <= max(3.0 * interval, 90.0)
 
     def _schedule_remote_control_state_probe_after_connect(self) -> None:
         """上游新 TCP 建立后异步问询 ``<RemoteControlState/>``（避免在 ``instrument_rq`` 持锁栈内嵌套调用）。"""

@@ -47,7 +47,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    uac_admin=True,
+    # 勿 requireAdministrator：NSSM/LocalSystem 无交互 UAC，带该清单会导致服务启动即退出（Paused/闪退）
+    uac_admin=False,
 )
 
 coll = COLLECT(

@@ -65,12 +65,81 @@ def _strip_xml_prefix(text: str) -> str:
     return (text or "").lstrip("\ufeff").lstrip()
 
 
+def _normalize_frame_encoding(encoding: str) -> str:
+    enc = (encoding or "").strip().lower().replace("_", "-")
+    if enc in ("utf-16-le", "utf16", "utf-16", "unicode", "utf-16le"):
+        return "utf-16-le"
+    if enc == "utf-8":
+        return "utf-8"
+    if enc == "ascii":
+        return "ascii"
+    return enc
+
+
+# 单帧 payload 上限（4 字节小端长度头之后的正文；过大视为长度头损坏）
+MAX_FRAME_PAYLOAD_BYTES = 16 * 1024 * 1024
+
+
+def validate_frame_length(length: int, encoding: str) -> Optional[str]:
+    """校验长度头；有问题时返回原因字符串。"""
+    if length <= 0:
+        return "zero_length"
+    if length > MAX_FRAME_PAYLOAD_BYTES:
+        return "oversize"
+    if _normalize_frame_encoding(encoding) == "utf-16-le" and (length % 2) != 0:
+        return "utf16_payload_odd_bytes"
+    return None
+
+
+def decode_frame_payload_bytes(payload_bytes: bytes, encoding: str) -> Tuple[Optional[str], Optional[str]]:
+    """按配置编码解码正文；失败返回 (None, reason)。"""
+    enc = _normalize_frame_encoding(encoding)
+    try:
+        if enc == "utf-16-le":
+            text = payload_bytes.decode("utf-16-le", errors="strict")
+        elif enc == "utf-8":
+            text = payload_bytes.decode("utf-8", errors="strict")
+        elif enc == "ascii":
+            text = payload_bytes.decode("ascii", errors="strict")
+        else:
+            text = payload_bytes.decode(encoding, errors="strict")
+    except UnicodeDecodeError as e:
+        return None, f"decode_error:{e}"
+    return _strip_xml_prefix(text), None
+
+
+def frame_xml_defect(text: str) -> Optional[str]:
+    """
+    判断长度帧正文是否为**完整** XML（勿把截断帧当前缀剥离后再解析）。
+
+    典型截断：``Cookie="0a7d12342`` 无闭合引号/``/>``，或 ``<`` 多于 ``>``。
+    """
+    s = _strip_xml_prefix(text)
+    if not s.startswith("<"):
+        return "no_xml_start"
+    if s.count("<") > s.count(">"):
+        return "truncated_tags"
+    if s.count('"') % 2 != 0:
+        return "truncated_attribute"
+    try:
+        ET.fromstring(s)
+    except ET.ParseError as e:
+        return f"xml_parse_error:{e}"
+    return None
+
+
+def format_frame_hex_preview(payload_bytes: bytes, limit: int = 96) -> str:
+    chunk = payload_bytes[:limit]
+    suffix = "+" if len(payload_bytes) > limit else ""
+    return chunk.hex() + suffix
+
+
 def _parse_cookie_from_payload(text: str) -> str:
     stripped = _strip_xml_prefix(text)
     if not stripped.startswith("<"):
         return ""
     with contextlib.suppress(ET.ParseError):
-        root = ET.fromstring(text)
+        root = ET.fromstring(stripped)
         return (root.attrib.get("Cookie") or "").strip()
     return ""
 
@@ -80,7 +149,22 @@ def _root_tag(text: str) -> str:
     if not stripped.startswith("<"):
         return ""
     with contextlib.suppress(ET.ParseError):
-        return ET.fromstring(text).tag
+        return ET.fromstring(stripped).tag
+    return ""
+
+
+def inbound_xml_local_tag(text: str) -> str:
+    """解析入站 XML 的本地根标签名（命名空间剥离）；解析失败返回空串。"""
+    from .parsers import _xml_local_tag
+
+    root_tag = _root_tag(text)
+    if root_tag:
+        return _xml_local_tag(root_tag)
+    stripped = _strip_xml_prefix(text)
+    if not stripped.startswith("<"):
+        return ""
+    with contextlib.suppress(ET.ParseError):
+        return _xml_local_tag(ET.fromstring(stripped).tag)
     return ""
 
 
@@ -155,5 +239,12 @@ def _add_samples_name_description(payload_xml: str) -> Tuple[str, str]:
     return name, desc
 
 
-# ``from .protocol import *`` 需导出以下划线开头的符号（hub / gateway 使用）
-__all__ = [n for n in globals() if n.startswith("_") and not n.startswith("__")]
+# ``from .protocol import *``：hub / gateway 使用的 _ 前缀辅助函数 + 少量公开常量
+__all__ = [n for n in globals() if n.startswith("_") and not n.startswith("__")] + [
+    "MAX_FRAME_PAYLOAD_BYTES",
+    "inbound_xml_local_tag",
+    "validate_frame_length",
+    "decode_frame_payload_bytes",
+    "frame_xml_defect",
+    "format_frame_hex_preview",
+]

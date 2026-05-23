@@ -87,6 +87,16 @@ def _kill_by_image(image_name: str, except_pid: int) -> list[int]:
     return killed
 
 
+def is_windows_service_context() -> bool:
+    """NSSM 以 LocalSystem 跑服务时：勿 taskkill 同映像（会误杀服务自身或造成重启风暴）。"""
+    if sys.platform != "win32":
+        return False
+    if (os.environ.get("CORNERSTONE_SERVICE_MODE") or "").strip() == "1":
+        return True
+    user = (os.environ.get("USERNAME") or "").strip().upper()
+    return user in ("SYSTEM", "LOCAL SERVICE", "NETWORK SERVICE")
+
+
 def _release_lock(path: Path, owner_pid: int) -> None:
     try:
         if path.exists() and path.read_text(encoding="utf-8").strip() == str(owner_pid):
@@ -106,6 +116,8 @@ def ensure_single_instance(
     打包 exe 时按映像名扫描；开发模式仅依据 PID 锁文件。
     """
     if sys.platform != "win32":
+        return
+    if is_windows_service_context():
         return
 
     prefix = log_prefix or app_id

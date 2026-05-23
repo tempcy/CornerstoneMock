@@ -30,6 +30,9 @@ from .protocol import (
     _frame,
     _parse_cookie_from_payload,
     _root_tag,
+    decode_frame_payload_bytes,
+    frame_xml_defect,
+    validate_frame_length,
     _synthetic_add_samples_held,
     _synthetic_logon_success,
 )
@@ -47,6 +50,7 @@ async def _handle_client(
     peer = writer.get_extra_info("peername")
     peer_s = str(peer)
     _log.info("client connected: %s", peer_s)
+    await hub.register_tcp_client(writer)
 
     async_task: Optional[asyncio.Task[None]] = None
 
@@ -67,10 +71,36 @@ async def _handle_client(
         while True:
             header = await reader.readexactly(4)
             (length,) = struct.unpack("<I", header)
+            length_err = validate_frame_length(length, enc)
+            if length_err:
+                _log.warning(
+                    "client %s invalid frame length=%d (%s); closing",
+                    peer_s,
+                    length,
+                    length_err,
+                )
+                break
             if length == 0:
                 continue
             payload_bytes = await reader.readexactly(length)
-            text = payload_bytes.decode(enc, errors="replace")
+            text, decode_err = decode_frame_payload_bytes(payload_bytes, enc)
+            if decode_err:
+                _log.warning(
+                    "client %s frame decode error len=%d: %s; closing",
+                    peer_s,
+                    length,
+                    decode_err,
+                )
+                break
+            xml_err = frame_xml_defect(text or "")
+            if xml_err:
+                _log.warning(
+                    "client %s bad frame len=%d xml=%s; closing",
+                    peer_s,
+                    length,
+                    xml_err,
+                )
+                break
 
             tag = _xml_local_tag(_root_tag(text))
             cookie = _parse_cookie_from_payload(text)
@@ -120,6 +150,7 @@ async def _handle_client(
     except asyncio.IncompleteReadError:
         pass
     finally:
+        await hub.unregister_tcp_client(writer)
         if async_task is not None:
             async_task.cancel()
             with contextlib.suppress(Exception):
