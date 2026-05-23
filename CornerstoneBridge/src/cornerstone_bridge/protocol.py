@@ -20,6 +20,10 @@ from xml.sax.saxutils import escape as _xml_escape
 
 from cornerstone_cli.communications.tcp_engine import HEARTBEAT_XML
 
+_COOKIE_ATTR_RE = re.compile(r'\bCookie="([^"]*)"', re.IGNORECASE)
+_ROOT_TAG_RE = re.compile(r"<(\w+)")
+
+
 def _normalize_encoding(value: str) -> str:
     v = value.strip().lower()
     if v in ("utf16", "utf-16", "unicode", "utf-16le", "utf-16-le"):
@@ -91,6 +95,118 @@ def validate_frame_length(length: int, encoding: str) -> Optional[str]:
     return None
 
 
+def _utf16le_xml_magic_at(payload_bytes: bytes, offset: int) -> bool:
+    return offset + 2 <= len(payload_bytes) and payload_bytes[offset : offset + 2] == b"<\x00"
+
+
+def unwrap_cornerstone_payload_segments(payload_bytes: bytes, encoding: str) -> List[bytes]:
+    """
+    解包 TCP 长度帧正文。
+
+    现场日志常见布局（UTF-16-LE）::
+
+        [4 字节小端 inner_len][UTF-16 XML × inner_len][可选：下一段 …]
+
+    外层 ``readexactly(outer_len)`` 已消费；``inner_len`` 为正文内子长度，不是额外的 TCP 头。
+    若 offset+4 处为 ``3c 00``（``<``），则跳过这 4 字节再解码。
+    """
+    enc = _normalize_frame_encoding(encoding)
+    if enc != "utf-16-le" or len(payload_bytes) < 2:
+        return [payload_bytes]
+
+    segments: List[bytes] = []
+    off = 0
+    n = len(payload_bytes)
+    while off < n:
+        if off + 6 <= n and _utf16le_xml_magic_at(payload_bytes, off + 4):
+            inner_len = struct.unpack("<I", payload_bytes[off : off + 4])[0]
+            body_start = off + 4
+            off = body_start
+            trusted_inner = (
+                inner_len > 0
+                and inner_len % 2 == 0
+                and body_start + inner_len <= n
+                and (
+                    body_start + inner_len == n
+                    or _utf16le_xml_magic_at(payload_bytes, body_start + inner_len)
+                )
+            )
+            if trusted_inner:
+                segments.append(payload_bytes[body_start : body_start + inner_len])
+                off = body_start + inner_len
+                continue
+            segments.append(payload_bytes[body_start:])
+            break
+        if _utf16le_xml_magic_at(payload_bytes, off):
+            segments.append(payload_bytes[off:])
+            break
+        off += 2
+    return segments if segments else [payload_bytes]
+
+
+def decode_inbound_segment_bytes(seg_bytes: bytes, encoding: str) -> Tuple[Optional[str], Optional[str]]:
+    """解码单段 UTF-16 正文；若段首误含 4 字节 inner_len 则再试剥离一次。"""
+    text, err = decode_frame_payload_bytes(seg_bytes, encoding)
+    if err is None and text and frame_xml_defect(text) is None:
+        return text, None
+    if len(seg_bytes) >= 6 and _utf16le_xml_magic_at(seg_bytes, 4):
+        peeled, peel_err = decode_frame_payload_bytes(seg_bytes[4:], encoding)
+        if peel_err is None and peeled:
+            return peeled, None
+    if err:
+        return None, err
+    return text, None
+
+
+def frame_xml_routable(text: str) -> bool:
+    """
+    仪器应答在 ET 下可能无法严格解析（多根拼接、未闭合子树、字段内特殊字符），
+    但只要根标签与 Cookie 可识别，仍应按 cookie 路由到 Web/客户端。
+    """
+    s = _strip_xml_prefix(text)
+    if not s.startswith("<"):
+        return False
+    root_m = _ROOT_TAG_RE.match(s)
+    if not root_m:
+        return False
+    tag = root_m.group(1)
+    if tag == "Heartbeat":
+        return True
+    return _COOKIE_ATTR_RE.search(s) is not None
+
+
+def split_concatenated_xml_documents(text: str) -> List[str]:
+    """
+    同一 segment 内多条根 XML（逐段试探 ET 可解析前缀；避免用 ``/><`` 正则切分，
+    否则会误伤 ``<Prerequisite .../><Prerequisite`` 等合法子节点）。
+    """
+    s = _strip_xml_prefix(text)
+    if not s:
+        return []
+    docs: List[str] = []
+    i = 0
+    while i < len(s):
+        start = s.find("<", i)
+        if start < 0:
+            break
+        parsed_end: Optional[int] = None
+        for end in range(start + 2, len(s) + 1):
+            chunk = s[start:end]
+            if end < len(s) and not chunk.rstrip().endswith(">"):
+                continue
+            try:
+                ET.fromstring(chunk)
+                parsed_end = end
+            except ET.ParseError:
+                continue
+        if parsed_end is None:
+            docs.append(s[start:])
+            break
+        docs.append(s[start:parsed_end])
+        i = parsed_end
+    return docs
+
+
 def decode_frame_payload_bytes(payload_bytes: bytes, encoding: str) -> Tuple[Optional[str], Optional[str]]:
     """按配置编码解码正文；失败返回 (None, reason)。"""
     enc = _normalize_frame_encoding(encoding)
@@ -141,7 +257,8 @@ def _parse_cookie_from_payload(text: str) -> str:
     with contextlib.suppress(ET.ParseError):
         root = ET.fromstring(stripped)
         return (root.attrib.get("Cookie") or "").strip()
-    return ""
+    m = _COOKIE_ATTR_RE.search(stripped)
+    return m.group(1).strip() if m else ""
 
 
 def _root_tag(text: str) -> str:
@@ -150,7 +267,8 @@ def _root_tag(text: str) -> str:
         return ""
     with contextlib.suppress(ET.ParseError):
         return ET.fromstring(stripped).tag
-    return ""
+    m = _ROOT_TAG_RE.match(stripped)
+    return m.group(1) if m else ""
 
 
 def inbound_xml_local_tag(text: str) -> str:
@@ -244,7 +362,11 @@ __all__ = [n for n in globals() if n.startswith("_") and not n.startswith("__")]
     "MAX_FRAME_PAYLOAD_BYTES",
     "inbound_xml_local_tag",
     "validate_frame_length",
+    "unwrap_cornerstone_payload_segments",
+    "split_concatenated_xml_documents",
     "decode_frame_payload_bytes",
+    "decode_inbound_segment_bytes",
+    "frame_xml_routable",
     "frame_xml_defect",
     "format_frame_hex_preview",
 ]

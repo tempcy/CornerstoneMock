@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "cornerstone-bridge"
 version = "0.1.1"
 description = "Cornerstone TCP 网关、XML 解析与对内 REST API（依赖 cornerstone-cli）。"
-requires-python = ">=3.8"
+requires-python = ">=3.14"
 license = { text = "Proprietary" }
 authors = [{ name = "LECO / Cornerstone Bridge" }]
 dependencies = ["cornerstone-cli"]

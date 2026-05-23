@@ -27,6 +27,31 @@ function Ensure-Dir($p) {
     New-Item -ItemType Directory -Force -Path $p | Out-Null
 }
 
+function Resolve-BuildPython {
+    # Return Python 3.14+ executable for venv / PyInstaller.
+    try {
+        $exe = (& py -3.14 -c "import sys; print(sys.executable)" 2>$null | Out-String).Trim()
+        if ($exe -and (Test-Path -LiteralPath $exe)) { return $exe }
+    } catch { }
+
+    $cmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($cmd) {
+        $ver = (& $cmd.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null | Out-String).Trim()
+        if ($ver -match '^3\.(1[4-9]|[2-9][0-9])$') { return $cmd.Source }
+    }
+
+    throw @"
+Python 3.14+ required. Install Python 3.14, set it as default, or run:
+  py -3.14 -m venv installer\.venv-build
+Then re-run build-release.ps1
+"@
+}
+
+function Test-VenvPythonVersion([string]$PythonExe) {
+    $ver = (& $PythonExe -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null | Out-String).Trim()
+    return ($ver -match '^3\.(1[4-9]|[2-9][0-9])$')
+}
+
 function Convert-IssDefinePath([string]$Path) {
     return (Resolve-Path -LiteralPath $Path).Path.Replace('\', '/')
 }
@@ -175,11 +200,19 @@ Get-ChildItem $DistRepo -Filter "CornerstoneMock-Setup-*.exe" -ErrorAction Silen
 if (-not $SkipPython) {
     $venv = Join-Path $InstallerDir ".venv-build"
     $py = Join-Path $venv "Scripts\python.exe"
+    $hostPython = Resolve-BuildPython
+    Write-Host "[build] Host Python: $hostPython"
+
+    if ((Test-Path $py) -and -not (Test-VenvPythonVersion $py)) {
+        Write-Host "[build] Recreate venv (requires Python 3.14+) ..."
+        Remove-Item $venv -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
     if (-not (Test-Path $py)) {
-        Write-Host "[build] Create venv ..."
-        python -m venv $venv
+        Write-Host "[build] Create venv with Python 3.14 ..."
+        & $hostPython -m venv $venv
         if (-not (Test-Path $py)) { throw "venv creation failed: $py" }
+        if (-not (Test-VenvPythonVersion $py)) { throw "venv Python is not 3.14+: $py" }
         & $py -m pip install -U pip wheel setuptools
     }
 

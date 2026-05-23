@@ -49,6 +49,12 @@ def resolve_explicit_config_path(path: str) -> Optional[Path]:
     return None
 
 
+def repo_bridge_config_path() -> Optional[Path]:
+    """仓库内 ``CornerstoneBridge/cornerstone-bridge.config.json``（本地开发用）。"""
+    p = _BRIDGE_PKG_DIR / "cornerstone-bridge.config.json"
+    return p.resolve() if p.is_file() else None
+
+
 def resolve_bridge_config_path() -> Optional[Path]:
     """查找 Bridge JSON：环境变量 → ``%APPDATA%\\CornerstoneMock`` → cwd → 包目录。"""
     env = (os.environ.get("CORNERSTONE_BRIDGE_CONFIG") or "").strip()
@@ -68,6 +74,24 @@ def resolve_bridge_config_path() -> Optional[Path]:
         if cand.is_file():
             return cand
     return None
+
+
+def resolve_dev_bridge_config_path() -> Optional[Path]:
+    """
+    ``cornerstone-web-dev`` 专用：环境变量 → 仓库 ``CornerstoneBridge/*.json`` → 其余同
+    :func:`resolve_bridge_config_path`。
+    """
+    env = (os.environ.get("CORNERSTONE_BRIDGE_CONFIG") or "").strip()
+    if env:
+        explicit = resolve_explicit_config_path(env)
+        if explicit is not None:
+            return explicit
+        p = Path(expand_config_path(env))
+        return p if p.is_file() else None
+    repo = repo_bridge_config_path()
+    if repo is not None:
+        return repo
+    return resolve_bridge_config_path()
 
 
 def merge_web_config_into_bridge(
@@ -155,8 +179,11 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
         if k == "upstream_auto_reconnect":
             out["no_upstream_auto_reconnect"] = not bool(v)
             continue
-        if k in ("add_samples_queue_persist_file", "log_file"):
-            out[k] = expand_config_path(str(v)) if v is not None else ""
+        if k == "log_file":
+            out[k] = str(v).strip() if v is not None else ""
+            continue
+        if k == "add_samples_queue_persist_file":
+            out[k] = str(v).strip() if v is not None else ""
             continue
         if v is None:
             continue

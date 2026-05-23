@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .hub_types import PendingAddSamples
-from .paths import default_queue_persist_path, expand_config_path
+from .paths import appdata_cornerstone_dir, default_queue_persist_path, expand_config_path
 
 _QUEUE_FILE_VERSION = 1
 
@@ -25,7 +25,24 @@ def resolve_queue_persist_path(
     if env:
         return Path(env).expanduser().resolve()
     if explicit_path and str(explicit_path).strip():
-        return Path(expand_config_path(str(explicit_path))).resolve()
+        raw = str(explicit_path).strip()
+        expanded = Path(expand_config_path(raw))
+        if config_file_path is not None:
+            config_dir = Path(config_file_path).resolve().parent
+            name = expanded.name or "cornerstone-bridge.add-samples-queue.json"
+            sys_root = (appdata_cornerstone_dir()).resolve()
+            try:
+                resolved = expanded.resolve()
+                if "systemprofile" in str(resolved).lower() or str(resolved).lower().startswith(
+                    str(sys_root).lower()
+                ):
+                    return (config_dir / name).resolve()
+            except OSError:
+                if "systemprofile" in str(expanded).lower():
+                    return (config_dir / name).resolve()
+        return expanded.resolve()
+    if config_file_path is not None:
+        return (Path(config_file_path).resolve().parent / "cornerstone-bridge.add-samples-queue.json").resolve()
     return default_queue_persist_path()
 
 

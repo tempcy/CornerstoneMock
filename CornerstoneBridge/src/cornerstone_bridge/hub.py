@@ -360,8 +360,7 @@ class GatewayHub:
         interval = max(float(self._upstream_heartbeat_interval_s), 0.5)
         while True:
             await asyncio.sleep(interval)
-            w = self._upstream_writer
-            if w is None or w.is_closing():
+            if not self._upstream_transport_usable():
                 return
             await self._send_upstream_heartbeat_once()
 
@@ -525,6 +524,96 @@ class GatewayHub:
         assert self._upstream_reader is not None and self._upstream_writer is not None
         return self._upstream_reader, self._upstream_writer
 
+    async def _dispatch_upstream_xml_text(self, text: str) -> None:
+        cookie = _parse_cookie_from_payload(text)
+        tag = _root_tag(text)
+        if tag == "Logon":
+            ec = ""
+            with contextlib.suppress(ET.ParseError):
+                root = ET.fromstring(_strip_xml_prefix(text))
+                ec = (root.attrib.get("ErrorCode") or "").strip()
+            if ec == "0":
+                self._logon_seen_upstream_success = True
+                self._upstream_session_authenticated = True
+
+        log_gateway_xml(_log, "upstream IN", text, cookie=cookie)
+        async with self._cookie_lock:
+            target = self._cookie_to_target.pop(cookie, None) if cookie else None
+        if target is None:
+            await self._handle_upstream_unrouted_frame(text, cookie=cookie, tag=tag)
+            return
+        if isinstance(target, _FutureWaiter):
+            if not target.fut.done():
+                target.fut.set_result(text)
+            return
+        if target.is_closing():
+            return
+        try:
+            target.write(_frame(text, self.encoding))
+            await target.drain()
+        except Exception as e:
+            _log.warning("failed to deliver to client: %s", e)
+
+    async def _process_upstream_payload_bytes(self, payload_bytes: bytes, *, outer_length: int) -> bool:
+        """
+        解析一条外层 TCP 长度帧。返回 True 表示应断开并重连（整帧无法挽救的格式错误）。
+        """
+        enc = self.encoding
+        segments = unwrap_cornerstone_payload_segments(payload_bytes, enc)
+        if len(segments) > 1 or (
+            len(payload_bytes) >= 6 and payload_bytes[4:6] == b"<\x00"
+        ):
+            log_throttled_warning(
+                _log,
+                "upstream_inner_length_framing",
+                "upstream outer_len=%d split into %d inner segment(s) (Cornerstone inner uint32 length)",
+                outer_length,
+                len(segments),
+            )
+        dispatched = False
+        for seg_bytes in segments:
+            text, decode_err = decode_inbound_segment_bytes(seg_bytes, enc)
+            if decode_err:
+                self._log_upstream_bad_frame(
+                    decode_err,
+                    declared_length=outer_length,
+                    payload_bytes=payload_bytes,
+                )
+                return True
+            for doc in split_concatenated_xml_documents(text or ""):
+                xml_err = frame_xml_defect(doc)
+                if xml_err:
+                    if frame_xml_routable(doc):
+                        log_throttled_warning(
+                            _log,
+                            "upstream_lenient_xml_route",
+                            "upstream xml not strictly valid (%s); routing by cookie/tag outer_len=%d",
+                            xml_err,
+                            outer_length,
+                        )
+                        dispatched = True
+                        await self._dispatch_upstream_xml_text(doc)
+                        continue
+                    self._log_upstream_bad_frame(
+                        xml_err,
+                        declared_length=outer_length,
+                        payload_bytes=payload_bytes,
+                        text_preview=doc,
+                    )
+                    if not dispatched:
+                        return True
+                    log_throttled_warning(
+                        _log,
+                        "upstream_trailing_bad_xml",
+                        "upstream trailing incomplete xml (%s) after prior good doc(s); outer_len=%d",
+                        xml_err,
+                        outer_length,
+                    )
+                    continue
+                dispatched = True
+                await self._dispatch_upstream_xml_text(doc)
+        return False
+
     async def _upstream_read_loop(self) -> None:
         assert self._upstream_reader is not None
         enc = self.encoding
@@ -545,9 +634,6 @@ class GatewayHub:
                         declared_length=length,
                         payload_bytes=b"",
                     )
-                    asyncio.create_task(
-                        self._recover_stale_upstream(), name="gateway_upstream_bad_frame"
-                    )
                     break
                 try:
                     payload_bytes = await self._upstream_reader.readexactly(length)
@@ -562,70 +648,17 @@ class GatewayHub:
                         declared_length=length,
                         payload_bytes=payload_bytes,
                     )
-                    asyncio.create_task(
-                        self._recover_stale_upstream(), name="gateway_upstream_short_read"
-                    )
                     break
-                text, decode_err = decode_frame_payload_bytes(payload_bytes, enc)
-                if decode_err:
-                    self._log_upstream_bad_frame(
-                        decode_err,
-                        declared_length=length,
-                        payload_bytes=payload_bytes,
-                    )
-                    asyncio.create_task(
-                        self._recover_stale_upstream(), name="gateway_upstream_decode_error"
-                    )
+                if await self._process_upstream_payload_bytes(payload_bytes, outer_length=length):
                     break
-                xml_err = frame_xml_defect(text)
-                if xml_err:
-                    self._log_upstream_bad_frame(
-                        xml_err,
-                        declared_length=length,
-                        payload_bytes=payload_bytes,
-                        text_preview=text,
-                    )
-                    asyncio.create_task(
-                        self._recover_stale_upstream(), name="gateway_upstream_bad_xml"
-                    )
-                    break
-                cookie = _parse_cookie_from_payload(text)
-                tag = _root_tag(text)
-                if tag == "Logon":
-                    ec = ""
-                    with contextlib.suppress(ET.ParseError):
-                        root = ET.fromstring(text)
-                        ec = (root.attrib.get("ErrorCode") or "").strip()
-                    if ec == "0":
-                        self._logon_seen_upstream_success = True
-                        self._upstream_session_authenticated = True
-
-                log_gateway_xml(_log, "upstream IN", text, cookie=cookie)
-                async with self._cookie_lock:
-                    target = self._cookie_to_target.pop(cookie, None) if cookie else None
-                if target is None:
-                    await self._handle_upstream_unrouted_frame(text, cookie=cookie, tag=tag)
-                    continue
-                if isinstance(target, _FutureWaiter):
-                    if not target.fut.done():
-                        target.fut.set_result(text)
-                    continue
-                if target.is_closing():
-                    continue
-                try:
-                    target.write(_frame(text, enc))
-                    await target.drain()
-                except Exception as e:
-                    _log.warning("failed to deliver to client: %s", e)
         except Exception as ex:
             if not isinstance(ex, asyncio.CancelledError):
                 _log.error("upstream read loop error: %s", ex)
         finally:
             _log.info("upstream read loop ended")
-            if self._shutting_down:
-                return
-            await self._drop_upstream_transport()
-            self._schedule_upstream_reconnect()
+            if not self._shutting_down:
+                await self._drop_upstream_transport()
+                self._schedule_upstream_reconnect()
 
     def _inject_cookie_culture(self, xml: str, cookie: str) -> str:
         s = (xml or "").lstrip()

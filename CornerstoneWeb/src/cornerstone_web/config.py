@@ -32,6 +32,12 @@ def resolve_explicit_config_path(path: str) -> Optional[Path]:
     return None
 
 
+def repo_web_config_path() -> Optional[Path]:
+    """仓库内 ``CornerstoneWeb/cornerstone-web.config.json``（本地开发用）。"""
+    p = _WEB_PKG_DIR / "cornerstone-web.config.json"
+    return p.resolve() if p.is_file() else None
+
+
 def resolve_web_config_path() -> Optional[Path]:
     """查找 Web JSON：环境变量 → ``%APPDATA%\\CornerstoneMock`` → cwd → 包目录。"""
     for env_name in ("CORNERSTONE_WEB_CONFIG",):
@@ -52,6 +58,21 @@ def resolve_web_config_path() -> Optional[Path]:
         if cand.is_file():
             return cand
     return None
+
+
+def resolve_dev_web_config_path() -> Optional[Path]:
+    """``cornerstone-web-dev``：环境变量 → 仓库 Web 配置 → 其余同 :func:`resolve_web_config_path`。"""
+    env = (os.environ.get("CORNERSTONE_WEB_CONFIG") or "").strip()
+    if env:
+        explicit = resolve_explicit_config_path(env)
+        if explicit is not None:
+            return explicit
+        p = Path(expand_config_path(env))
+        return p if p.is_file() else None
+    repo = repo_web_config_path()
+    if repo is not None:
+        return repo
+    return resolve_web_config_path()
 
 
 def load_web_config_defaults(config_path: Path) -> Dict[str, Any]:

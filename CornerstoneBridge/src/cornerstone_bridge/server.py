@@ -16,6 +16,7 @@ from .config import (
 )
 from .gateway import _handle_client
 from .http_api import handle_bridge_http
+from .asyncio_util import async_yield_shutdown
 from .hub import GatewayHub
 from .protocol import _normalize_encoding
 
@@ -47,19 +48,6 @@ def _apply_logging_from_args(
         log_throttle_interval_s=float(getattr(args, "log_throttle_interval_s", 300.0) or 300.0),
         config_dir=config_dir,
     )
-
-
-async def _async_drain_remaining_tasks() -> None:
-    current = asyncio.current_task()
-    pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
-    if not pending:
-        await asyncio.sleep(0)
-        return
-    for t in pending:
-        t.cancel()
-    with contextlib.suppress(Exception):
-        await asyncio.gather(*pending, return_exceptions=True)
-    await asyncio.sleep(0)
 
 
 async def run_bridge(
@@ -188,7 +176,7 @@ async def run_bridge(
             with contextlib.suppress(Exception):
                 await srv_client.wait_closed()
                 await srv_api.wait_closed()
-            await _async_drain_remaining_tasks()
+            await async_yield_shutdown()
 
 
 def _bridge_defaults_for_parser(cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -266,7 +254,10 @@ def main() -> int:
         "--add-samples-queue-persist-file",
         default="",
         metavar="PATH",
-        help="队列缓存 JSON 路径（默认 %APPDATA%\\CornerstoneMock\\cornerstone-bridge.add-samples-queue.json）",
+        help=(
+            "队列缓存 JSON 路径（默认 %%APPDATA%%\\CornerstoneMock\\"
+            "cornerstone-bridge.add-samples-queue.json）"
+        ),
     )
     parser.add_argument(
         "--log-level",

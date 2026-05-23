@@ -123,10 +123,8 @@ def default_bridge_log_file() -> Path:
 
 
 def _path_is_under(child: Path, parent: Path) -> bool:
-    """``Path.is_relative_to`` 的 Python 3.8 兼容实现（PyInstaller 目标机常为 3.8）。"""
     try:
-        child.resolve().relative_to(parent.resolve())
-        return True
+        return child.resolve().is_relative_to(parent.resolve())
     except ValueError:
         return False
 

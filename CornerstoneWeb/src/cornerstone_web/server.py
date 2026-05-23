@@ -14,20 +14,9 @@ from .config import (
     resolve_explicit_config_path,
     resolve_web_config_path,
 )
+from cornerstone_bridge.asyncio_util import async_yield_shutdown
+
 from .http_server import handle_web_http
-
-
-async def _async_drain_remaining_tasks() -> None:
-    current = asyncio.current_task()
-    pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
-    if not pending:
-        await asyncio.sleep(0)
-        return
-    for t in pending:
-        t.cancel()
-    with contextlib.suppress(Exception):
-        await asyncio.gather(*pending, return_exceptions=True)
-    await asyncio.sleep(0)
 
 
 async def run_web(*, web_host: str, web_port: int, bridge_base_url: str) -> None:
@@ -58,7 +47,7 @@ async def run_web(*, web_host: str, web_port: int, bridge_base_url: str) -> None
             srv.close()
             with contextlib.suppress(Exception):
                 await srv.wait_closed()
-            await _async_drain_remaining_tasks()
+            await async_yield_shutdown()
 
 
 def main() -> int:

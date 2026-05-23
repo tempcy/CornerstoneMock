@@ -55,9 +55,19 @@ CornerstoneQueue ───┤
 
 ## 安装
 
-需要 Python 3.8+。在仓库根目录依次安装（Bridge/Web 依赖 `cornerstone-cli`）：
+需要 **Python 3.14+**（建议安装后执行 `py -3.14` 验证，并设为默认；仓库根目录含 `.python-version` 供 pyenv/IDE 识别）。
+
+在仓库根目录依次安装（Bridge/Web 依赖 `cornerstone-cli`）：
+
+```powershell
+# Windows：若默认 python 仍较旧，可显式指定 3.14
+py -3.14 -m pip install -e ./CornerstoneCLI
+py -3.14 -m pip install -e ./CornerstoneBridge
+py -3.14 -m pip install -e ./CornerstoneWeb
+```
 
 ```bash
+# 已将 python 设为 3.14 时
 python -m pip install -e ./CornerstoneCLI
 python -m pip install -e ./CornerstoneBridge
 python -m pip install -e ./CornerstoneWeb
@@ -126,7 +136,27 @@ copy cornerstone-web.config.example.json cornerstone-web.config.json
 
 环境变量：`CORNERSTONE_BRIDGE_CONFIG`、`CORNERSTONE_WEB_CONFIG`（或兼容旧名 `CORNERSTONE_MOCK_CONFIG`）。也可将 `.config.json` 放在**当前工作目录**。`cornerstone-web-dev` 会合并两份配置；若仍只有旧版单文件 `cornerstone-web.config.json`，会自动兼作 Bridge 配置并提示拆分。
 
-### 2. 启动（推荐：开发一键）
+### 2. 本地开发用仓库内配置
+
+`cornerstone-web-dev` **优先**读取（未设置环境变量时）：
+
+- `CornerstoneBridge/cornerstone-bridge.config.json`（上游仪器等，当前开发机指向 `190.2.96.210:12345`）
+- `CornerstoneWeb/cornerstone-web.config.json`（浏览器 `8080`、Bridge API `8081`）
+
+不会自动使用 `%APPDATA%\CornerstoneMock\` 下的安装版配置。若要用其它文件，请设置 `CORNERSTONE_BRIDGE_CONFIG` / `CORNERSTONE_WEB_CONFIG`。
+
+### 3. 本地无仪器时：上游占位 Mock（可选）
+
+Bridge 配置里 `upstream_host` / `upstream_port`（常见 `127.0.0.1:12345`）必须有人监听。若无真实 Cornerstone，可在**另一个终端**先起占位服务：
+
+```powershell
+cd D:\work\CornerstoneMock
+python scripts\dev-instrument-mock.py
+```
+
+开发前请**停止**已安装的 CornerstoneBridge / CornerstoneWeb Windows 服务，否则会占用 `54321` / `8081` 端口。仅 upstream 连不上时 Bridge 会打警告，但 Web 仍应能打开；若进程直接退出，请更新到含 Python 3.14 关闭修复的代码后再试。
+
+### 4. 启动（推荐：开发一键）
 
 在仓库根目录或 `**CornerstoneWeb`** 目录（已放置两份 `.config.json` 或旧版单文件）下执行：
 
@@ -142,12 +172,12 @@ cornerstone-web-dev
 
 Windows 下 Scripts 常见路径（`pip install` 后若提示 *not on PATH*，即为此目录）：
 
-`%APPDATA%\Python\Python311\Scripts`
+`%APPDATA%\Python\Python314\Scripts`（或 `Python314` 安装目录下的 `Scripts`）
 
 可临时加入当前 PowerShell 会话后再用短命令：
 
 ```powershell
-$env:Path += ";$env:APPDATA\Python\Python311\Scripts"
+$env:Path += ";$env:APPDATA\Python\Python314\Scripts"
 cornerstone-web-dev
 ```
 

@@ -10,7 +10,7 @@
 
 | 工具 | 用途 |
 | --- | --- |
-| Python 3.8+ | PyInstaller 打包 `cornerstone-bridge` / `cornerstone-web` / `cornerstone-cli` |
+| Python 3.14+ | PyInstaller 打包 `cornerstone-bridge` / `cornerstone-web` / `cornerstone-cli`（`build-release.ps1` 优先使用 `py -3.14`） |
 | .NET 8 SDK | `dotnet publish` 打包 `CornerstoneQueue` |
 | [Inno Setup 6](https://jrsoftware.org/isinfo.php) | 生成 `CornerstoneMock-Setup-0.1.1.exe` |
 | Visual Studio 2022+（仅 Queue） | WinUI 3 + Windows App SDK |

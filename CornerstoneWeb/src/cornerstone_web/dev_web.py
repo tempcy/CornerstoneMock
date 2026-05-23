@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
@@ -21,11 +22,15 @@ from typing import Optional, Tuple
 from cornerstone_bridge.config import (
     load_bridge_config_defaults,
     merge_web_config_into_bridge,
-    resolve_bridge_config_path,
+    resolve_dev_bridge_config_path,
 )
 from cornerstone_bridge.server import run_bridge
 
-from .config import bridge_base_url_from_args, load_web_config_defaults, resolve_web_config_path
+from .config import (
+    bridge_base_url_from_args,
+    load_web_config_defaults,
+    resolve_dev_web_config_path,
+)
 from .server import run_web
 
 
@@ -35,8 +40,8 @@ def _resolve_dev_config_paths() -> Tuple[Path, Path, bool]:
 
     legacy_combined：仅找到旧版「单文件含 Bridge+Web」时为 True。
     """
-    bridge_path = resolve_bridge_config_path()
-    web_path = resolve_web_config_path()
+    bridge_path = resolve_dev_bridge_config_path()
+    web_path = resolve_dev_web_config_path()
     legacy = False
 
     if bridge_path is None and web_path is not None:
@@ -105,16 +110,16 @@ def main() -> int:
     api_port = pu.port or (443 if pu.scheme == "https" else 80)
 
     async def _run() -> None:
-        await asyncio.gather(
+        bridge_task = asyncio.create_task(
             run_bridge(
                 listen_host=str(m.get("host") or "127.0.0.1"),
-                listen_port=int(m.get("port") or 12345),
+                listen_port=int(m.get("port") or 54321),
                 api_host=api_host,
                 api_port=api_port,
                 web_host=web_host,
                 web_port=web_port,
                 upstream_host=str(m.get("upstream_host") or "127.0.0.1"),
-                upstream_port=int(m.get("upstream_port") or 54321),
+                upstream_port=int(m.get("upstream_port") or 12345),
                 encoding=str(m.get("encoding") or "utf-16-le"),
                 add_samples_queue_size=int(m.get("add_samples_queue_size") or 8),
                 synthetic_logon_after_first=not bool(m.get("no_synthetic_logon")),
@@ -127,8 +132,22 @@ def main() -> int:
                 privileged_add_samples_host=str(m.get("privileged_add_samples_host") or ""),
                 config_file_path=cfg_path,
             ),
-            run_web(web_host=web_host, web_port=web_port, bridge_base_url=bridge_url),
+            name="dev_bridge",
         )
+        web_task = asyncio.create_task(
+            run_web(web_host=web_host, web_port=web_port, bridge_base_url=bridge_url),
+            name="dev_web",
+        )
+        try:
+            await asyncio.gather(bridge_task, web_task)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            for t in (bridge_task, web_task):
+                if not t.done():
+                    t.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await asyncio.gather(bridge_task, web_task, return_exceptions=True)
 
     print(f"[cornerstone-web-dev] Bridge 配置: {bridge_path.resolve()}")
     if web_path.resolve() != bridge_path.resolve():

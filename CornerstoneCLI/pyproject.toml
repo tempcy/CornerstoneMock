@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "cornerstone-cli"
 version = "0.1.1"
 description = "Cornerstone 远程控制 Python CLI（TCP/HTTP 通信与命令行）。"
-requires-python = ">=3.8"
+requires-python = ">=3.14"
 license = { text = "Proprietary" }
 authors = [{ name = "LECO / Cornerstone Python CLI" }]
 dependencies = []
