@@ -6,6 +6,7 @@
   "upstream_host": "127.0.0.1",
   "upstream_port": 12345,
   "upstream_heartbeat_interval": 60,
+  "upstream_inner_reassembly_timeout": 5,
   "upstream_auto_reconnect": true,
   "encoding": "utf16",
   "add_samples_queue_size": 8,

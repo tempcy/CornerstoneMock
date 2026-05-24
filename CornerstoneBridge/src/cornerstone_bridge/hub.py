@@ -69,12 +69,15 @@ class GatewayHub:
         instrument_short_connection: bool,
         upstream_heartbeat_interval_s: float,
         upstream_auto_reconnect: bool,
+        upstream_inner_reassembly_timeout_s: float = 5.0,
         web_user: str,
         web_password: str,
         privileged_add_samples_host: str = "",
         request_culture: str = "en-US",
         tcp_listen_host: str = "",
         tcp_listen_port: int = 0,
+        api_listen_host: str = "",
+        api_listen_port: int = 0,
         web_listen_host: str = "",
         web_listen_port: int = 0,
         config_file_path: Optional[Union[Path, str]] = None,
@@ -89,6 +92,12 @@ class GatewayHub:
         self._instrument_short_connection = bool(instrument_short_connection)
         self._upstream_heartbeat_interval_s = float(upstream_heartbeat_interval_s)
         self._upstream_auto_reconnect = bool(upstream_auto_reconnect)
+        self._upstream_inner_reassembly_timeout_s = max(
+            0.0, float(upstream_inner_reassembly_timeout_s)
+        )
+        self._upstream_reassembly_buf: bytes = b""
+        self._upstream_reassembly_acc_outer: int = 0
+        self._upstream_reassembly_deadline: float = 0.0
         self.web_user = (web_user or "").strip()
         self.web_password = web_password or ""
         self._privileged_add_samples_host = (privileged_add_samples_host or "").strip()
@@ -140,6 +149,8 @@ class GatewayHub:
 
         self._tcp_listen_host = (tcp_listen_host or "").strip()
         self._tcp_listen_port = int(tcp_listen_port)
+        self._api_listen_host = (api_listen_host or "").strip()
+        self._api_listen_port = int(api_listen_port)
         self._web_listen_host = (web_listen_host or "").strip()
         self._web_listen_port = int(web_listen_port)
         self._last_upstream_heartbeat_reply_at = 0.0
@@ -160,6 +171,22 @@ class GatewayHub:
     async def unregister_tcp_client(self, writer: asyncio.StreamWriter) -> None:
         async with self._tcp_clients_lock:
             self._tcp_client_writers.discard(writer)
+
+    async def tcp_clients_snapshot(self) -> List[Dict[str, Any]]:
+        """当前已连接的 TCP 远程客户端（供管理界面 /api/monitor）。"""
+        async with self._tcp_clients_lock:
+            writers = list(self._tcp_client_writers)
+        out: List[Dict[str, Any]] = []
+        for w in writers:
+            peer = ""
+            try:
+                pn = w.get_extra_info("peername")
+                if pn and len(pn) >= 2:
+                    peer = f"{pn[0]}:{pn[1]}"
+            except Exception:
+                peer = ""
+            out.append({"peer": peer, "closing": bool(w.is_closing())})
+        return out
 
     async def _broadcast_upstream_async_to_tcp_clients(self, text: str) -> int:
         """将仪器主动推送的 XML 广播给当前已连接的 TCP 客户端（对齐 C# MessageDataEvent）。"""
@@ -313,6 +340,7 @@ class GatewayHub:
             self._upstream_reader = None
             self._upstream_writer = None
         await _async_close_stream_writer(uw)
+        self._reset_upstream_reassembly_hold()
         self._logon_seen_upstream_success = False
         self._upstream_session_authenticated = False
 
@@ -389,17 +417,25 @@ class GatewayHub:
         declared_length: int,
         payload_bytes: bytes,
         text_preview: str = "",
+        segmentation: str = "",
+        segment_index: Optional[int] = None,
+        segment_bytes: Optional[bytes] = None,
     ) -> None:
-        preview = (text_preview or "").strip()
-        if len(preview) > 200:
-            preview = preview[:200] + "…"
+        seg_note = ""
+        if segment_index is not None:
+            seg_note = f" segment_index={segment_index} segment_bytes={len(segment_bytes or b'')}"
         _log.error(
-            "upstream invalid frame (%s): declared_len=%d payload_len=%d hex=%s text=%r",
+            "upstream invalid frame (%s): tcp_outer_len=%d payload_len=%d%s\n"
+            "%s\n"
+            "hex=%s\n"
+            "text=%s",
             reason,
             declared_length,
             len(payload_bytes),
-            format_frame_hex_preview(payload_bytes),
-            preview,
+            seg_note,
+            segmentation or "(no segmentation diagnostics)",
+            format_frame_hex(payload_bytes, limit=None),
+            (text_preview or "").strip() or "(empty)",
         )
 
     async def _recover_stale_upstream(self) -> None:
@@ -559,25 +595,32 @@ class GatewayHub:
         解析一条外层 TCP 长度帧。返回 True 表示应断开并重连（整帧无法挽救的格式错误）。
         """
         enc = self.encoding
-        segments = unwrap_cornerstone_payload_segments(payload_bytes, enc)
+        seg_meta = segment_cornerstone_payload(payload_bytes, enc)
+        segments = [s.data for s in seg_meta]
+        seg_diag = format_payload_segmentation_diagnostics(
+            payload_bytes, seg_meta, encoding=enc
+        )
         if len(segments) > 1 or (
             len(payload_bytes) >= 6 and payload_bytes[4:6] == b"<\x00"
         ):
-            log_throttled_warning(
-                _log,
-                "upstream_inner_length_framing",
-                "upstream outer_len=%d split into %d inner segment(s) (Cornerstone inner uint32 length)",
+            _log.warning(
+                "upstream tcp_outer_len=%d split into %d segment(s) (inner uint32 length)\n%s",
                 outer_length,
                 len(segments),
+                seg_diag,
             )
         dispatched = False
-        for seg_bytes in segments:
+        for seg_i, seg_bytes in enumerate(segments):
             text, decode_err = decode_inbound_segment_bytes(seg_bytes, enc)
             if decode_err:
                 self._log_upstream_bad_frame(
                     decode_err,
                     declared_length=outer_length,
                     payload_bytes=payload_bytes,
+                    segmentation=seg_diag,
+                    segment_index=seg_i,
+                    segment_bytes=seg_bytes,
+                    text_preview=text or "",
                 )
                 return True
             for doc in split_concatenated_xml_documents(text or ""):
@@ -599,57 +642,207 @@ class GatewayHub:
                         declared_length=outer_length,
                         payload_bytes=payload_bytes,
                         text_preview=doc,
+                        segmentation=seg_diag,
+                        segment_index=seg_i,
+                        segment_bytes=seg_bytes,
                     )
                     if not dispatched:
                         return True
-                    log_throttled_warning(
-                        _log,
-                        "upstream_trailing_bad_xml",
-                        "upstream trailing incomplete xml (%s) after prior good doc(s); outer_len=%d",
+                    _log.warning(
+                        "upstream trailing incomplete xml (%s) after prior good doc(s); "
+                        "tcp_outer_len=%d segment_index=%d\n%s\n"
+                        "trailing_text=%s",
                         xml_err,
                         outer_length,
+                        seg_i,
+                        seg_diag,
+                        doc,
                     )
                     continue
                 dispatched = True
                 await self._dispatch_upstream_xml_text(doc)
         return False
 
-    async def _upstream_read_loop(self) -> None:
+    async def _read_one_upstream_tcp_payload(self) -> Tuple[bytes, int]:
+        """读取一条外层 TCP 长度帧，返回 (正文, tcp_outer_len)。"""
         assert self._upstream_reader is not None
         enc = self.encoding
+        header = await self._upstream_reader.readexactly(4)
+        (length,) = struct.unpack("<I", header)
+        length_err = validate_frame_length(length, enc)
+        if length_err:
+            raise ValueError(f"length_header:{length_err}:{length}")
+        payload_bytes = await self._upstream_reader.readexactly(length)
+        if len(payload_bytes) != length:
+            raise ValueError(f"short_read:{length}:{len(payload_bytes)}")
+        return payload_bytes, length
+
+    def _reset_upstream_reassembly_hold(self) -> None:
+        self._upstream_reassembly_buf = b""
+        self._upstream_reassembly_acc_outer = 0
+        self._upstream_reassembly_deadline = 0.0
+
+    def _reassembly_deadline_expired(self) -> bool:
+        if self._upstream_reassembly_deadline <= 0:
+            return False
+        return time.monotonic() > self._upstream_reassembly_deadline
+
+    def _hold_upstream_reassembly(self, buf: bytes, acc_tcp_outer: int) -> None:
+        self._upstream_reassembly_buf = buf
+        self._upstream_reassembly_acc_outer = acc_tcp_outer
+        if self._upstream_reassembly_deadline <= 0:
+            self._upstream_reassembly_deadline = (
+                time.monotonic() + self._upstream_inner_reassembly_timeout_s
+            )
+
+    def _upstream_payload_xml_complete(self, payload_bytes: bytes) -> bool:
+        text, err = decode_frame_payload_bytes(payload_bytes, self.encoding)
+        if err is not None or not text:
+            return False
+        return frame_xml_defect(text) is None
+
+    def _finish_reassembly_buffer_deferred(
+        self, buf: bytes, acc_tcp_outer: int
+    ) -> Optional[Tuple[bytes, int]]:
+        """无 inner 头的 UTF-16 XML：未闭合则暂存，由下一条 TCP 读循环续拼（不阻塞读循环）。"""
+        if not _utf16le_xml_magic_at(buf, 0):
+            self._upstream_reassembly_deadline = 0.0
+            return buf, acc_tcp_outer
+        if self._upstream_payload_xml_complete(buf):
+            self._upstream_reassembly_deadline = 0.0
+            return buf, acc_tcp_outer
+        if self._upstream_inner_reassembly_timeout_s <= 0:
+            return buf, acc_tcp_outer
+        if self._reassembly_deadline_expired():
+            _log.error(
+                "upstream xml tail reassembly abandoned: accumulated=%d tcp_outer_sum=%d",
+                len(buf),
+                acc_tcp_outer,
+            )
+            self._reset_upstream_reassembly_hold()
+            return buf, acc_tcp_outer
+        self._hold_upstream_reassembly(buf, acc_tcp_outer)
+        _log.info(
+            "upstream xml tail reassembly waiting: have=%d bytes (next TCP will append)",
+            len(buf),
+        )
+        return None
+
+    async def _iter_reassembled_upstream_payloads(
+        self, chunk: bytes, tcp_outer_len: int
+    ) -> List[Tuple[bytes, int]]:
+        """
+        inner 帧跨多条 TCP 外层包时，在读循环多次调用间累积缓冲（非阻塞等待）。
+
+        完整判定：``inner_len == len(accumulated_payload) - 4``。
+        超时内未凑齐则丢弃缓冲并打日志，不把半帧交给 XML 解析。
+        """
+        out: List[Tuple[bytes, int]] = []
+
+        if self._upstream_reassembly_buf and self._reassembly_deadline_expired():
+            _log.error(
+                "upstream reassembly abandoned (deadline): had=%d bytes tcp_outer_sum=%d",
+                len(self._upstream_reassembly_buf),
+                self._upstream_reassembly_acc_outer,
+            )
+            self._reset_upstream_reassembly_hold()
+
+        buf = self._upstream_reassembly_buf + chunk
+        acc_tcp_outer = self._upstream_reassembly_acc_outer + tcp_outer_len
+        self._upstream_reassembly_buf = b""
+        self._upstream_reassembly_acc_outer = 0
+
+        while buf:
+            inner_len = utf16le_inner_length_at(buf, 0)
+            if inner_len is None:
+                finished = self._finish_reassembly_buffer_deferred(buf, acc_tcp_outer)
+                if finished is not None:
+                    out.append(finished)
+                return out
+
+            need = inner_framed_total_bytes(inner_len)
+            if len(buf) < need:
+                if self._upstream_inner_reassembly_timeout_s <= 0:
+                    out.append((buf, acc_tcp_outer))
+                    return out
+                if self._reassembly_deadline_expired():
+                    _log.error(
+                        "upstream inner frame reassembly abandoned: inner_hdr=%d "
+                        "need_bytes=%d accumulated=%d tcp_outer_sum=%d",
+                        inner_len,
+                        need,
+                        len(buf),
+                        acc_tcp_outer,
+                    )
+                    self._reset_upstream_reassembly_hold()
+                    return out
+                self._hold_upstream_reassembly(buf, acc_tcp_outer)
+                _log.info(
+                    "upstream inner reassembly waiting: inner_hdr=%d have=%d need=%d "
+                    "(next TCP outer frame will append)",
+                    inner_len,
+                    len(buf),
+                    need,
+                )
+                return out
+
+            self._upstream_reassembly_deadline = 0.0
+            if not inner_framed_tcp_payload_complete(buf[:need]):
+                _log.warning(
+                    "upstream inner slice length mismatch after reassembly inner_hdr=%d slice=%d",
+                    inner_len,
+                    len(buf[:need]),
+                )
+            out.append((buf[:need], acc_tcp_outer))
+            buf = buf[need:]
+            acc_tcp_outer = 0
+            if not buf:
+                return out
+            continue
+
+        return out
+
+    async def _upstream_read_loop(self) -> None:
+        assert self._upstream_reader is not None
         try:
             while self._upstream_reader is not None:
                 try:
-                    header = await self._upstream_reader.readexactly(4)
+                    payload_bytes, length = await self._read_one_upstream_tcp_payload()
                 except (asyncio.IncompleteReadError, asyncio.CancelledError):
+                    break
+                except ValueError as ex:
+                    err = str(ex)
+                    if err.startswith("length_header:"):
+                        parts = err.split(":")
+                        declared = int(parts[2]) if len(parts) > 2 else 0
+                        self._log_upstream_bad_frame(
+                            f"length_header:{parts[1] if len(parts) > 1 else err}",
+                            declared_length=declared,
+                            payload_bytes=b"",
+                        )
                     break
                 except _UPSTREAM_READ_DISCONNECT_EXC as ex:
                     _log.warning("upstream read disconnected: %s", ex)
                     break
-                (length,) = struct.unpack("<I", header)
-                length_err = validate_frame_length(length, enc)
-                if length_err:
-                    self._log_upstream_bad_frame(
-                        f"length_header:{length_err}",
-                        declared_length=length,
-                        payload_bytes=b"",
-                    )
-                    break
+
                 try:
-                    payload_bytes = await self._upstream_reader.readexactly(length)
+                    complete_frames = await self._iter_reassembled_upstream_payloads(
+                        payload_bytes, length
+                    )
                 except (asyncio.IncompleteReadError, asyncio.CancelledError):
                     break
                 except _UPSTREAM_READ_DISCONNECT_EXC as ex:
                     _log.warning("upstream read disconnected: %s", ex)
                     break
-                if len(payload_bytes) != length:
-                    self._log_upstream_bad_frame(
-                        "short_read",
-                        declared_length=length,
-                        payload_bytes=payload_bytes,
-                    )
-                    break
-                if await self._process_upstream_payload_bytes(payload_bytes, outer_length=length):
+
+                fatal = False
+                for frame_bytes, frame_outer in complete_frames:
+                    if await self._process_upstream_payload_bytes(
+                        frame_bytes, outer_length=frame_outer
+                    ):
+                        fatal = True
+                        break
+                if fatal:
                     break
         except Exception as ex:
             if not isinstance(ex, asyncio.CancelledError):

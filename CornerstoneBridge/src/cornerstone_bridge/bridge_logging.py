@@ -62,14 +62,22 @@ _LEVEL_MAP = {
 }
 
 _throttle = None  # set in setup
+_console_filter: _RQInfoConsoleFilter | None = None
+_file_filter: _RQInfoFileFilter | None = None
+_console_handler: logging.StreamHandler | None = None
+_runtime_verbose_gateway = False
 
 
 class _RQInfoFileFilter(logging.Filter):
-    """RQ 类 INFO 不写入文件。"""
+    """RQ 类 INFO 默认不写文件；开启 verbose_gateway 时写入（供控制台日志页查看）。"""
+
+    def __init__(self, verbose: bool = False) -> None:
+        super().__init__()
+        self._verbose = verbose
 
     def filter(self, record: logging.LogRecord) -> bool:
         if getattr(record, "rq", False) and record.levelno == logging.INFO:
-            return False
+            return self._verbose
         return True
 
 
@@ -164,8 +172,9 @@ def setup_bridge_logging(
     log_throttle_interval_s: float = 300.0,
     config_dir: Optional[Path] = None,
 ) -> None:
-    global _throttle
+    global _throttle, _console_filter, _file_filter, _console_handler, _runtime_verbose_gateway
     _throttle = LogThrottle(log_throttle_interval_s)
+    _runtime_verbose_gateway = bool(log_verbose_gateway)
 
     root = logging.getLogger(_LOG_ROOT)
     root.handlers.clear()
@@ -179,8 +188,10 @@ def setup_bridge_logging(
     console = logging.StreamHandler(out)
     console.setLevel(_parse_level(log_level, logging.INFO))
     console.setFormatter(formatter)
-    console.addFilter(_RQInfoConsoleFilter(log_verbose_gateway))
+    _console_filter = _RQInfoConsoleFilter(_runtime_verbose_gateway)
+    console.addFilter(_console_filter)
     root.addHandler(console)
+    _console_handler = console
 
     file_path = resolve_bridge_log_file_path(log_file, config_dir=config_dir)
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -192,16 +203,43 @@ def setup_bridge_logging(
     )
     file_handler.setLevel(_parse_level(log_file_level, logging.INFO))
     file_handler.setFormatter(formatter)
-    file_handler.addFilter(_RQInfoFileFilter())
+    _file_filter = _RQInfoFileFilter(_runtime_verbose_gateway)
+    file_handler.addFilter(_file_filter)
     root.addHandler(file_handler)
 
     logging.getLogger(_LOG_ROOT).info(
         "logging initialized console=%s verbose_gateway=%s file=%s file_level=%s",
         log_level,
-        log_verbose_gateway,
+        _runtime_verbose_gateway,
         file_path,
         log_file_level,
     )
+
+
+def get_log_verbose_gateway() -> bool:
+    return _runtime_verbose_gateway
+
+
+def set_log_verbose_gateway(verbose: bool) -> None:
+    """运行时切换 RQ 类网关 XML 是否输出（控制台 + 轮转日志文件）。"""
+    global _runtime_verbose_gateway
+    _runtime_verbose_gateway = bool(verbose)
+    if _console_filter is not None:
+        _console_filter._verbose = _runtime_verbose_gateway
+    if _file_filter is not None:
+        _file_filter._verbose = _runtime_verbose_gateway
+    logging.getLogger(_LOG_ROOT).info(
+        "log_verbose_gateway set to %s (RQ INFO now %s)",
+        _runtime_verbose_gateway,
+        "visible" if _runtime_verbose_gateway else "suppressed",
+    )
+
+
+def set_console_log_level(level: str) -> None:
+    if _console_handler is None:
+        return
+    _console_handler.setLevel(_parse_level(level, logging.INFO))
+    logging.getLogger(_LOG_ROOT).info("console log_level set to %s", (level or "info").strip().lower())
 
 
 def get_logger(name: str) -> logging.Logger:

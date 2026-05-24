@@ -1,6 +1,6 @@
 # Cornerstone Mock 安装程序
 
-**发布版本**由仓库根目录 [`VERSION`](../VERSION) 决定（当前 **0.1.1**）；`build-release.ps1` 与 Inno Setup 均读取该文件，输出 `CornerstoneMock-Setup-<版本>.exe`。
+**发布版本**由仓库根目录 [`VERSION`](../VERSION) 决定（当前 **0.1.2**）；`build-release.ps1` 与 Inno Setup 均读取该文件，输出 `CornerstoneMock-Setup-<版本>.exe`。
 
 生成 **Bridge（必选）**、**Web / Queue / CLI（可选）** 的 Windows 安装包；支持将 **Bridge**、**Web** 注册为 Windows 服务（默认勾选）。
 
@@ -12,7 +12,7 @@
 | --- | --- |
 | Python 3.14+ | PyInstaller 打包 `cornerstone-bridge` / `cornerstone-web` / `cornerstone-cli`（`build-release.ps1` 优先使用 `py -3.14`） |
 | .NET 8 SDK | `dotnet publish` 打包 `CornerstoneQueue` |
-| [Inno Setup 6](https://jrsoftware.org/isinfo.php) | 生成 `CornerstoneMock-Setup-0.1.1.exe` |
+| [Inno Setup 6](https://jrsoftware.org/isinfo.php) | 生成 `CornerstoneMock-Setup-0.1.2.exe` |
 | Visual Studio 2022+（仅 Queue） | WinUI 3 + Windows App SDK |
 
 ## 一键构建
@@ -34,8 +34,8 @@ cd installer
 产物：
 
 - `installer\staging\` — 待打包文件树
-- `%LOCALAPPDATA%\CornerstoneMock\installer-dist\CornerstoneMock-Setup-0.1.1.exe` — **请运行此安装包**（构建默认输出，避免云同步占位符）
-- `installer\dist\CornerstoneMock-Setup-0.1.1.exe` — 可选副本（若仓库在 OneDrive/网盘同步，此文件可能是**占位符**，双击会报 *The setup files are corrupted*；请在资源管理器中对该文件选「始终保留在此设备上」，或只使用上面 LocalAppData 路径）
+- `%LOCALAPPDATA%\CornerstoneMock\installer-dist\CornerstoneMock-Setup-0.1.2.exe` — **请运行此安装包**（构建默认输出，避免云同步占位符）
+- `installer\dist\CornerstoneMock-Setup-0.1.2.exe` — 可选副本（若仓库在 OneDrive/网盘同步，此文件可能是**占位符**，双击会报 *The setup files are corrupted*；请在资源管理器中对该文件选「始终保留在此设备上」，或只使用上面 LocalAppData 路径）
 
 仅构建 exe、不编译安装包：
 
@@ -108,7 +108,7 @@ C:\Program Files\CornerstoneMock\
 
 多为 **安装 exe 是云同步占位符**（文件带「云」图标、未完全下载到本机），CRC 校验失败。处理：
 
-1. 运行 `%LOCALAPPDATA%\CornerstoneMock\installer-dist\CornerstoneMock-Setup-0.1.1.exe`（`build-release.ps1` 的默认输出）。
+1. 运行 `%LOCALAPPDATA%\CornerstoneMock\installer-dist\CornerstoneMock-Setup-0.1.2.exe`（`build-release.ps1` 的默认输出）。
 2. 或重新构建后，在资源管理器中对该 exe 选 **始终保留在此设备上**。
 3. 勿从尚未同步完成的 `installer\dist\` 占位符直接安装。
 
@@ -164,7 +164,7 @@ C:\Program Files\CornerstoneMock\
 - 乱码：Bridge 以 UTF-8 打印中文，控制台若为西欧代码页会显示成 `Mnö` 等；服务安装已设 `PYTHONUTF8=1`，**手动运行 exe** 前可执行 `chcp 65001` 或设置用户环境变量 `PYTHONUTF8=1`，或改用最新安装包。
 - `WinError 64` / `network name is no longer available`：Cornerstone 断开了上游 TCP（仅允许单远程会话、读循环异常等）。新版 Bridge 会丢弃僵死连接并自动重连；客户端 **Logon 若不带 `Cookie`** 会导致应答无法回路由（已自动补 Cookie）。
 - 仪器本机部署时 `upstream_host` 应为 **`127.0.0.1`**、`upstream_port` 与 Cornerstone「Remote Access」端口一致（常见 `12345`）。`privileged_add_samples_host` 填**实际连网关的客户端 IP**（日志里 `client connected` 的地址），否则 `AddSamples` 会进队列而非直通。
-- Web 代理 `TimeoutError` / Bridge `ConnectionResetError`：多为浏览器或 Web 在 Bridge 尚未返回时断开；0.1.1 起会返回 504 JSON 并吞掉对端断开异常，不再刷 `Unhandled exception in client_connected_cb`。
+- Web 代理 `TimeoutError` / Bridge `ConnectionResetError`：多为浏览器或 Web 在 Bridge 尚未返回时断开；0.1.2 起会返回 504 JSON 并吞掉对端断开异常，不再刷 `Unhandled exception in client_connected_cb`。
 
 **服务状态为 Paused / 反复重启 / 程序闪退**
 

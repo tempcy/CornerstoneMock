@@ -1,13 +1,13 @@
 # Cornerstone 远程控制（Python CLI + Bridge + Web）
 
-**当前版本：0.1.1**（Bug 修正版，变更见 [CHANGELOG.md](CHANGELOG.md)）
+**当前版本：0.1.2**（变更见 [CHANGELOG.md](CHANGELOG.md)）
 
 后续开发路线图见 [PLAN.md](PLAN.md)。
 
 本仓库为 **Python CLI（`CornerstoneCLI`）**、**Bridge（`CornerstoneBridge`）** 与 **Web UI（`CornerstoneWeb` 目录，包名 `cornerstone-web`）**。原始 C# WPF 客户端请放在本地 `**Cornerstone_RemoteControlClient/`** 目录自行对照（该目录已列入 `.gitignore`，**不会**推送到 Git）。
 
 - `**CornerstoneCLI/`**：`cornerstone-cli`（协议与 TCP 通信内核）。
-- `**CornerstoneBridge/`**：`cornerstone-bridge`（TCP 网关、XML 解析、`/api/`* REST）。
+- `**CornerstoneBridge/`**：`cornerstone-bridge`（TCP 网关、XML 解析、`/api/`* REST）；`cornerstone-bridge-ui`（可选 PySide6 托盘控制台，见 `[ui]` 额外依赖）。
 - `**CornerstoneWeb/`**：`cornerstone-web`（静态页 + 将 `/api/`* 代理到 Bridge）；`cornerstone-web-dev` 一键起 Bridge + Web。
 - `**CornerstoneQueue/`**：WinUI 3 桌面悬浮窗（缓存样品队列，HTTP 调 Bridge REST；可选仪器 UI 自动点击确认）。
 
@@ -25,6 +25,7 @@
 | ---------- | --------------------------------- | ------------------------------------------------- |
 | **CLI**    | `cornerstone-cli`                 | 直连仪器 TCP 或云端 HTTP；脚本与协议调试。                        |
 | **Bridge** | `cornerstone-bridge`              | TCP 网关 + `/api/`* REST（队列、instrument_rq、解析 JSON）。 |
+| **Bridge UI** | `cornerstone-bridge-ui`        | 桌面控制台（系统托盘）：配置、日志、连接/队列监控、功能开关；连 Bridge REST API。 |
 | **Web**    | `cornerstone-web`                 | 静态 SPA；`/api/`* 反向代理到 Bridge。                     |
 | **Queue**  | `CornerstoneQueue`（VS 生成 exe）   | 精简悬浮窗：队列查看/发送、状态一行、连 Bridge `:8081`；可选 FlaUI 自动点击仪器确认。 |
 | **本地开发**   | `cornerstone-web-dev` / `dev.ps1` | 同进程启动 Bridge + Web（读 Bridge + Web 两份配置，或兼容旧版单文件）。 |
@@ -63,6 +64,7 @@ CornerstoneQueue ───┤
 # Windows：若默认 python 仍较旧，可显式指定 3.14
 py -3.14 -m pip install -e ./CornerstoneCLI
 py -3.14 -m pip install -e ./CornerstoneBridge
+py -3.14 -m pip install -e "./CornerstoneBridge[ui]"
 py -3.14 -m pip install -e ./CornerstoneWeb
 ```
 
@@ -84,13 +86,14 @@ cd installer
 .\build-release.ps1
 ```
 
-生成 `installer\dist\CornerstoneMock-Setup-0.2.0.exe`。说明见 [installer/README.md](installer/README.md)。
+生成 `CornerstoneMock-Setup-0.1.2.exe`（默认在 `%LOCALAPPDATA%\CornerstoneMock\installer-dist\`）。说明见 [installer/README.md](installer/README.md)。
 
 默认程序目录 `C:\Program Files\CornerstoneMock\`；配置与队列缓存 `%APPDATA%\CornerstoneMock\`（安装时从包内 example 复制）。安装结束前会检测端口与特权 IP，并引导打开配置目录修改。
 
 | 安装组件 | 默认 | 说明 |
 | --- | --- | --- |
 | **Bridge** | **必选**（不可取消） | `cornerstone-bridge.exe`（PyInstaller 目录发行版） |
+| **Bridge 控制台** | 选中 | `Bridge\cornerstone-bridge-ui.exe`（与 Bridge 同目录；托盘：配置、日志、监控） |
 | **Web** | 选中 | `cornerstone-web.exe` |
 | **Queue** | 选中 | `CornerstoneQueue.exe`（自包含 .NET 8 + WASDK，仪器机无需另装运行时） |
 | **CLI** | 选中 | `cornerstone-cli.exe` |
@@ -98,6 +101,25 @@ cd installer
 | **Web 系统服务** | 选中 | 服务名 `CornerstoneWeb` |
 
 安装后请编辑 `%APPDATA%\CornerstoneMock\cornerstone-bridge.config.json`（上游仪器地址、`privileged_add_samples_host`、端口等）。开发调试仍可用 pip 可编辑安装，不必使用安装包。
+
+## Bridge 桌面控制台
+
+`cornerstone-bridge-ui` 与 Bridge 同包（`cornerstone_bridge.ui`），需安装 **`[ui]`** 额外依赖（PySide6）。托盘应用与 `cornerstone-web` 浏览器界面互补：
+
+- **连接与监控**：上游仪器 TCP、已连接远程客户端列表、`GET /api/monitor`
+- **通讯队列**：待发送 AddSamples 列表（`GET /api/queue`）
+- **配置**：编辑 `cornerstone-bridge.config.json`；「**应用到运行中的 Bridge**」可**不重启**更新：上游地址、队列上限、特权 IP、`log_verbose_gateway`、控制台 `log_level`；TCP/REST 监听、长连接模式等须重启服务。
+- **日志**：尾随 `log_file`；**RQ 类 XML** 默认不进日志文件，须勾选详细日志并「应用」后才会出现在此页。
+- **托盘**：单击图标打开主窗口；支持登录时自启动（安装包可选任务）
+
+```powershell
+# 安装控制台依赖后（在仓库根或 CornerstoneBridge 目录）
+py -3.14 -m pip install -e "./CornerstoneBridge[ui]"
+# Bridge 服务/进程须已在运行；控制台只连 REST（默认 8081），不会占用 54321
+cornerstone-bridge-ui
+```
+
+> **勿与网关重复启动**：控制台**不会**也**不应**替代 `cornerstone-bridge` / Bridge 服务。请运行 `cornerstone-bridge-ui`（或开始菜单「Bridge 控制台」），**不要**再双击 `cornerstone-bridge.exe`；否则端口 54321 冲突（WinError 10048）。打开控制台**无需**先停止 Bridge 服务。安装版控制台默认请求管理员权限（便于重启服务）。
 
 ## 启用 Web
 

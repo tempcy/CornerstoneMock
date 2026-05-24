@@ -121,6 +121,7 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
         "no_synthetic_logon",
         "instrument_long_connection",
         "upstream_heartbeat_interval",
+        "upstream_inner_reassembly_timeout",
         "upstream_auto_reconnect",
         "async_message_interval",
         "web_user",
@@ -173,7 +174,7 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
         if k == "instrument_long_connection":
             out["instrument_short_connection"] = not bool(v)
             continue
-        if k == "upstream_heartbeat_interval":
+        if k in ("upstream_heartbeat_interval", "upstream_inner_reassembly_timeout"):
             out[k] = float(v)
             continue
         if k == "upstream_auto_reconnect":

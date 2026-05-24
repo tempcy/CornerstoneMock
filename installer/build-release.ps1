@@ -140,7 +140,7 @@ function Stop-CornerstoneMockRuntime {
         }
     }
 
-    $exeNames = @("cornerstone-bridge", "cornerstone-web", "cornerstone-cli", "CornerstoneQueue")
+    $exeNames = @("cornerstone-bridge", "cornerstone-bridge-ui", "cornerstone-web", "cornerstone-cli", "CornerstoneQueue")
     foreach ($name in $exeNames) {
         Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
             $path = $_.Path
@@ -222,6 +222,7 @@ if (-not $SkipPython) {
     & $py -m pip install -e (Join-Path $Root "CornerstoneCLI")
     & $py -m pip install -e (Join-Path $Root "CornerstoneBridge")
     & $py -m pip install -e (Join-Path $Root "CornerstoneWeb")
+    & $py -m pip install -e (Join-Path $Root "CornerstoneBridge[ui]")
 
     $specDir = Join-Path $InstallerDir "specs"
     $pyDist = Join-Path $InstallerDir "pydist"

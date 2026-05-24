@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .hub import GatewayHub
 from .hub_types import PendingAddSamples
+from .bridge_logging import get_log_verbose_gateway, set_console_log_level, set_log_verbose_gateway
 from .protocol import _async_close_stream_writer, _safe_stream_drain
 
 async def _http_send(
@@ -74,6 +75,7 @@ def _persist_hub_settings_to_config(hub: GatewayHub) -> Tuple[bool, str]:
         data["encoding"] = hub.encoding
         data["add_samples_queue_size"] = hub._add_samples_max
         data["privileged_add_samples_host"] = hub._privileged_add_samples_host
+        data["log_verbose_gateway"] = get_log_verbose_gateway()
         p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return True, ""
     except Exception as e:
@@ -343,6 +345,12 @@ async def handle_bridge_http(
                     hub.set_add_samples_queue_max(int(obj["queueMax"]))
                 except (TypeError, ValueError, KeyError):
                     pass
+            if "logVerboseGateway" in obj:
+                set_log_verbose_gateway(bool(obj.get("logVerboseGateway")))
+                notes.append("详细网关日志（含 RQ 类 XML）已即时生效。")
+            if "logLevel" in obj:
+                set_console_log_level(str(obj.get("logLevel") or "info"))
+                notes.append("控制台 log_level 已即时生效。")
             reco_ok = True
             reco_err = ""
             if upstream_addr_changed:
@@ -391,6 +399,61 @@ async def handle_bridge_http(
                 writer,
                 200,
                 json.dumps(st, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "GET" and path == "/api/monitor":
+            tcp_clients = await hub.tcp_clients_snapshot()
+            tcp_listen = (
+                f"{hub._tcp_listen_host}:{hub._tcp_listen_port}"
+                if hub._tcp_listen_port
+                else ""
+            )
+            api_listen = (
+                f"{hub._api_listen_host}:{hub._api_listen_port}"
+                if hub._api_listen_port
+                else ""
+            )
+            web_listen = (
+                f"{hub._web_listen_host}:{hub._web_listen_port}"
+                if hub._web_listen_port
+                else ""
+            )
+            snap = hub.pending_snapshot()
+            mon = {
+                "ok": True,
+                "tcpListen": tcp_listen,
+                "apiListen": api_listen,
+                "webListen": web_listen,
+                "upstream": {
+                    "host": hub._upstream_host,
+                    "port": hub._upstream_port,
+                    "connected": hub.upstream_connected(),
+                    "lastHeartbeatReplyAt": hub._last_upstream_heartbeat_reply_at,
+                    "autoReconnect": hub._upstream_auto_reconnect,
+                    "heartbeatIntervalS": hub._upstream_heartbeat_interval_s,
+                },
+                "tcpClients": tcp_clients,
+                "tcpClientCount": len(tcp_clients),
+                "queue": {
+                    "current": len(snap),
+                    "max": hub._add_samples_max,
+                },
+                "remoteControl": {
+                    "state": hub._remote_control_display,
+                    "error": hub._remote_control_last_err,
+                },
+                "instrumentLongConnection": not hub._instrument_short_connection,
+                "encoding": hub.encoding,
+                "logVerboseGateway": get_log_verbose_gateway(),
+                "privilegedAddSamplesHost": hub._privileged_add_samples_host,
+                "configFile": str(hub._config_file_path) if hub._config_file_path else "",
+            }
+            await _http_send(
+                writer,
+                200,
+                json.dumps(mon, ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8",
             )
             return

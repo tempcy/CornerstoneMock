@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.2
+
+**定位**：在 0.1.1 基础上的小版本，增加 **Bridge 桌面控制台** 与连接/队列监控 API。组件与安装包统一为 **0.1.2**。
+
+### Bridge
+
+- **桌面控制台**（`cornerstone-bridge-ui`）：并入 `cornerstone_bridge.ui`（PySide6，可选依赖 `[ui]`）；系统托盘、配置编辑、日志尾随、连接与通讯队列监控。
+- **REST**：`GET /api/monitor`（上游连接、TCP 客户端列表、队列概况）；Hub 记录 REST 实际监听地址 `api_listen_*`。
+- **修复**：控制台初始化时状态栏创建顺序（避免 `_status_config` 未定义）。
+
+### 安装程序
+
+- PyInstaller 在 `Bridge\` 目录同时输出 `cornerstone-bridge.exe` 与 `cornerstone-bridge-ui.exe`（共享 `_internal`）。
+- 可选组件 **Bridge 控制台**、登录时启动托盘任务；开始菜单快捷方式指向 `Bridge\cornerstone-bridge-ui.exe`。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.2 |
+| cornerstone-web | 0.1.2 |
+| cornerstone-cli | 0.1.2 |
+
+---
+
 ## 0.1.1
 
 **定位**：在 0.1.0 可安装基线上的**现场联调 Bug 修正版**（非 0.2.0 功能分支）。组件与安装包统一为 **0.1.1**（`VERSION`、`cornerstone-bridge` / `cornerstone-web` / `cornerstone-cli`、`CornerstoneMock-Setup-0.1.1.exe`）。

@@ -12,7 +12,7 @@
 
 #define MyAppName "Cornerstone Mock"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.1"
+  #define MyAppVersion "0.1.2"
 #endif
 #define MyAppPublisher "LECO"
 #define MyAppId "{{A7B3C2E1-9F4D-4A2B-8C1E-5D6F7A8B9C0D}"
@@ -52,6 +52,7 @@ Name: "custom"; Description: "自定义安装"; Flags: iscustom
 
 [Components]
 Name: "bridge"; Description: "Cornerstone Bridge（TCP 网关 + REST API）— 必选"; Types: full custom; Flags: fixed
+Name: "bridgeui"; Description: "Cornerstone Bridge 控制台（托盘 + 配置/日志/监控）"; Types: full
 Name: "web"; Description: "Cornerstone Web（浏览器管理界面）"; Types: full; Flags: checkablealone
 Name: "queue"; Description: "Cornerstone Queue（样品队列悬浮窗）"; Types: full
 Name: "cli"; Description: "Cornerstone CLI（命令行工具）"; Types: full
@@ -61,6 +62,7 @@ Name: "cli"; Description: "Cornerstone CLI（命令行工具）"; Types: full
 Name: "svcbridge"; Description: "将 Bridge 安装为 Windows 服务（开机自动启动）"; GroupDescription: "Windows 服务:"; Components: bridge
 Name: "svcweb"; Description: "将 Web 安装为 Windows 服务（开机自动启动）"; GroupDescription: "Windows 服务:"; Components: web
 Name: "desktopicon"; Description: "创建桌面快捷方式（Queue）"; GroupDescription: "快捷方式:"; Components: queue
+Name: "bridgeuistartup"; Description: "登录时启动 Bridge 控制台（系统托盘）"; GroupDescription: "Bridge 控制台:"; Components: bridgeui
 
 [Files]
 ; Bridge（必选）— exe 与 _internal 直接在 Bridge\ 下
@@ -78,9 +80,13 @@ Source: "{#StagingRoot}\scripts\*.ps1"; DestDir: "{app}\scripts"; Flags: ignorev
 
 [Icons]
 Name: "{group}\Cornerstone Queue"; Filename: "{app}\Queue\CornerstoneQueue.exe"; WorkingDir: "{app}\Queue"; Components: queue
+Name: "{group}\Bridge 控制台"; Filename: "{app}\Bridge\cornerstone-bridge-ui.exe"; WorkingDir: "{app}\Bridge"; Components: bridgeui
 Name: "{group}\Cornerstone Web"; Filename: "http://127.0.0.1:8080/"; Components: web
 Name: "{group}\打开配置目录"; Filename: "{sys}\explorer.exe"; Parameters: "/e,{userappdata}\CornerstoneMock"
 Name: "{autodesktop}\Cornerstone Queue"; Filename: "{app}\Queue\CornerstoneQueue.exe"; WorkingDir: "{app}\Queue"; Tasks: desktopicon; Components: queue
+
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "CornerstoneBridgeUI"; ValueData: """{app}\Bridge\cornerstone-bridge-ui.exe"""; Flags: uninsdeletevalue; Tasks: bridgeuistartup; Components: bridgeui
 
 [Run]
 ; 显示 PowerShell 窗口，便于查看配置合并与服务注册进度（勿用 runhidden）

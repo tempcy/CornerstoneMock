@@ -14,7 +14,7 @@ import urllib.parse
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape as _xml_escape
 
@@ -99,49 +99,183 @@ def _utf16le_xml_magic_at(payload_bytes: bytes, offset: int) -> bool:
     return offset + 2 <= len(payload_bytes) and payload_bytes[offset : offset + 2] == b"<\x00"
 
 
-def unwrap_cornerstone_payload_segments(payload_bytes: bytes, encoding: str) -> List[bytes]:
-    """
-    解包 TCP 长度帧正文。
+def _utf16le_inner_framed_at(payload_bytes: bytes, offset: int) -> bool:
+    """offset 处为 4 字节 inner_len，且 offset+4 为 UTF-16 ``<``。"""
+    n = len(payload_bytes)
+    return offset + 6 <= n and _utf16le_xml_magic_at(payload_bytes, offset + 4)
 
-    现场日志常见布局（UTF-16-LE）::
+
+def utf16le_inner_length_at(payload_bytes: bytes, offset: int = 0) -> Optional[int]:
+    """
+    若 ``payload[offset:offset+4]`` 为 inner 长度且 ``offset+4`` 起为 UTF-16 XML，返回 inner_len；
+    否则返回 None（无 inner 前缀，按整段正文处理）。
+    """
+    if not _utf16le_inner_framed_at(payload_bytes, offset):
+        return None
+    inner_len = struct.unpack("<I", payload_bytes[offset : offset + 4])[0]
+    if inner_len <= 0 or inner_len % 2 != 0:
+        return None
+    return inner_len
+
+
+def inner_framed_total_bytes(inner_len: int) -> int:
+    """完整 inner 帧占用的 TCP 正文字节数：4 + inner_len。"""
+    return 4 + inner_len
+
+
+def inner_framed_tcp_payload_complete(payload_bytes: bytes) -> bool:
+    """
+    仪器 inner 分包判定：``inner_len == len(payload) - 4`` 表示本 TCP 正文含完整一条 inner 帧。
+
+    无 inner 前缀时视为完整（由外层 TCP 长度界定）。
+    """
+    inner_len = utf16le_inner_length_at(payload_bytes, 0)
+    if inner_len is None:
+        return True
+    return inner_len == len(payload_bytes) - 4
+
+
+def inner_framed_needs_more_tcp(payload_bytes: bytes) -> bool:
+    """inner 前缀存在且正文不足 ``4 + inner_len``，需等待后续 TCP 包拼接。"""
+    inner_len = utf16le_inner_length_at(payload_bytes, 0)
+    if inner_len is None:
+        return False
+    return len(payload_bytes) < inner_framed_total_bytes(inner_len)
+
+
+@dataclass(frozen=True)
+class CornerstonePayloadSegment:
+    """单段解包结果（用于日志诊断与后续解码）。"""
+
+    data: bytes
+    offset: int
+    inner_length_header: Optional[int]
+    inner_trusted: bool
+    mode: str  # trusted_inner | untrusted_inner_remainder | raw_xml_tail | whole_payload
+
+
+def segment_cornerstone_payload(
+    payload_bytes: bytes, encoding: str
+) -> List[CornerstonePayloadSegment]:
+    """
+    解包 TCP 长度帧正文（UTF-16-LE 仪器常见「内外双层」）。
+
+    布局::
 
         [4 字节小端 inner_len][UTF-16 XML × inner_len][可选：下一段 …]
 
-    外层 ``readexactly(outer_len)`` 已消费；``inner_len`` 为正文内子长度，不是额外的 TCP 头。
-    若 offset+4 处为 ``3c 00``（``<``），则跳过这 4 字节再解码。
+    外层 ``readexactly(outer_len)`` 已消费；``inner_len`` 为正文内子长度，不是 TCP 头。
+    若 ``body_start + inner_len == n`` 或下一偏移处为 ``3c 00``（``<``），则信任 inner_len 并继续拆下一段。
     """
     enc = _normalize_frame_encoding(encoding)
     if enc != "utf-16-le" or len(payload_bytes) < 2:
-        return [payload_bytes]
+        return [
+            CornerstonePayloadSegment(
+                data=payload_bytes,
+                offset=0,
+                inner_length_header=None,
+                inner_trusted=False,
+                mode="whole_payload",
+            )
+        ]
 
-    segments: List[bytes] = []
+    segments: List[CornerstonePayloadSegment] = []
     off = 0
     n = len(payload_bytes)
     while off < n:
         if off + 6 <= n and _utf16le_xml_magic_at(payload_bytes, off + 4):
             inner_len = struct.unpack("<I", payload_bytes[off : off + 4])[0]
             body_start = off + 4
-            off = body_start
+            next_off = body_start + inner_len
             trusted_inner = (
                 inner_len > 0
                 and inner_len % 2 == 0
-                and body_start + inner_len <= n
+                and next_off <= n
                 and (
-                    body_start + inner_len == n
-                    or _utf16le_xml_magic_at(payload_bytes, body_start + inner_len)
+                    next_off == n
+                    or _utf16le_xml_magic_at(payload_bytes, next_off)
+                    or _utf16le_inner_framed_at(payload_bytes, next_off)
                 )
             )
             if trusted_inner:
-                segments.append(payload_bytes[body_start : body_start + inner_len])
-                off = body_start + inner_len
+                segments.append(
+                    CornerstonePayloadSegment(
+                        data=payload_bytes[body_start : body_start + inner_len],
+                        offset=off,
+                        inner_length_header=inner_len,
+                        inner_trusted=True,
+                        mode="trusted_inner",
+                    )
+                )
+                off = next_off
                 continue
-            segments.append(payload_bytes[body_start:])
+            segments.append(
+                CornerstonePayloadSegment(
+                    data=payload_bytes[body_start:],
+                    offset=off,
+                    inner_length_header=inner_len,
+                    inner_trusted=False,
+                    mode="untrusted_inner_remainder",
+                )
+            )
             break
         if _utf16le_xml_magic_at(payload_bytes, off):
-            segments.append(payload_bytes[off:])
+            segments.append(
+                CornerstonePayloadSegment(
+                    data=payload_bytes[off:],
+                    offset=off,
+                    inner_length_header=None,
+                    inner_trusted=False,
+                    mode="raw_xml_tail",
+                )
+            )
             break
         off += 2
-    return segments if segments else [payload_bytes]
+    if not segments:
+        return [
+            CornerstonePayloadSegment(
+                data=payload_bytes,
+                offset=0,
+                inner_length_header=None,
+                inner_trusted=False,
+                mode="whole_payload",
+            )
+        ]
+    return segments
+
+
+def unwrap_cornerstone_payload_segments(payload_bytes: bytes, encoding: str) -> List[bytes]:
+    return [s.data for s in segment_cornerstone_payload(payload_bytes, encoding)]
+
+
+def format_payload_segmentation_diagnostics(
+    payload_bytes: bytes,
+    segments: Sequence[CornerstonePayloadSegment],
+    *,
+    encoding: str = "utf-16-le",
+) -> str:
+    """人类可读的拆包诊断（异常日志用，不截断）。"""
+    n = len(payload_bytes)
+    lines = [f"tcp_payload_bytes={n}"]
+    if n >= 4 and _normalize_frame_encoding(encoding) == "utf-16-le":
+        hdr = struct.unpack("<I", payload_bytes[0:4])[0]
+        lines.append(f"payload[0:4]_as_inner_len={hdr} (compare to tcp_payload_bytes, not TCP header)")
+    for i, seg in enumerate(segments):
+        inner = (
+            "—"
+            if seg.inner_length_header is None
+            else str(seg.inner_length_header)
+        )
+        lines.append(
+            f"  seg[{i}] offset={seg.offset} inner_hdr={inner} trusted={seg.inner_trusted} "
+            f"mode={seg.mode} seg_bytes={len(seg.data)}"
+        )
+        if seg.data and _utf16le_xml_magic_at(seg.data, 0):
+            text, _ = decode_frame_payload_bytes(seg.data, encoding)
+            tag = _root_tag(text or "")
+            if tag:
+                lines.append(f"    root_tag≈{tag!r}")
+    return "\n".join(lines)
 
 
 def decode_inbound_segment_bytes(seg_bytes: bytes, encoding: str) -> Tuple[Optional[str], Optional[str]]:
@@ -244,10 +378,15 @@ def frame_xml_defect(text: str) -> Optional[str]:
     return None
 
 
+def format_frame_hex(payload_bytes: bytes, *, limit: Optional[int] = 96) -> str:
+    """十六进制转储；``limit is None`` 时输出全部字节（异常帧日志用）。"""
+    if limit is None or len(payload_bytes) <= limit:
+        return payload_bytes.hex()
+    return payload_bytes[:limit].hex() + "+"
+
+
 def format_frame_hex_preview(payload_bytes: bytes, limit: int = 96) -> str:
-    chunk = payload_bytes[:limit]
-    suffix = "+" if len(payload_bytes) > limit else ""
-    return chunk.hex() + suffix
+    return format_frame_hex(payload_bytes, limit=limit)
 
 
 def _parse_cookie_from_payload(text: str) -> str:
@@ -362,7 +501,15 @@ __all__ = [n for n in globals() if n.startswith("_") and not n.startswith("__")]
     "MAX_FRAME_PAYLOAD_BYTES",
     "inbound_xml_local_tag",
     "validate_frame_length",
+    "CornerstonePayloadSegment",
+    "segment_cornerstone_payload",
     "unwrap_cornerstone_payload_segments",
+    "format_payload_segmentation_diagnostics",
+    "format_frame_hex",
+    "utf16le_inner_length_at",
+    "inner_framed_total_bytes",
+    "inner_framed_tcp_payload_complete",
+    "inner_framed_needs_more_tcp",
     "split_concatenated_xml_documents",
     "decode_frame_payload_bytes",
     "decode_inbound_segment_bytes",

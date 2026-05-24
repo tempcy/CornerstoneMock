@@ -66,6 +66,7 @@ async def run_bridge(
     instrument_short_connection: bool,
     upstream_heartbeat_interval: float,
     upstream_auto_reconnect: bool,
+    upstream_inner_reassembly_timeout: float,
     async_message_interval: float,
     web_user: str,
     web_password: str,
@@ -83,11 +84,14 @@ async def run_bridge(
         instrument_short_connection=instrument_short_connection,
         upstream_heartbeat_interval_s=upstream_heartbeat_interval,
         upstream_auto_reconnect=upstream_auto_reconnect,
+        upstream_inner_reassembly_timeout_s=upstream_inner_reassembly_timeout,
         web_user=web_user,
         web_password=web_password,
         privileged_add_samples_host=privileged_add_samples_host,
         tcp_listen_host=listen_host,
         tcp_listen_port=listen_port,
+        api_listen_host=api_host,
+        api_listen_port=api_port,
         web_listen_host=web_host,
         web_listen_port=web_port,
         config_file_path=config_file_path,
@@ -127,6 +131,11 @@ async def run_bridge(
         upstream_heartbeat_interval,
         "on" if upstream_auto_reconnect else "off",
     )
+    if upstream_inner_reassembly_timeout > 0:
+        log.info(
+            "上游 inner 帧跨 TCP 拼接: timeout=%.1fs（inner_len == tcp_payload-4 为完整）",
+            upstream_inner_reassembly_timeout,
+        )
     if hub.web_user:
         log.info(
             "Web→upstream Logon user: %r (password %s)",
@@ -244,6 +253,13 @@ def main() -> int:
     parser.add_argument("--privileged-add-samples-host", default="", metavar="HOST")
     parser.add_argument("--instrument-short-connection", action="store_true")
     parser.add_argument("--upstream-heartbeat-interval", type=float, default=60.0, metavar="SEC")
+    parser.add_argument(
+        "--upstream-inner-reassembly-timeout",
+        type=float,
+        default=5.0,
+        metavar="SEC",
+        help="上游 inner_len 帧跨多条 TCP 包时等待拼接的超时（秒）；0=不等待",
+    )
     parser.add_argument("--no-upstream-auto-reconnect", action="store_true")
     parser.add_argument(
         "--no-persist-add-samples-queue",
@@ -332,6 +348,7 @@ def main() -> int:
                 instrument_short_connection=args.instrument_short_connection,
                 upstream_heartbeat_interval=args.upstream_heartbeat_interval,
                 upstream_auto_reconnect=not args.no_upstream_auto_reconnect,
+                upstream_inner_reassembly_timeout=args.upstream_inner_reassembly_timeout,
                 async_message_interval=args.async_message_interval,
                 web_user=args.web_user,
                 web_password=args.web_password,
