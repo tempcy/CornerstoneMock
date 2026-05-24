@@ -165,6 +165,7 @@ C:\Program Files\CornerstoneMock\
 - `WinError 64` / `network name is no longer available`：Cornerstone 断开了上游 TCP（仅允许单远程会话、读循环异常等）。新版 Bridge 会丢弃僵死连接并自动重连；客户端 **Logon 若不带 `Cookie`** 会导致应答无法回路由（已自动补 Cookie）。
 - 仪器本机部署时 `upstream_host` 应为 **`127.0.0.1`**、`upstream_port` 与 Cornerstone「Remote Access」端口一致（常见 `12345`）。`privileged_add_samples_host` 填**实际连网关的客户端 IP**（日志里 `client connected` 的地址），否则 `AddSamples` 会进队列而非直通。
 - Web 代理 `TimeoutError` / Bridge `ConnectionResetError`：多为浏览器或 Web 在 Bridge 尚未返回时断开；0.1.2 起会返回 504 JSON 并吞掉对端断开异常，不再刷 `Unhandled exception in client_connected_cb`。
+- 上游应答解析偶发不完整 / 日志出现 `upstream reassembly abandoned`：可调大 `upstream_inner_reassembly_timeout`（默认 5s），或设为 `0` 关闭跨 TCP 段拼接（不推荐除非确认仪器从不拆帧）。
 
 **服务状态为 Paused / 反复重启 / 程序闪退**
 
@@ -189,7 +190,7 @@ Start-Service CornerstoneBridge, CornerstoneWeb
 新安装或覆盖安装时，`post-install.ps1` 会：
 
 1. 若存在旧版 `%ProgramData%\CornerstoneMock\` 配置，先迁移到 `%APPDATA%\CornerstoneMock\`。
-2. 若已有 Roaming 下 JSON，则与安装包内 `*.example.json` **合并**（保留您的 IP/端口/账号等，仅补全新增配置项）。
+2. 若已有 Roaming 下 JSON，则与安装包内 `*.example.json` **合并**（保留您的 IP/端口/账号等，仅补全新增配置项，例如 `upstream_inner_reassembly_timeout`）。
 
 ## 卸载
 

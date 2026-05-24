@@ -8,7 +8,13 @@
 
 - **桌面控制台**（`cornerstone-bridge-ui`）：并入 `cornerstone_bridge.ui`（PySide6，可选依赖 `[ui]`）；系统托盘、配置编辑、日志尾随、连接与通讯队列监控。
 - **REST**：`GET /api/monitor`（上游连接、TCP 客户端列表、队列概况）；Hub 记录 REST 实际监听地址 `api_listen_*`。
+- **上游 TCP 分段拼接**：`upstream_inner_reassembly_timeout`（默认 5s）；当 inner 帧长度大于单条 TCP payload 时缓冲拼接后再解析；超时或异常时打 WARNING 并丢弃不完整帧（`0`= 不等待）。
 - **修复**：控制台初始化时状态栏创建顺序（避免 `_status_config` 未定义）。
+
+### Web
+
+- **分析页谱图**：元素统计卡片内 RepPlot 曲线由 Canvas 手绘改为 **ECharts**（静态资源 `echarts.min.js` v5.5.1）；支持 tooltip、窗口/面板 resize；仍兼容旧版单序列与内嵌 PNG。
+- **修复**：`cornerstone-web-dev` 启动 Bridge 时补传 `upstream_inner_reassembly_timeout`（此前缺参导致 `TypeError`）。
 
 ### 安装程序
 

@@ -144,6 +144,10 @@ copy cornerstone-web.config.example.json cornerstone-web.config.json
 | `upstream_host` / `upstream_port`     | 真实 Cornerstone 仪器 TCP 地址       |
 | `host` / `port`                       | 网关对 **TCP 客户端**（含 C# 远程客户端）的监听 |
 | `bridge_api_host` / `bridge_api_port` | Bridge 对内 REST（默认 `8081`）      |
+| `upstream_heartbeat_interval`         | 上游 TCP 心跳间隔（秒，默认 `60`）         |
+| `upstream_inner_reassembly_timeout`   | 上游 inner 帧跨多条 TCP 分段时的拼接等待（秒，默认 `5`；`0`= 不等待） |
+| `upstream_auto_reconnect`             | 上游断线后自动重连（配置里为 `true`/`false`；CLI 用 `--no-upstream-auto-reconnect` 关闭） |
+| `instrument_long_connection`          | 长连接复用上游 TCP（`true` 默认；对应 CLI `--instrument-short-connection` 的反义） |
 | `web_user` / `web_password`           | 网页「发送到仪器」、环境/分析页拉数用的仪器远程账号     |
 
 
@@ -246,6 +250,7 @@ cornerstone-web-dev --web-port 9000
 | 现象                         | 处理                                                                                   |
 | -------------------------- | ------------------------------------------------------------------------------------ |
 | `cornerstone-web-dev` 无法识别 | 先 `pip install -e ./CornerstoneWeb`，或改用 `python -m cornerstone_web.dev_web`；见上文 PATH |
+| `cornerstone-web-dev` 启动即 `TypeError: run_bridge() missing ... upstream_inner_reassembly_timeout` | 更新到含修复的 `CornerstoneWeb` 后 `pip install -e ./CornerstoneWeb` 再试 |
 | 页面能开但 `/api/`* 502         | 确认 Bridge 已启动且 `bridge_api_port` 与配置一致                                               |
 | 发送样品失败                     | 检查 `web_user` / `web_password` 是否与仪器远程账号一致                                           |
 | 改 `web_port` / `port` 不生效  | 修改监听端口后需**重启**对应进程（`cornerstone-web-dev` 或 Bridge/Web）                               |
@@ -302,7 +307,7 @@ cornerstone-web-dev --web-port 9000
 | `prerequisites`          | 是                                      |                                                        | 透传                                                                                                                                                                                                                                                                                   |
 | `qc-status`              | 是                                      | `--method-key`                                         | 透传                                                                                                                                                                                                                                                                                   |
 | `rep-detail`             | 是                                      | `--set-key`、`--tag`                                    | 网页：`GET /api/instrument/rep-detail`，解析详情字段                                                                                                                                                                                                                                           |
-| `rep-plot`               | 是                                      | `--set-key`、`--tag`                                    | 网页：`GET /api/instrument/rep-plot`，解析谱图/序列与内嵌图                                                                                                                                                                                                                                        |
+| `rep-plot`               | 是                                      | `--set-key`、`--tag`                                    | 网页：`GET /api/instrument/rep-plot`，解析 `analytePlotSeries` / 旧版序列 / 内嵌图；**分析页**用 ECharts 绘制各元素谱图                                                                                                                                                                                                                                        |
 | `report`                 | 是                                      | `--key`                                                | 透传                                                                                                                                                                                                                                                                                   |
 | `reports`                | 是                                      |                                                        | 透传                                                                                                                                                                                                                                                                                   |
 | `sequence`               | 是                                      | `--name`                                               | 透传                                                                                                                                                                                                                                                                                   |
@@ -419,6 +424,7 @@ cornerstone-cli tcp session --host 127.0.0.1 --port 12345 --heartbeat 5
 - **凭据补全**：配置 `web_user` / `web_password` 后，TCP 客户端空 `<Logon>` 由网关补全；网页发令与仪器 API 共用该上游登录。
 - **AddSamples**：默认入 FIFO 队列；`privileged_add_samples_host` 匹配来源 IP 时直通上游。
 - **RemoteControlState**：上游连接/重连后自动问询，供 `/api/status` 与 Web 顶栏。
+- **上游 inner 帧拼接**：仪器应答有时将单条 inner 帧拆成多条 TCP 段；Bridge 在 `upstream_inner_reassembly_timeout`（默认 5s）内缓冲拼接后再解析（`0` 关闭）。
 - **监听**：TCP `host`/`port`；REST `bridge_api_host`/`bridge_api_port`（示例 8081）。
 - **配置写回**：以 `-c` 指定 JSON 时，`PUT /api/settings` 可合并写回文件；改 TCP/Web **监听端口** 须重启进程。
 
@@ -439,10 +445,11 @@ cornerstone-cli tcp logon --host 127.0.0.1 --port 54321 --user demo --password d
 
 ## cornerstone-web（静态 UI + API 代理）
 
-- **静态资源**：`CornerstoneWeb/src/cornerstone_web/web_static/`（`/static/`*、`/`）。
+- **静态资源**：`CornerstoneWeb/src/cornerstone_web/web_static/`（`index.html`、`app.js`、`styles.css`、`echarts.min.js`；`/static/*`、`/`）。
 - **API**：浏览器请求 `/api/`* 由 `http_server.py` **原样代理**到 Bridge（`bridge_api_port`），Web 进程内无 `GatewayHub`。
-- **启动**：见上文 [启用 Web](#启用-web)；`cornerstone-web-dev` 或 `python -m cornerstone_web.dev_web`。
-- **网页功能**（与分析/诊断/设置/仪器各页）：与拆分前一致；REST 清单见 Bridge `http_api.py`。`/legacy` 旧版队列页已重定向到 `/`。
+- **启动**：见上文 [启用 Web](#启用-web)；`cornerstone-web-dev` 或 `python -m cornerstone_web.dev_web`（与 Bridge 共用配置字段，含 `upstream_inner_reassembly_timeout` 等）。
+- **分析页**：Set 列表 / Replicate 表格；选中 Set 后展示各元素均值±1σ、n、RSD%；选中 Replicate 后拉 `rep-plot` / `rep-detail`，各元素卡片内以 **ECharts** 绘制 RepPlot 时间–强度曲线（可点「详情」切换 RepDetail 小卡片）。
+- **其它页**（诊断/设置/仪器等）：与拆分前一致；REST 清单见 Bridge `http_api.py`。`/legacy` 旧版队列页已重定向到 `/`。
 
 **主要 REST**（均由 Bridge 提供，Web 代理）：`GET /api/queue`、`POST /api/queue/send`、`GET /api/status`、`GET|PUT /api/settings`、`GET /api/config`、`GET /api/environment/ambients`、`GET /api/diagnostic/`*、`GET /api/instrument/`*、`GET /api/settings/transports` 等。
 

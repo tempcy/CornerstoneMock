@@ -8,6 +8,7 @@
 | 组件                   | 阶段    | 状态                                                                     |
 | -------------------- | ----- | ---------------------------------------------------------------------- |
 | Bridge / Web         | 0–1   | ✅ 分包、独立进程、配置拆分为 `cornerstone-bridge.config` + `cornerstone-web.config` |
+| **Web 分析页谱图**        | —     | ✅ RepPlot 曲线改用 ECharts（`web_static/echarts.min.js`） |
 | **CornerstoneQueue** | M1–M3 + 仪器 UI 自动点击 | ✅ 见下文 §1（发送成功后可选 FlaUI 点击确认；**不**做系统通知/全局快捷键） |
 | Bridge 北向            | P2+   | ⏳ Modbus/MQTT                                                          |
 | CornerstoneAgent     | A1+   | ⏳ 未启动                                                                  |
@@ -62,7 +63,7 @@ flowchart TB
 
 **Bridge 包内模块**（`CornerstoneBridge/src/cornerstone_bridge/`）：`protocol.py`、`parsers.py`、`hub.py`、`hub_helpers.py`、`hub_types.py`、`gateway.py`、`http_api.py`、`server.py`、`config.py`。
 
-**Web 包**（`CornerstoneWeb/src/cornerstone_web/`）：`web_static/`、`http_server.py`（静态 + 代理）、`server.py`、`dev_web.py`（`cornerstone-web-dev` 同进程拉起 Bridge + Web）。
+**Web 包**（`CornerstoneWeb/src/cornerstone_web/`）：`web_static/`（含 `echarts.min.js` 分析页谱图）、`http_server.py`（静态 + 代理）、`server.py`、`dev_web.py`（`cornerstone-web-dev` 同进程拉起 Bridge + Web，转发 Bridge 全部配置项含 `upstream_inner_reassembly_timeout`）。
 
 ### 目标架构
 
@@ -84,7 +85,7 @@ flowchart LR
 | 组件                     | 职责                                                                                                                   |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | **cornerstone-cli**    | 协议帧、TCP 引擎、可选 CLI；**共享库**，不单独跑网关                                                                                     |
-| **cornerstone-bridge** | 上游 TCP 网关、AddSamples 队列、`instrument_rq`、**XML→JSON 解析**、对内 REST；**北向** Modbus/MQTT（Gateway + Protocol Adapters，可同进程） |
+| **cornerstone-bridge** | 上游 TCP 网关、AddSamples 队列、`instrument_rq`、**XML→JSON 解析**、对内 REST；上游 inner 帧跨 TCP 分段拼接（`upstream_inner_reassembly_timeout`）；**北向** Modbus/MQTT（Gateway + Protocol Adapters，可同进程） |
 | **cornerstone-web**    | 静态资源 + 薄 BFF（或纯静态直连 Bridge API）；**不再** `import GatewayHub`                                                           |
 | **cornerstone-queue**  | 桌面悬浮窗，仅 HTTP 客户端                                                                                                     |
 | **cornerstone-agent**  | 规则/AI、监控，调 Bridge API 或 `cornerstone_cli`                                                                            |
@@ -327,7 +328,7 @@ flowchart LR
 
 ### 建议里程碑
 
-1. **Q1 末**：~~悬浮窗 beta~~ **悬浮窗 M1–M3 与仪器 UI 自动点击已可用**；Bridge/Web 配置拆分已完成；后续产线反馈与安装包迭代。
+1. **Q1 末**：~~悬浮窗 beta~~ **悬浮窗 M1–M3 与仪器 UI 自动点击已可用**；Bridge/Web 配置拆分已完成；Web 分析页 RepPlot 已切 ECharts；后续产线反馈与安装包迭代。
 2. **Q2 中**：Modbus/MQTT 只读点表 v1 + Agent 规则监控试点。
 3. **Q2 末**：Agent 审核报告 v1 + AI 可选 POC。
 4. **Q3**：多厂家适配插件、生产硬化（鉴权、TLS、审计）。
@@ -341,7 +342,7 @@ flowchart LR
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `CornerstoneCLI` / `cornerstone-cli`       | 共享协议库                                                                                           |
 | `CornerstoneBridge` / `cornerstone-bridge` | 网关 + 解析 + REST（`cornerstone-bridge`）；后续 Modbus/MQTT                                             |
-| `CornerstoneWeb` / `**cornerstone-web`**   | 静态 UI + 可选 BFF；入口 `cornerstone-web`、`cornerstone-web-dev`                                       |
+| `CornerstoneWeb` / `**cornerstone-web`**   | 静态 UI + 可选 BFF；`web_static` 含 ECharts；入口 `cornerstone-web`、`cornerstone-web-dev`                                       |
 | `CornerstoneQueue`                         | WinUI 3 悬浮窗（M1–M3 + 可选 UI 自动点击 ✅）；`CornerstoneQueue.sln`；设置见 `%LocalAppData%\CornerstoneQueue\settings.json` |
 | `installer/`                               | PyInstaller + Inno Setup：Bridge 必选，Web/Queue/CLI 可选；Bridge/Web 可注册系统服务（默认全选） |
 | `CornerstoneAgent`                         | 边缘 Agent                                                                                        |
