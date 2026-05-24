@@ -126,6 +126,9 @@ def main() -> int:
                 instrument_short_connection=bool(m.get("instrument_short_connection")),
                 upstream_heartbeat_interval=float(m.get("upstream_heartbeat_interval") or 60.0),
                 upstream_auto_reconnect=not bool(m.get("no_upstream_auto_reconnect")),
+                upstream_inner_reassembly_timeout=float(
+                    m.get("upstream_inner_reassembly_timeout") or 5.0
+                ),
                 async_message_interval=float(m.get("async_message_interval") or 0.0),
                 web_user=str(m.get("web_user") or ""),
                 web_password=str(m.get("web_password") or ""),

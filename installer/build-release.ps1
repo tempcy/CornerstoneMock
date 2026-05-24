@@ -4,8 +4,14 @@ param(
     [switch]$SkipPython,
     [switch]$SkipQueue,
     [switch]$SkipInstaller,
+    [switch]$BridgeOnly,
     [string]$Configuration = "Release"
 )
+
+if ($BridgeOnly) {
+    $SkipQueue = $true
+    $SkipInstaller = $true
+}
 
 $ErrorActionPreference = "Stop"
 $AppVersion = (Get-Content -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) "VERSION") -Raw).Trim()
@@ -232,7 +238,8 @@ if (-not $SkipPython) {
     Ensure-Dir $pyDist
     Ensure-Dir $pyWork
 
-    foreach ($name in @("bridge", "web", "cli")) {
+    $pyTargets = if ($BridgeOnly) { @("bridge") } else { @("bridge", "web", "cli") }
+    foreach ($name in $pyTargets) {
         $specFile = (Join-Path $specDir "$name.spec")
         Write-Host "[build] PyInstaller $name ..."
         # .spec 已给定路径时不可再传 --specpath
@@ -242,25 +249,49 @@ if (-not $SkipPython) {
 
     # PyInstaller 输出目录展平到 Bridge / Web / CLI（exe 在第一层，无 cornerstone-* 子目录）
     $bridgeOut = Join-Path $Staging "Bridge"
-    $webOut = Join-Path $Staging "Web"
-    $cliOut = Join-Path $Staging "CLI"
-    foreach ($pair in @(
-            @{ Src = "cornerstone-bridge"; Dst = $bridgeOut },
-            @{ Src = "cornerstone-web"; Dst = $webOut },
-            @{ Src = "cornerstone-cli"; Dst = $cliOut }
-        )) {
-        $srcDir = Join-Path $pyDist $pair.Src
-        if (Test-Path $pair.Dst) { Remove-Item $pair.Dst -Recurse -Force }
-        Ensure-Dir $pair.Dst
-        Copy-Item (Join-Path $srcDir "*") $pair.Dst -Recurse -Force
+    $srcDir = Join-Path $pyDist "cornerstone-bridge"
+    if (Test-Path $bridgeOut) { Remove-Item $bridgeOut -Recurse -Force }
+    Ensure-Dir $bridgeOut
+    Copy-Item (Join-Path $srcDir "*") $bridgeOut -Recurse -Force
+
+    if (-not $BridgeOnly) {
+        $webOut = Join-Path $Staging "Web"
+        $cliOut = Join-Path $Staging "CLI"
+        foreach ($pair in @(
+                @{ Src = "cornerstone-web"; Dst = $webOut },
+                @{ Src = "cornerstone-cli"; Dst = $cliOut }
+            )) {
+            $src = Join-Path $pyDist $pair.Src
+            if (Test-Path $pair.Dst) { Remove-Item $pair.Dst -Recurse -Force }
+            Ensure-Dir $pair.Dst
+            Copy-Item (Join-Path $src "*") $pair.Dst -Recurse -Force
+        }
     }
 
     $cfgDir = Join-Path $Staging "config"
     Ensure-Dir $cfgDir
     Copy-Item (Join-Path $Root "CornerstoneBridge\cornerstone-bridge.config.example.json") `
         (Join-Path $cfgDir "cornerstone-bridge.config.example.json") -Force
-    Copy-Item (Join-Path $Root "CornerstoneWeb\cornerstone-web.config.example.json") `
-        (Join-Path $cfgDir "cornerstone-web.config.example.json") -Force
+    if (-not $BridgeOnly) {
+        Copy-Item (Join-Path $Root "CornerstoneWeb\cornerstone-web.config.example.json") `
+            (Join-Path $cfgDir "cornerstone-web.config.example.json") -Force
+    }
+}
+
+if ($BridgeOnly) {
+    $bridgeStaging = Join-Path $Staging "Bridge"
+    $zipPath = Join-Path $Dist "CornerstoneBridge-$AppVersion-win64.zip"
+    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+    Compress-Archive -Path (Join-Path $bridgeStaging "*") -DestinationPath $zipPath -Force
+    Write-Host ""
+    Write-Host "[build] Bridge-only package ready:"
+    Write-Host "  Folder: $bridgeStaging"
+    Write-Host "  Zip:    $zipPath"
+    Write-Host "  Field:  stop CornerstoneBridge service, copy folder over"
+    Write-Host "          'C:\Program Files\CornerstoneMock\Bridge\' then restart service."
+    Write-Host ""
+    Write-Host "[build] staging: $bridgeStaging"
+    exit 0
 }
 
 # --- CornerstoneQueue (WinUI) ---

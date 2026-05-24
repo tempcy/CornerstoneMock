@@ -47,6 +47,11 @@ async def _handle_client(
     hub: GatewayHub,
     async_message_interval: float,
 ) -> None:
+    if not hub.is_tcp_gateway_enabled():
+        _log.info("client rejected (TCP gateway disabled): %s", writer.get_extra_info("peername"))
+        await _async_close_stream_writer(writer)
+        return
+
     peer = writer.get_extra_info("peername")
     peer_s = str(peer)
     _log.info("client connected: %s", peer_s)
@@ -105,11 +110,16 @@ async def _handle_client(
             tag = _xml_local_tag(_root_tag(text))
             cookie = _parse_cookie_from_payload(text)
             log_gateway_xml(_log, "client IN", text, cookie=cookie)
+            hub.on_client_rx(writer)
+            if tag == "Logon":
+                hub.on_client_logon_request(writer, text)
 
             if tag == "Logon":
                 if hub._synthetic_logon_after_first and hub._logon_seen_upstream_success:
                     resp = _synthetic_logon_success(cookie)
                     _log.info("synthetic Logon for %s", peer_s)
+                    hub.on_client_tx(writer)
+                    hub.on_client_logon_response(writer, resp)
                     writer.write(_frame(resp, enc))
                     await writer.drain()
                     continue
@@ -142,6 +152,7 @@ async def _handle_client(
                 )
                 resp = _synthetic_add_samples_held(cookie)
                 _log.info("AddSamples held -> queue size=%d", len(hub._pending_add_samples))
+                hub.on_client_tx(writer)
                 writer.write(_frame(resp, enc))
                 await writer.drain()
                 continue

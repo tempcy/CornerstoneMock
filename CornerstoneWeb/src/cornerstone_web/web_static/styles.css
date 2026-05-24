@@ -1080,7 +1080,8 @@ details.xml-fold pre {
   display: block;
   width: 100%;
   max-width: 100%;
-  height: auto;
+  height: 200px;
+  min-height: 200px;
   margin-top: 0;
   border-radius: 4px;
   background: #2a2a2e;

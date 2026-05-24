@@ -19,13 +19,16 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -51,6 +54,7 @@ class MainWindow(QMainWindow):
         self._cfg: Dict[str, Any] = load_config_dict(self._config_path)
         self._api = BridgeApiClient(api_base_url(self._cfg))
         self._log_offset = 0
+        self._connections_syncing = False
 
         self._tabs = QTabWidget()
         self.setCentralWidget(self._tabs)
@@ -82,7 +86,41 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
-    # --- 监控 ---
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        s = max(0, int(seconds))
+        if s < 60:
+            return f"{s} 秒"
+        m, rem = divmod(s, 60)
+        if m < 60:
+            return f"{m} 分 {rem} 秒"
+        h, rem_m = divmod(m, 60)
+        return f"{h} 时 {rem_m} 分 {rem} 秒"
+
+    @staticmethod
+    def _menu_tool_button(
+        text: str,
+        default_cb,
+        menu_items: List[tuple[str, object]],
+    ) -> QToolButton:
+        btn = QToolButton()
+        btn.setText(text)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        menu = QMenu(btn)
+        for label, cb in menu_items:
+            menu.addAction(label, cb)
+        btn.setMenu(menu)
+        btn.clicked.connect(default_cb)
+        MainWindow._style_action_button(btn)
+        return btn
+
+    @staticmethod
+    def _style_action_button(btn: QWidget) -> None:
+        btn.setMinimumHeight(34)
+        btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    # --- 连接监控 ---
     def _build_monitor_tab(self) -> None:
         w = QWidget()
         layout = QVBoxLayout(w)
@@ -97,34 +135,59 @@ class MainWindow(QMainWindow):
         top.addStretch()
         layout.addLayout(top)
 
-        grid = QGridLayout()
+        sw = QGroupBox("连接开关")
+        sw_lay = QVBoxLayout(sw)
+        up_row = QHBoxLayout()
+        up_row.addWidget(QLabel("上游仪器"))
+        self._chk_upstream_conn = QCheckBox("保持连接")
+        self._chk_upstream_conn.setChecked(True)
+        self._chk_upstream_conn.toggled.connect(self._on_upstream_conn_toggled)
+        up_row.addWidget(self._chk_upstream_conn)
         self._lbl_upstream = QLabel("—")
+        up_row.addWidget(self._lbl_upstream, 1)
+        sw_lay.addLayout(up_row)
+
+        gw_row = QHBoxLayout()
+        gw_row.addWidget(QLabel("TCP 网关"))
+        self._chk_tcp_gateway = QCheckBox("接受客户端")
+        self._chk_tcp_gateway.setChecked(True)
+        self._chk_tcp_gateway.toggled.connect(self._on_tcp_gateway_toggled)
+        gw_row.addWidget(self._chk_tcp_gateway)
         self._lbl_tcp_listen = QLabel("—")
+        gw_row.addWidget(self._lbl_tcp_listen, 1)
+        sw_lay.addLayout(gw_row)
+        layout.addWidget(sw)
+
+        grid = QGridLayout()
         self._lbl_api_listen = QLabel("—")
         self._lbl_queue = QLabel("—")
         self._lbl_rcs = QLabel("—")
         self._lbl_encoding = QLabel("—")
-        grid.addWidget(QLabel("上游仪器"), 0, 0)
-        grid.addWidget(self._lbl_upstream, 0, 1)
-        grid.addWidget(QLabel("TCP 网关"), 0, 2)
-        grid.addWidget(self._lbl_tcp_listen, 0, 3)
-        grid.addWidget(QLabel("REST API"), 1, 0)
-        grid.addWidget(self._lbl_api_listen, 1, 1)
-        grid.addWidget(QLabel("通讯队列"), 1, 2)
-        grid.addWidget(self._lbl_queue, 1, 3)
-        grid.addWidget(QLabel("远程控制状态"), 2, 0)
-        grid.addWidget(self._lbl_rcs, 2, 1, 1, 3)
-        grid.addWidget(QLabel("编码"), 3, 0)
-        grid.addWidget(self._lbl_encoding, 3, 1)
+        grid.addWidget(QLabel("REST API"), 0, 0)
+        grid.addWidget(self._lbl_api_listen, 0, 1)
+        grid.addWidget(QLabel("通讯队列"), 0, 2)
+        grid.addWidget(self._lbl_queue, 0, 3)
+        grid.addWidget(QLabel("远程控制状态"), 1, 0)
+        grid.addWidget(self._lbl_rcs, 1, 1, 1, 3)
+        grid.addWidget(QLabel("编码"), 2, 0)
+        grid.addWidget(self._lbl_encoding, 2, 1)
         layout.addLayout(grid)
 
-        layout.addWidget(QLabel("已连接的 TCP 远程客户端"))
-        self._tbl_clients = QTableWidget(0, 2)
-        self._tbl_clients.setHorizontalHeaderLabels(["客户端地址", "正在关闭"])
-        self._tbl_clients.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(QLabel("TCP 远程客户端"))
+        self._tbl_clients = QTableWidget(0, 6)
+        self._tbl_clients.setHorizontalHeaderLabels(
+            ["客户端地址", "连接时长", "特权 IP", "登录用户", "收到", "发出"]
+        )
+        hdr = self._tbl_clients.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self._tbl_clients)
 
-        self._tabs.addTab(w, "连接与监控")
+        self._tabs.addTab(w, "连接监控")
 
     # --- 队列 ---
     def _build_queue_tab(self) -> None:
@@ -200,28 +263,37 @@ class MainWindow(QMainWindow):
         lform.addRow("log_file", self._ed_log_file)
         outer.addWidget(log_box)
 
-        btns = QHBoxLayout()
+        act_box = QGroupBox("配置与服务")
+        btn_grid = QGridLayout(act_box)
+        btn_grid.setColumnStretch(0, 1)
+        btn_grid.setColumnStretch(1, 1)
+        btn_grid.setHorizontalSpacing(12)
+        btn_grid.setVerticalSpacing(10)
+
         self._btn_reload_cfg = QPushButton("重新加载")
-        self._btn_save_cfg = QPushButton("保存到配置文件")
-        self._btn_apply_runtime = QPushButton("应用到运行中的 Bridge")
+        self._style_action_button(self._btn_reload_cfg)
+        self._btn_save_cfg = self._menu_tool_button(
+            "保存配置",
+            self._save_config_file,
+            [("应用到运行中的 Bridge…", self._apply_runtime_settings)],
+        )
         self._btn_open_cfg_dir = QPushButton("打开配置目录")
-        self._btn_restart_svc = QPushButton("重启 Bridge 服务")
-        for b in (
-            self._btn_reload_cfg,
-            self._btn_save_cfg,
-            self._btn_apply_runtime,
-            self._btn_open_cfg_dir,
-            self._btn_restart_svc,
-        ):
-            btns.addWidget(b)
-        outer.addLayout(btns)
+        self._style_action_button(self._btn_open_cfg_dir)
+        self._btn_restart_svc = self._menu_tool_button(
+            "重启服务",
+            self._restart_bridge_service,
+            [("停止 Bridge 服务", self._stop_bridge_service)],
+        )
+
+        btn_grid.addWidget(self._btn_reload_cfg, 0, 0)
+        btn_grid.addWidget(self._btn_save_cfg, 0, 1)
+        btn_grid.addWidget(self._btn_open_cfg_dir, 1, 0)
+        btn_grid.addWidget(self._btn_restart_svc, 1, 1)
+        outer.addWidget(act_box)
         outer.addStretch()
 
         self._btn_reload_cfg.clicked.connect(self._load_config_form)
-        self._btn_save_cfg.clicked.connect(self._save_config_file)
-        self._btn_apply_runtime.clicked.connect(self._apply_runtime_settings)
         self._btn_open_cfg_dir.clicked.connect(self._open_config_dir)
-        self._btn_restart_svc.clicked.connect(self._restart_bridge_service)
 
         self._tabs.addTab(w, "配置")
         self._load_config_form(reload_api=False)
@@ -284,6 +356,7 @@ class MainWindow(QMainWindow):
         up = mon.get("upstream") or {}
         host = up.get("host", "")
         port = up.get("port", "")
+        up_enabled = bool(up.get("enabled", True))
         connected = up.get("connected")
         hb = float(up.get("lastHeartbeatReplyAt") or 0)
         hb_txt = (
@@ -291,9 +364,24 @@ class MainWindow(QMainWindow):
             if hb > 0
             else "—"
         )
-        state = "已连接" if connected else "未连接"
-        self._lbl_upstream.setText(f"{host}:{port} — {state}（最近心跳应答 {hb_txt}）")
-        self._lbl_tcp_listen.setText(str(mon.get("tcpListen") or "—"))
+        if not up_enabled:
+            state = "已手动断开"
+        else:
+            state = "已连接" if connected else "未连接"
+        self._lbl_upstream.setText(f"{host}:{port} — {state}（心跳 {hb_txt}）")
+
+        gw = mon.get("tcpGateway") or {}
+        gw_enabled = bool(gw.get("enabled", True))
+        listen = str(gw.get("listen") or mon.get("tcpListen") or "—")
+        self._lbl_tcp_listen.setText(
+            f"{listen} — {'接受连接' if gw_enabled else '已暂停（拒绝新连接）'}"
+        )
+
+        self._connections_syncing = True
+        self._chk_upstream_conn.setChecked(up_enabled)
+        self._chk_tcp_gateway.setChecked(gw_enabled)
+        self._connections_syncing = False
+
         self._lbl_api_listen.setText(str(mon.get("apiListen") or "—"))
         q = mon.get("queue") or {}
         self._lbl_queue.setText(f"{q.get('current', 0)} / {q.get('max', 0)}")
@@ -307,9 +395,64 @@ class MainWindow(QMainWindow):
         self._tbl_clients.setRowCount(len(clients))
         for i, c in enumerate(clients):
             self._tbl_clients.setItem(i, 0, QTableWidgetItem(str(c.get("peer") or "—")))
+            dur = c.get("connectedSeconds")
+            if dur is None:
+                dur = 0.0
             self._tbl_clients.setItem(
-                i, 1, QTableWidgetItem("是" if c.get("closing") else "否")
+                i, 1, QTableWidgetItem(self._format_duration(float(dur)))
             )
+            self._tbl_clients.setItem(
+                i, 2, QTableWidgetItem("是" if c.get("privileged") else "否")
+            )
+            self._tbl_clients.setItem(
+                i, 3, QTableWidgetItem(str(c.get("logonUser") or "未登录"))
+            )
+            self._tbl_clients.setItem(
+                i, 4, QTableWidgetItem(str(c.get("rxFrames", 0)))
+            )
+            self._tbl_clients.setItem(
+                i, 5, QTableWidgetItem(str(c.get("txFrames", 0)))
+            )
+
+    def _apply_connections(self, *, upstream: Optional[bool] = None, tcp_gateway: Optional[bool] = None) -> None:
+        body: Dict[str, Any] = {}
+        if upstream is not None:
+            body["upstreamEnabled"] = upstream
+        if tcp_gateway is not None:
+            body["tcpGatewayEnabled"] = tcp_gateway
+        try:
+            out = self._api.put_connections(body)
+        except BridgeApiError as e:
+            QMessageBox.warning(self, "连接开关", str(e))
+            self._refresh_monitor()
+            return
+        notes = out.get("notes") or []
+        if notes:
+            QMessageBox.information(self, "连接开关", "\n".join(str(n) for n in notes))
+        self._refresh_monitor()
+
+    def _on_upstream_conn_toggled(self, checked: bool) -> None:
+        if self._connections_syncing:
+            return
+        self._apply_connections(upstream=checked)
+
+    def _on_tcp_gateway_toggled(self, checked: bool) -> None:
+        if self._connections_syncing:
+            return
+        if not checked:
+            if (
+                QMessageBox.question(
+                    self,
+                    "TCP 网关",
+                    "关闭后将断开所有已连接的 TCP 客户端，并拒绝新连接。继续？",
+                )
+                != QMessageBox.StandardButton.Yes
+            ):
+                self._connections_syncing = True
+                self._chk_tcp_gateway.setChecked(True)
+                self._connections_syncing = False
+                return
+        self._apply_connections(tcp_gateway=checked)
 
     def _refresh_queue(self) -> None:
         try:
@@ -445,6 +588,31 @@ class MainWindow(QMainWindow):
     def _open_config_dir(self) -> None:
         path = self._config_path.parent
         subprocess.Popen(["explorer", str(path)])
+
+    def _stop_bridge_service(self) -> None:
+        if (
+            QMessageBox.question(
+                self,
+                "停止服务",
+                "将停止 Windows 服务 CornerstoneBridge（需要管理员权限）。继续？",
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
+        r = subprocess.run(
+            ["net", "stop", "CornerstoneBridge"],
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode != 0:
+            QMessageBox.warning(
+                self,
+                "停止服务",
+                f"停止失败:\n{r.stderr or r.stdout}",
+            )
+            return
+        QMessageBox.information(self, "停止服务", "CornerstoneBridge 服务已停止。")
+        self._reload_api_client()
 
     def _restart_bridge_service(self) -> None:
         if (

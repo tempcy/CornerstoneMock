@@ -74,6 +74,22 @@ def _logon_merge_web_credentials(xml_text: str, web_user: str, web_password: str
     return ET.tostring(root, encoding="unicode")
 
 
+def _logon_user_from_client_xml(xml_text: str) -> str:
+    s = (xml_text or "").strip()
+    if not s.startswith("<"):
+        return ""
+    try:
+        root = ET.fromstring(s)
+    except ET.ParseError:
+        return ""
+    if _xml_local_tag(root.tag) != "Logon":
+        return ""
+    for el in root:
+        if _xml_local_tag(el.tag) == "User":
+            return ((el.text if el is not None else None) or "").strip()
+    return ""
+
+
 def _upstream_logon_response_ok(resp: Optional[str]) -> bool:
     if not resp or not (resp or "").strip().startswith("<"):
         return False

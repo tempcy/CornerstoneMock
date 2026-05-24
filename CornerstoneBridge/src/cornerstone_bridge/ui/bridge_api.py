@@ -65,6 +65,9 @@ class BridgeApiClient:
     def put_settings(self, body: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("PUT", "/api/settings", body=body)
 
+    def put_connections(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("PUT", "/api/connections", body=body)
+
     def ping(self) -> Tuple[bool, str]:
         try:
             st = self.get_status()

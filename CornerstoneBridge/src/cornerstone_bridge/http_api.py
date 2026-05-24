@@ -429,10 +429,15 @@ async def handle_bridge_http(
                 "upstream": {
                     "host": hub._upstream_host,
                     "port": hub._upstream_port,
+                    "enabled": hub.is_upstream_connection_enabled(),
                     "connected": hub.upstream_connected(),
                     "lastHeartbeatReplyAt": hub._last_upstream_heartbeat_reply_at,
                     "autoReconnect": hub._upstream_auto_reconnect,
                     "heartbeatIntervalS": hub._upstream_heartbeat_interval_s,
+                },
+                "tcpGateway": {
+                    "listen": tcp_listen,
+                    "enabled": hub.is_tcp_gateway_enabled(),
                 },
                 "tcpClients": tcp_clients,
                 "tcpClientCount": len(tcp_clients),
@@ -454,6 +459,52 @@ async def handle_bridge_http(
                 writer,
                 200,
                 json.dumps(mon, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "PUT" and path == "/api/connections":
+            try:
+                obj = json.loads(body.decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "无效 JSON"}, ensure_ascii=False).encode(
+                        "utf-8"
+                    ),
+                    "application/json; charset=utf-8",
+                )
+                return
+            if not isinstance(obj, dict):
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps(
+                        {"ok": False, "error": "请求体须为 JSON 对象"}, ensure_ascii=False
+                    ).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+                return
+            notes: List[str] = []
+            if "upstreamEnabled" in obj:
+                en = bool(obj.get("upstreamEnabled"))
+                await hub.set_upstream_connection_enabled(en)
+                notes.append("上游仪器连接已" + ("启用" if en else "断开"))
+            if "tcpGatewayEnabled" in obj:
+                en = bool(obj.get("tcpGatewayEnabled"))
+                await hub.set_tcp_gateway_enabled(en)
+                notes.append("TCP 网关已" + ("启用" if en else "关闭（已断开现有客户端）"))
+            out = {
+                "ok": True,
+                "notes": notes,
+                "upstreamEnabled": hub.is_upstream_connection_enabled(),
+                "tcpGatewayEnabled": hub.is_tcp_gateway_enabled(),
+            }
+            await _http_send(
+                writer,
+                200,
+                json.dumps(out, ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8",
             )
             return

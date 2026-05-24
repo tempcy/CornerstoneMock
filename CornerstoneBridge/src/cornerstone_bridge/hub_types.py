@@ -35,3 +35,18 @@ class _FutureWaiter:
     """上游应答按 Cookie 路由时，网页触发的请求用 Future 收文，不写回 TCP。"""
 
     fut: asyncio.Future[str]
+
+
+@dataclass
+class TcpClientSession:
+    """TCP 远程客户端会话（供 /api/monitor 与连接开关）。"""
+
+    writer: asyncio.StreamWriter
+    peer: str
+    peer_host: str
+    connected_at: float
+    rx_frames: int = 0
+    tx_frames: int = 0
+    logon_user: str = ""
+    logon_authenticated: bool = False
+    privileged: bool = False

@@ -2287,6 +2287,7 @@
   var lastRepAnalyteColumns = [];
   var lastElementStats = [];
   var lastRepPlotAnalytes = [];
+  var elemChartInstances = {};
   var lastRepDetailFields = [];
   var repDetailLastError = "";
   var repDetailLoading = false;
@@ -2476,6 +2477,7 @@
     var bar = $("elem-toggle-bar");
     var row = $("elem-panels-row");
     if (!bar || !row) return;
+    disposeAllElemCharts();
     bar.innerHTML = "";
     row.innerHTML = "";
     elementPanelVisible = {};
@@ -2492,7 +2494,13 @@
         elementPanelVisible[sid] = !elementPanelVisible[sid];
         btn.classList.toggle("active", elementPanelVisible[sid]);
         var pan = $("elem-panel-" + sid);
-        if (pan) show(pan, elementPanelVisible[sid]);
+        if (pan) {
+          show(pan, elementPanelVisible[sid]);
+          if (elementPanelVisible[sid]) {
+            var inst = elemChartInstances[sid];
+            if (inst && !inst.isDisposed()) inst.resize();
+          }
+        }
       });
       bar.appendChild(btn);
       var u = st.units || "%";
@@ -2528,9 +2536,9 @@
         '<div class="elem-plot-stack" id="elem-plot-stack-' +
         sid +
         '">' +
-        '<canvas class="elem-mini-plot" id="elem-canvas-' +
+        '<div class="elem-mini-plot" id="elem-chart-' +
         sid +
-        '" width="360" height="200"></canvas>' +
+        '"></div>' +
         '<div class="elem-plot-hint muted hidden" id="elem-plot-hint-' +
         sid +
         '"></div></div>' +
@@ -2630,6 +2638,14 @@
     if (ps) show(ps, mode === "plot");
     if (ds) show(ds, mode === "detail");
     if (btn) btn.textContent = mode === "plot" ? "详情" : "图谱";
+    if (mode === "plot") {
+      var inst = elemChartInstances[sid];
+      if (inst && !inst.isDisposed()) {
+        setTimeout(function () {
+          inst.resize();
+        }, 0);
+      }
+    }
   }
 
   function renderAllDetailGrids() {
@@ -2709,21 +2725,190 @@
     renderAllDetailGrids();
   }
 
-  function clearMiniCanvas(canvas) {
-    if (!canvas || !canvas.getContext) return;
-    var ctx = canvas.getContext("2d");
-    var w = canvas.width;
-    var h = canvas.height;
-    ctx.fillStyle = "#2a2a2e";
-    ctx.fillRect(0, 0, w, h);
+  function disposeAllElemCharts() {
+    Object.keys(elemChartInstances).forEach(function (sid) {
+      var inst = elemChartInstances[sid];
+      if (inst && !inst.isDisposed()) inst.dispose();
+    });
+    elemChartInstances = {};
   }
 
-  function drawCanvasMessage(canvas, msg) {
-    clearMiniCanvas(canvas);
-    var ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#888";
-    ctx.font = "12px sans-serif";
-    ctx.fillText(msg || "—", 12, 24);
+  function getOrCreateElemChart(container) {
+    if (!container || typeof echarts === "undefined") return null;
+    var existing = echarts.getInstanceByDom(container);
+    if (existing) return existing;
+    var sid = (container.id || "").replace("elem-chart-", "");
+    var chart = echarts.init(container, null, { renderer: "canvas" });
+    if (sid) elemChartInstances[sid] = chart;
+    return chart;
+  }
+
+  function resizeAllElemCharts() {
+    Object.keys(elemChartInstances).forEach(function (sid) {
+      var inst = elemChartInstances[sid];
+      if (inst && !inst.isDisposed()) inst.resize();
+    });
+  }
+
+  function showChartMessage(container, msg) {
+    var chart = getOrCreateElemChart(container);
+    if (!chart) return;
+    chart.setOption(
+      {
+        backgroundColor: "#2a2a2e",
+        title: {
+          text: msg || "—",
+          left: "center",
+          top: "middle",
+          textStyle: { color: "#888", fontSize: 12, fontWeight: "normal" },
+        },
+      },
+      true
+    );
+  }
+
+  function buildLineChartOption(points, bounds) {
+    var xs = points.map(function (p) {
+      return p[0];
+    });
+    var ys = points.map(function (p) {
+      return p[1];
+    });
+    var minX = bounds && bounds.xMin != null ? bounds.xMin : Math.min.apply(null, xs);
+    var maxX = bounds && bounds.xMax != null ? bounds.xMax : Math.max.apply(null, xs);
+    var dataYMin = Math.min.apply(null, ys);
+    var dataYMax = Math.max.apply(null, ys);
+    var minY = bounds && bounds.yMin != null ? bounds.yMin : dataYMin;
+    var maxY = bounds && bounds.yMax != null ? bounds.yMax : dataYMax;
+    if (maxX === minX) maxX = minX + 1;
+    var yScale = pickYAxisIntScale(
+      Math.min(minY, dataYMin),
+      Math.max(maxY, dataYMax, dataYMin + 1e-12)
+    );
+    var xt = pickXAxisTickSeconds(minX, maxX);
+    var endLabel = "结束 " + formatAxisXSeconds(maxX) + " s";
+    return {
+      backgroundColor: "#2a2a2e",
+      animation: false,
+      grid: { left: 44, right: 8, top: 28, bottom: 44, containLabel: false },
+      title: {
+        text: "强度 max " + formatIntensity(dataYMax),
+        left: 44,
+        top: 2,
+        textStyle: { color: "#a0a87a", fontSize: 10, fontWeight: "normal" },
+      },
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "cross", lineStyle: { color: "#666" } },
+        backgroundColor: "rgba(30,30,34,0.95)",
+        borderColor: "#45454d",
+        textStyle: { color: "#ddd", fontSize: 11 },
+        formatter: function (params) {
+          var p = params && params[0];
+          if (!p || !p.data) return "";
+          var xy = p.data;
+          return (
+            "时间 " +
+            formatAxisXSeconds(xy[0]) +
+            " s<br/>强度 " +
+            formatIntensity(xy[1])
+          );
+        },
+      },
+      xAxis: {
+        type: "value",
+        min: minX,
+        max: maxX,
+        name: "时间 (s)",
+        nameLocation: "middle",
+        nameGap: 28,
+        nameTextStyle: { color: "#666", fontSize: 9 },
+        interval: xt.major,
+        axisLine: { lineStyle: { color: "#45454d" } },
+        axisTick: { lineStyle: { color: "#45454d" } },
+        minorTick: { show: true, splitNumber: Math.max(1, Math.round(xt.major / xt.minor) - 1) },
+        axisLabel: {
+          color: "#b0b0b8",
+          fontSize: 10,
+          formatter: function (v) {
+            return formatAxisXSeconds(v);
+          },
+        },
+        splitLine: { show: true, lineStyle: { color: "#5c5c66" } },
+        minorSplitLine: { show: true, lineStyle: { color: "#45454d" } },
+      },
+      yAxis: {
+        type: "value",
+        min: yScale.y0,
+        max: yScale.y1,
+        interval: yScale.step,
+        axisLine: { show: true, lineStyle: { color: "#45454d" } },
+        axisTick: { show: true, lineStyle: { color: "#45454d" } },
+        axisLabel: {
+          color: "#7a7a82",
+          fontSize: 10,
+          formatter: function (v) {
+            return formatYTickLabel(v, yScale.step);
+          },
+        },
+        splitLine: { show: true, lineStyle: { color: "#35353c" } },
+      },
+      series: [
+        {
+          type: "line",
+          data: points,
+          showSymbol: false,
+          lineStyle: { color: "#4a9eff", width: 2 },
+          itemStyle: { color: "#4a9eff" },
+        },
+      ],
+      graphic: [
+        {
+          type: "text",
+          right: 8,
+          bottom: 6,
+          style: { text: endLabel, fill: "#9a9aa2", fontSize: 9, textAlign: "right" },
+        },
+      ],
+    };
+  }
+
+  function drawLineOnChart(container, points, bounds) {
+    if (!container || !points || points.length < 2) return;
+    var chart = getOrCreateElemChart(container);
+    if (!chart) return;
+    chart.setOption(buildLineChartOption(points, bounds), true);
+    chart.resize();
+  }
+
+  function showChartImage(container, mime, b64) {
+    if (!container) return;
+    var chart = getOrCreateElemChart(container);
+    if (!chart) return;
+    var im = new Image();
+    im.onload = function () {
+      var cw = container.clientWidth || 360;
+      var ch = container.clientHeight || 200;
+      var r = Math.min(cw / im.width, ch / im.height);
+      var w = im.width * r;
+      var h = im.height * r;
+      chart.setOption(
+        {
+          backgroundColor: "#2a2a2e",
+          graphic: [
+            {
+              type: "image",
+              style: { image: im, width: w, height: h },
+              left: (cw - w) / 2,
+              top: (ch - h) / 2,
+            },
+          ],
+        },
+        true
+      );
+      chart.resize();
+    };
+    im.src = mime + ";base64," + b64;
   }
 
   function formatAxisXSeconds(t) {
@@ -2790,137 +2975,6 @@
     return { minor: minor, major: major, start: start, end: end };
   }
 
-  function drawLineOnCanvas(canvas, points, bounds) {
-    if (!canvas || !canvas.getContext || !points || points.length < 2) return;
-    var ctx = canvas.getContext("2d");
-    var w = canvas.width;
-    var h = canvas.height;
-    ctx.fillStyle = "#2a2a2e";
-    ctx.fillRect(0, 0, w, h);
-    var xs = points.map(function (p) {
-      return p[0];
-    });
-    var ys = points.map(function (p) {
-      return p[1];
-    });
-    var minX = bounds && bounds.xMin != null ? bounds.xMin : Math.min.apply(null, xs);
-    var maxX = bounds && bounds.xMax != null ? bounds.xMax : Math.max.apply(null, xs);
-    var dataYMin = Math.min.apply(null, ys);
-    var dataYMax = Math.max.apply(null, ys);
-    var minY = bounds && bounds.yMin != null ? bounds.yMin : dataYMin;
-    var maxY = bounds && bounds.yMax != null ? bounds.yMax : dataYMax;
-    if (maxX === minX) maxX = minX + 1;
-    var yScale = pickYAxisIntScale(Math.min(minY, dataYMin), Math.max(maxY, dataYMax, dataYMin + 1e-12));
-    var plotY0 = yScale.y0;
-    var plotY1 = yScale.y1;
-    if (plotY1 === plotY0) plotY1 = plotY0 + 1;
-    var padL = 44;
-    var padR = 8;
-    var padT = 18;
-    var padB = 44;
-    var plotL = padL;
-    var plotR = w - padR;
-    var plotT = padT;
-    var plotB = h - padB;
-    var pw = plotR - plotL;
-    var ph = plotB - plotT;
-    var sx = function (x) {
-      return plotL + ((x - minX) / (maxX - minX)) * pw;
-    };
-    var sy = function (y) {
-      return plotB - ((y - plotY0) / (plotY1 - plotY0)) * ph;
-    };
-    var yStep = yScale.step;
-    ctx.strokeStyle = "#35353c";
-    ctx.lineWidth = 1;
-    var yLine = Math.ceil(plotY0 / yStep) * yStep;
-    while (yLine <= plotY1 + 1e-9) {
-      var yPy = sy(yLine);
-      if (yPy >= plotT && yPy <= plotB) {
-        ctx.beginPath();
-        ctx.moveTo(plotL, yPy);
-        ctx.lineTo(plotR, yPy);
-        ctx.stroke();
-      }
-      yLine += yStep;
-    }
-    var xt = pickXAxisTickSeconds(minX, maxX);
-    var t = xt.start;
-    ctx.font = "10px Segoe UI, Microsoft YaHei, sans-serif";
-    ctx.fillStyle = "#7a7a82";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    while (t <= xt.end + 1e-9) {
-      var px = sx(t);
-      if (px >= plotL - 2 && px <= plotR + 2) {
-        var isMajor = Math.abs((t / xt.major) - Math.round(t / xt.major)) < 1e-6;
-        ctx.beginPath();
-        ctx.strokeStyle = isMajor ? "#5c5c66" : "#45454d";
-        ctx.lineWidth = 1;
-        ctx.moveTo(px, plotB);
-        ctx.lineTo(px, plotB + (isMajor ? 7 : 4));
-        ctx.stroke();
-        if (isMajor) {
-          ctx.fillStyle = "#b0b0b8";
-          ctx.fillText(formatAxisXSeconds(t), px, plotB + 8);
-        }
-      }
-      t += xt.minor;
-    }
-    var endPx = sx(maxX);
-    var endNum = formatAxisXSeconds(maxX);
-    var endLabel = endNum + " s";
-    if (endPx >= plotL && endPx <= plotR) {
-      ctx.strokeStyle = "#8a8a94";
-      ctx.beginPath();
-      ctx.moveTo(endPx, plotB);
-      ctx.lineTo(endPx, plotB + 8);
-      ctx.stroke();
-    }
-    ctx.fillStyle = "#9a9aa2";
-    ctx.font = "9px Segoe UI, Microsoft YaHei, sans-serif";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "top";
-    ctx.fillText("结束 " + endLabel, plotR, plotB + 22);
-    ctx.font = "10px Segoe UI, Microsoft YaHei, sans-serif";
-    ctx.fillStyle = "#7a7a82";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    var yv = Math.ceil(plotY0 / yStep) * yStep;
-    while (yv <= plotY1 + 1e-9) {
-      var py = sy(yv);
-      if (py >= plotT - 2 && py <= plotB + 2) {
-        ctx.beginPath();
-        ctx.strokeStyle = "#45454d";
-        ctx.moveTo(plotL, py);
-        ctx.lineTo(plotL - 5, py);
-        ctx.stroke();
-        ctx.fillText(formatYTickLabel(yv, yStep), plotL - 7, py);
-      }
-      yv += yStep;
-    }
-    ctx.textAlign = "left";
-    ctx.textBaseline = "bottom";
-    ctx.fillStyle = "#a0a87a";
-    ctx.font = "10px Segoe UI, Microsoft YaHei, sans-serif";
-    ctx.fillText("强度 max " + formatIntensity(dataYMax), plotL, plotT + 2);
-    ctx.strokeStyle = "#4a9eff";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    points.forEach(function (p, i) {
-      var pxx = sx(p[0]);
-      var pyy = sy(p[1]);
-      if (i === 0) ctx.moveTo(pxx, pyy);
-      else ctx.lineTo(pxx, pyy);
-    });
-    ctx.stroke();
-    ctx.fillStyle = "#666";
-    ctx.font = "9px Segoe UI, Microsoft YaHei, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "alphabetic";
-    ctx.fillText("时间 (s)", (plotL + plotR) / 2, h - 3);
-  }
-
   function findPlotSeriesForRegistry(registryId, panelLabel) {
     var rid = (registryId || "").toLowerCase();
     var pl = (panelLabel || "").toLowerCase();
@@ -2951,7 +3005,7 @@
     repDetailLoading = false;
     elemPanelView = {};
     document.querySelectorAll(".elem-mini-plot").forEach(function (cv) {
-      clearMiniCanvas(cv);
+      showChartMessage(cv, "—");
     });
     document.querySelectorAll(".elem-plot-hint").forEach(function (el) {
       el.textContent = "";
@@ -2972,21 +3026,18 @@
   }
 
   function drawAnalytePlotsInPanels() {
-    document.querySelectorAll(".elem-mini-plot").forEach(function (cv) {
-      clearMiniCanvas(cv);
-    });
     document.querySelectorAll(".elem-plot-hint").forEach(function (el) {
       el.textContent = "";
       el.classList.add("hidden");
     });
     (lastElementStats || []).forEach(function (st) {
       var sid = safeDomId(st.registryId || "");
-      var canvas = $("elem-canvas-" + sid);
+      var chartEl = $("elem-chart-" + sid);
       var hint = $("elem-plot-hint-" + sid);
-      if (!canvas) return;
+      if (!chartEl) return;
       var ser = findPlotSeriesForRegistry(st.registryId || "", st.label || "");
       if (ser && ser.points && ser.points.length >= 2) {
-        drawLineOnCanvas(canvas, ser.points, ser.bounds || null);
+        drawLineOnChart(chartEl, ser.points, ser.bounds || null);
         if (hint) {
           hint.textContent =
             "RepPlot · Tag " +
@@ -2996,7 +3047,7 @@
           hint.classList.remove("hidden");
         }
       } else {
-        drawCanvasMessage(canvas, "无曲线或元素不匹配");
+        showChartMessage(chartEl, "无曲线或元素不匹配");
         if (hint) hint.classList.add("hidden");
       }
     });
@@ -3151,7 +3202,7 @@
     if (!data || !data.ok) {
       lastRepPlotAnalytes = [];
       document.querySelectorAll(".elem-mini-plot").forEach(function (c) {
-        drawCanvasMessage(c, data && data.error ? "RepPlot 失败" : "—");
+        showChartMessage(c, data && data.error ? "RepPlot 失败" : "—");
       });
       return;
     }
@@ -3163,9 +3214,9 @@
     if (data.hasSeries && data.series && data.series.length) {
       var plots = document.querySelectorAll(".elem-mini-plot");
       if (plots[0] && data.series[0].points)
-        drawLineOnCanvas(plots[0], data.series[0].points, null);
+        drawLineOnChart(plots[0], data.series[0].points, null);
       for (var li = 1; li < plots.length; li++) {
-        drawCanvasMessage(plots[li], "旧版曲线仅显示于首卡片");
+        showChartMessage(plots[li], "旧版曲线仅显示于首卡片");
       }
       return;
     }
@@ -3173,26 +3224,15 @@
       var mime = data.imageMime || "image/png";
       var plots = document.querySelectorAll(".elem-mini-plot");
       if (plots.length && plots[0]) {
-        var c1 = plots[0];
-        clearMiniCanvas(c1);
-        var ctx = c1.getContext("2d");
-        var im = new Image();
-        im.onload = function () {
-          clearMiniCanvas(c1);
-          var r = Math.min(c1.width / im.width, c1.height / im.height);
-          var w = im.width * r;
-          var h = im.height * r;
-          ctx.drawImage(im, (c1.width - w) / 2, (c1.height - h) / 2, w, h);
-        };
-        im.src = mime + ";base64," + data.imageBase64;
+        showChartImage(plots[0], mime, data.imageBase64);
       }
       for (var pi = 1; pi < plots.length; pi++) {
-        drawCanvasMessage(plots[pi], "谱图见首元素卡片");
+        showChartMessage(plots[pi], "谱图见首元素卡片");
       }
       return;
     }
     document.querySelectorAll(".elem-mini-plot").forEach(function (c) {
-      drawCanvasMessage(c, "无曲线数据");
+      showChartMessage(c, "无曲线数据");
     });
   }
 
@@ -3208,6 +3248,10 @@
       setElemPanelView(sid, cur === "plot" ? "detail" : "plot");
     });
   }
+
+  window.addEventListener("resize", function () {
+    resizeAllElemCharts();
+  });
 
   $("btn-load-sets").addEventListener("click", loadSets);
   if ($("btn-sets-next")) {
