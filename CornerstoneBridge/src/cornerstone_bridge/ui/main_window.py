@@ -310,6 +310,21 @@ class MainWindow(QMainWindow):
         self._sp_client_fwd_timeout = QSpinBox()
         self._sp_client_fwd_timeout.setRange(5, 600)
         self._sp_client_fwd_timeout.setSuffix(" s")
+        self._sp_hb_wait_timeout = QSpinBox()
+        self._sp_hb_wait_timeout.setRange(0, 600)
+        self._sp_hb_wait_timeout.setSuffix(" s")
+        self._sp_hb_wait_timeout.setSpecialValueText("自动")
+        self._sp_activity_stale = QSpinBox()
+        self._sp_activity_stale.setRange(0, 3600)
+        self._sp_activity_stale.setSuffix(" s")
+        self._sp_activity_stale.setSpecialValueText("自动")
+        self._sp_read_cancel_timeout = QSpinBox()
+        self._sp_read_cancel_timeout.setRange(1, 60)
+        self._sp_read_cancel_timeout.setSuffix(" s")
+        self._sp_stale_check_interval = QSpinBox()
+        self._sp_stale_check_interval.setRange(0, 600)
+        self._sp_stale_check_interval.setSuffix(" s")
+        self._sp_stale_check_interval.setSpecialValueText("关闭")
         self._chk_no_syn_logon = QCheckBox("禁用合成 Logon (no_synthetic_logon)")
         self._chk_verbose_gw = QCheckBox("网关 XML 详细日志 (log_verbose_gateway，应用后立即生效)")
         self._chk_persist_q = QCheckBox("持久化队列 (persist_add_samples_queue)")
@@ -321,6 +336,10 @@ class MainWindow(QMainWindow):
         tlay.addRow("心跳失败上限", self._sp_hb_fail_max)
         tlay.addRow("指令失败上限", self._sp_cmd_fail_max)
         tlay.addRow("TCP转发超时", self._sp_client_fwd_timeout)
+        tlay.addRow("Heartbeat等待", self._sp_hb_wait_timeout)
+        tlay.addRow("无活动回收", self._sp_activity_stale)
+        tlay.addRow("读循环cancel", self._sp_read_cancel_timeout)
+        tlay.addRow("活性巡检间隔", self._sp_stale_check_interval)
         tlay.addRow(self._chk_no_syn_logon)
         tlay.addRow(self._chk_verbose_gw)
         tlay.addRow(self._chk_persist_q)
@@ -578,6 +597,18 @@ class MainWindow(QMainWindow):
         self._sp_client_fwd_timeout.setValue(
             int(self._cfg.get("upstream_client_forward_timeout") or 10)
         )
+        self._sp_hb_wait_timeout.setValue(
+            int(self._cfg.get("upstream_heartbeat_wait_timeout") or 0)
+        )
+        self._sp_activity_stale.setValue(
+            int(self._cfg.get("upstream_activity_stale_seconds") or 0)
+        )
+        self._sp_read_cancel_timeout.setValue(
+            int(self._cfg.get("upstream_read_cancel_timeout") or 5)
+        )
+        self._sp_stale_check_interval.setValue(
+            int(self._cfg.get("upstream_stale_check_interval") or 30)
+        )
         self._chk_no_syn_logon.setChecked(bool(self._cfg.get("no_synthetic_logon", False)))
         self._chk_verbose_gw.setChecked(bool(self._cfg.get("log_verbose_gateway", False)))
         self._chk_persist_q.setChecked(bool(self._cfg.get("persist_add_samples_queue", True)))
@@ -604,6 +635,10 @@ class MainWindow(QMainWindow):
             "upstream_heartbeat_fail_max": self._sp_hb_fail_max.value(),
             "upstream_command_fail_max": self._sp_cmd_fail_max.value(),
             "upstream_client_forward_timeout": self._sp_client_fwd_timeout.value(),
+            "upstream_heartbeat_wait_timeout": self._sp_hb_wait_timeout.value(),
+            "upstream_activity_stale_seconds": self._sp_activity_stale.value(),
+            "upstream_read_cancel_timeout": self._sp_read_cancel_timeout.value(),
+            "upstream_stale_check_interval": self._sp_stale_check_interval.value(),
             "no_synthetic_logon": self._chk_no_syn_logon.isChecked(),
             "log_verbose_gateway": self._chk_verbose_gw.isChecked(),
             "persist_add_samples_queue": self._chk_persist_q.isChecked(),

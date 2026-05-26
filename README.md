@@ -1,6 +1,6 @@
 # Cornerstone 远程控制（Python CLI + Bridge + Web）
 
-**当前版本：0.1.5**（变更见 [CHANGELOG.md](CHANGELOG.md)）
+**当前版本：0.1.6**（变更见 [CHANGELOG.md](CHANGELOG.md)）
 
 后续开发路线图见 [PLAN.md](PLAN.md)。
 
@@ -152,6 +152,10 @@ copy cornerstone-web.config.example.json cornerstone-web.config.json
 | `upstream_heartbeat_fail_max`         | 连续心跳无应答达此次数则回收上游 TCP（默认 `2`）                                           |
 | `upstream_command_fail_max`           | 连续仪器指令超时/异常达此次数则回收上游 TCP（默认 `3`）                                       |
 | `upstream_client_forward_timeout`     | TCP 客户端经网关转发后等待上游应答（秒，默认 `10`）                                         |
+| `upstream_heartbeat_wait_timeout`     | Bridge 主动 Heartbeat 等待应答（秒；`0` = `max(TCP转发超时, 15)`）                        |
+| `upstream_activity_stale_seconds`     | 无上行活动超过该秒数则回收上游 TCP（`0` = `max(3×心跳间隔, 90)`）                            |
+| `upstream_read_cancel_timeout`        | 回收 TCP 时等待读循环 cancel 的最长时间（秒，默认 `5`）                                     |
+| `upstream_stale_check_interval`       | 定时检查 activity_stale 的间隔（秒，默认 `30`；`0` = 关闭）                                |
 | `upstream_auto_reconnect`             | 上游断线后自动重连（配置里为 `true`/`false`；CLI 用 `--no-upstream-auto-reconnect` 关闭） |
 | `instrument_long_connection`          | 长连接复用上游 TCP（`true` 默认；对应 CLI `--instrument-short-connection` 的反义）      |
 | `web_user` / `web_password`           | 网页「发送到仪器」、环境/分析页拉数用的仪器远程账号                                             |
@@ -432,7 +436,7 @@ cornerstone-cli tcp session --host 127.0.0.1 --port 12345 --heartbeat 5
 - **RemoteControlState**：上游连接/重连后自动问询，供 `/api/status` 与 Web 顶栏。
 - **上游报文解包**：外层 TCP 长度帧正文进入全局 `recv` 缓冲，按 `[inner_len][UTF-16 XML]` 循环切分（粘包/拆包）；无 inner 头的整段 XML（如部分 Logon 应答）按单条处理。`upstream_inner_reassembly_timeout` 控制拆包续读；`upstream_recv_idle_clear` 控制断流清缓冲。
 - **业务在线**：`GET /api/status` 返回 `instrumentOnline`、`businessOnline`、`heartbeatFailStreak`、`commandFailStreak`；Web 顶栏与 Queue 状态行据此显示（不再仅依赖 Cookie 心跳应答）。
-- **上游回收**：连续 `upstream_heartbeat_fail_max` 次心跳无应答，或连续 `upstream_command_fail_max` 次指令失败，或过久无上行活动 → 自动断开并重连上游。
+- **上游回收**：连续 `upstream_heartbeat_fail_max` 次心跳无应答，或连续 `upstream_command_fail_max` 次指令失败，或过久无上行活动 → 自动断开并重连上游；回收后强制重连（含僵死 TCP）、定时 activity 巡检、转发超时代际失效。
 - **监听**：TCP `host`/`port`；REST `bridge_api_host`/`bridge_api_port`（示例 8081）。
 - **配置写回**：以 `-c` 指定 JSON 时，`PUT /api/settings` 可合并写回文件；改 TCP/Web **监听端口** 须重启进程。
 

@@ -1,8 +1,25 @@
 # Changelog
 
+## 0.1.6
+
+**定位**：上游僵死 TCP 回收/重连可靠性修复（建议现场升级安装包）。
+
+### Bridge
+
+- **上游回收/重连**：修复首次回收后不再重复回收、重连 worker 静默退出；回收时缩短持锁、读循环 cancel 超时；transport 已 down 时仍调度重连；僵死连接上 `instrument offline` 强制 drop 再连；转发超时 watcher 随回收代际失效；定时 activity_stale 巡检（默认 30s）。
+- **配置**：新增 `upstream_heartbeat_wait_timeout`、`upstream_activity_stale_seconds`、`upstream_read_cancel_timeout`、`upstream_stale_check_interval`（控制台表单可编辑）。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.6 |
+| cornerstone-web | 0.1.6 |
+| cornerstone-cli | 0.1.6 |
+
+---
+
 ## 0.1.5
 
-**定位**：0.1.4 后配置默认值与控制台标识小版本（建议现场升级安装包）。
+**定位**：0.1.4 后配置默认值与控制台标识小版本。
 
 ### Bridge
 
