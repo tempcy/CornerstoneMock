@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.5
+
+**定位**：0.1.4 后配置默认值与控制台标识小版本（建议现场升级安装包）。
+
+### Bridge
+
+- **配置默认**：`upstream_recv_idle_clear` **5**、`upstream_client_forward_timeout` **10**（example、CLI/Hub 缺省、控制台表单回退一致）。
+- **控制台**：窗口标题显示 `cornerstone-bridge` 版本与打包时间（`build-info.json`）。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.5 |
+| cornerstone-web | 0.1.5 |
+| cornerstone-cli | 0.1.5 |
+
+---
+
 ## 0.1.4
 
 **定位**：0.1.3 现场联调修复（TCP 248 粘包尾段、合成 Logon、指令失败计数）。
@@ -15,6 +32,11 @@
 | cornerstone-bridge | 0.1.4 |
 | cornerstone-web | 0.1.4 |
 | cornerstone-cli | 0.1.4 |
+
+### 配置默认值（example / 无配置项时）
+
+- `upstream_recv_idle_clear`：`30` → **`5`**（与 `upstream_inner_reassembly_timeout` 同量级，减少断流后残留半包）
+- `upstream_client_forward_timeout`：`120` → **`10`**（更快发现转发无应答，避免长时间挂死 Cookie 表）
 
 ---
 

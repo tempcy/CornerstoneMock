@@ -271,7 +271,7 @@ def main() -> int:
     parser.add_argument(
         "--upstream-recv-idle-clear",
         type=float,
-        default=30.0,
+        default=5.0,
         metavar="SEC",
         help="上游 recv 缓冲空闲超过该秒数则下次 append 前清空",
     )
@@ -290,7 +290,7 @@ def main() -> int:
     parser.add_argument(
         "--upstream-client-forward-timeout",
         type=float,
-        default=120.0,
+        default=10.0,
         metavar="SEC",
         help="TCP 客户端经网关转发后等待上游应答的超时",
     )
