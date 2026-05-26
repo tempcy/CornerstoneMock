@@ -32,6 +32,7 @@ from .queue_persistence import (
 
 from .hub_helpers import *
 from .bridge_logging import get_logger, log_gateway_xml, log_throttled_warning
+from .upstream_framing import DrainAnomaly, DrainResult, UpstreamRecvBuffer
 
 _log = get_logger("gateway")
 
@@ -49,7 +50,7 @@ _UPSTREAM_READ_DISCONNECT_EXC = (
 class GatewayHub:
     """
     多客户端 -> 单上游 Cornerstone：按应答中的 Cookie 将电文路由回对应客户端。
-    - 首条 Logon 走上游；上游 ErrorCode=0 后，后续客户端 Logon 可合成成功（单机单会话）。
+    - 上游曾 Logon 成功且未 Logoff 时，TCP 客户端 Logon 由网关合成应答（不占用仪器会话）；仅首启且尚无成功记录时才走上游。
     - TCP ``<Logon>`` 若缺省或空的 ``<User>``/``<Password>``，在已配置 ``--web-user``/``--web-password``
       时用网关网页侧凭据补全后再转发上游；其它指令在已配置网页凭据时会先确保上游已网页 Logon，
       客户端可不自带账号即可经网关使用仪器命令。
@@ -70,6 +71,10 @@ class GatewayHub:
         upstream_heartbeat_interval_s: float,
         upstream_auto_reconnect: bool,
         upstream_inner_reassembly_timeout_s: float = 5.0,
+        upstream_recv_idle_clear_s: float = 30.0,
+        upstream_heartbeat_fail_max: int = 2,
+        upstream_command_fail_max: int = 3,
+        upstream_client_forward_timeout_s: float = 120.0,
         web_user: str,
         web_password: str,
         privileged_add_samples_host: str = "",
@@ -95,10 +100,18 @@ class GatewayHub:
         self._upstream_inner_reassembly_timeout_s = max(
             0.0, float(upstream_inner_reassembly_timeout_s)
         )
-        self._upstream_reassembly_buf: bytes = b""
-        self._upstream_reassembly_acc_outer: int = 0
-        self._upstream_reassembly_deadline: float = 0.0
-        self._upstream_reassembly_target_bytes: int = 0
+        self._upstream_recv = UpstreamRecvBuffer(
+            idle_clear_sec=max(0.0, float(upstream_recv_idle_clear_s)),
+            incomplete_timeout_s=self._upstream_inner_reassembly_timeout_s,
+        )
+        self._upstream_heartbeat_fail_max = max(1, int(upstream_heartbeat_fail_max))
+        self._upstream_command_fail_max = max(1, int(upstream_command_fail_max))
+        self._upstream_client_forward_timeout_s = max(
+            1.0, float(upstream_client_forward_timeout_s)
+        )
+        self._last_upstream_rx_at: float = 0.0
+        self._upstream_command_fail_streak: int = 0
+        self._pending_hb_cookie: str = ""
         self.web_user = (web_user or "").strip()
         self.web_password = web_password or ""
         self._privileged_add_samples_host = (privileged_add_samples_host or "").strip()
@@ -309,6 +322,8 @@ class GatewayHub:
         """
         local = inbound_xml_local_tag(text) or _xml_local_tag(tag)
         if local.lower() == "heartbeat":
+            self._note_upstream_heartbeat_reply(text)
+            await self._try_satisfy_pending_heartbeat(text, cookie=cookie)
             return
         if local.lower() in _UPSTREAM_ASYNC_FANOUT_TAGS:
             n = await self._broadcast_upstream_async_to_tcp_clients(text)
@@ -433,9 +448,15 @@ class GatewayHub:
             self._upstream_reader = None
             self._upstream_writer = None
         await _async_close_stream_writer(uw)
-        self._reset_upstream_reassembly_hold()
-        self._logon_seen_upstream_success = False
+        self._upstream_recv.clear()
+        # 保留 _logon_seen_upstream_success：重连期间 TCP 客户端仍应走合成 Logon，勿再转发占仪器会话。
         self._upstream_session_authenticated = False
+
+    def should_synthesize_client_logon(self) -> bool:
+        """仪器长连接 + 曾成功 Logon 时，TCP 客户端 Logon 由网关本地应答。"""
+        if not self._synthetic_logon_after_first:
+            return False
+        return self._logon_seen_upstream_success or self._upstream_session_authenticated
 
     async def _force_close_upstream(self) -> None:
         rct = self._upstream_reconnect_task
@@ -496,14 +517,73 @@ class GatewayHub:
             self._upstream_reconnect_worker(), name="gateway_upstream_reconnect"
         )
 
-    def _should_recycle_upstream_after_heartbeat_failure(self) -> bool:
-        """连续心跳无应答或距上次成功过久时，回收僵死 TCP 并触发 auto-reconnect。"""
+    def _upstream_activity_stale_seconds(self) -> float:
         interval = max(float(self._upstream_heartbeat_interval_s), 0.5)
-        last_ok = self._last_upstream_heartbeat_reply_at
-        stale_s = max(3.0 * interval, 90.0)
-        if last_ok > 0 and (time.time() - last_ok) > stale_s:
-            return True
-        return self._upstream_heartbeat_fail_streak >= 2
+        return max(3.0 * interval, 90.0)
+
+    def _should_recycle_upstream(self) -> Tuple[bool, str]:
+        """满足任一：心跳连续失败、指令连续失败、过久无有效上行活动。"""
+        if self._upstream_heartbeat_fail_streak >= self._upstream_heartbeat_fail_max:
+            return True, "heartbeat_streak"
+        if self._upstream_command_fail_streak >= self._upstream_command_fail_max:
+            return True, "command_streak"
+        last = max(self._last_upstream_rx_at, self._last_upstream_heartbeat_reply_at)
+        if last > 0 and (time.time() - last) > self._upstream_activity_stale_seconds():
+            return True, "activity_stale"
+        return False, ""
+
+    def _schedule_recycle_upstream_if_needed(self) -> None:
+        should, reason = self._should_recycle_upstream()
+        if not should:
+            return
+        asyncio.create_task(
+            self._recover_stale_upstream(reason),
+            name="gateway_upstream_stale_recover",
+        )
+
+    def _record_upstream_command_success(self) -> None:
+        self._upstream_command_fail_streak = 0
+
+    def _record_upstream_command_failure(self, reason: str) -> None:
+        self._upstream_command_fail_streak += 1
+        _log.warning(
+            "upstream command failure (%d/%d): %s",
+            self._upstream_command_fail_streak,
+            self._upstream_command_fail_max,
+            reason,
+        )
+        self._schedule_recycle_upstream_if_needed()
+
+    def _note_upstream_heartbeat_reply(self, text: str) -> None:
+        if not _upstream_heartbeat_response_ok(text):
+            return
+        self._last_upstream_heartbeat_reply_at = time.time()
+        self._upstream_heartbeat_fail_streak = 0
+
+    async def _try_satisfy_pending_heartbeat(self, text: str, *, cookie: str) -> None:
+        """仪器 Heartbeat 可能不回显 Bridge 注入的 Cookie；用待应答 cookie 完成 Future。"""
+        hb = self._pending_hb_cookie
+        if not hb:
+            return
+        if cookie and cookie != hb:
+            return
+        async with self._cookie_lock:
+            target = self._cookie_to_target.get(hb)
+            if isinstance(target, _FutureWaiter) and not target.fut.done():
+                target.fut.set_result(text)
+
+    def _classify_upstream_command_response(self, text: str, *, tag: str) -> None:
+        """对非 Heartbeat / 异步通知的应答更新指令失败计数。"""
+        local = (inbound_xml_local_tag(text) or _xml_local_tag(tag) or "").lower()
+        if local in ("heartbeat", "cornerstonemessage"):
+            return
+        ec = _upstream_xml_error_code(text)
+        if ec is None or ec == "0":
+            self._record_upstream_command_success()
+        else:
+            self._record_upstream_command_failure(
+                f"{tag or local} ErrorCode={ec}"
+            )
 
     def _log_upstream_bad_frame(
         self,
@@ -539,40 +619,66 @@ class GatewayHub:
             text_out,
         )
 
-    def _log_reassembly_abandoned(self, reason: str) -> None:
-        buf = self._upstream_reassembly_buf
-        seg_diag = ""
-        if buf:
-            seg_meta = segment_cornerstone_payload(buf, self.encoding)
-            seg_diag = format_payload_segmentation_diagnostics(
-                buf, seg_meta, encoding=self.encoding
-            )
-        inner = utf16le_inner_length_at(buf, 0) if buf else None
+    def _log_upstream_recv_idle_clear(self) -> None:
+        _log.info(
+            "upstream recv idle clear: dropped %d buffered bytes",
+            len(self._upstream_recv.buf),
+        )
+
+    def _log_upstream_incomplete_abandoned(self, reason: str) -> None:
+        buf = self._upstream_recv.buf
         _log.error(
-            "upstream reassembly %s: target=%d have=%d tcp_outer_sum=%d inner_hdr=%s\n"
-            "%s\n"
-            "hex=%s",
+            "upstream recv incomplete %s: have=%d need=%d hex=%s",
             reason,
-            self._upstream_reassembly_target_bytes,
             len(buf),
-            self._upstream_reassembly_acc_outer,
-            inner if inner is not None else "—",
-            seg_diag or "(no buffer)",
+            self._upstream_recv.bytes_needed() + len(buf),
             format_frame_hex(buf, limit=None) if buf else "(empty)",
         )
 
-    async def _recover_stale_upstream(self) -> None:
-        """Heartbeat 判定上游无应答：关闭读循环与 TCP，由 auto-reconnect 重建会话。"""
+    def _log_upstream_drain_anomaly(self, anomaly: DrainAnomaly) -> None:
+        text, decode_err = decode_frame_payload_bytes(anomaly.raw, self.encoding)
+        preview = (text or "").strip() if text else ""
+        if not preview and decode_err:
+            preview = decode_err
+        _log.error(
+            "upstream recv sync lost (%s): %s\nhex=%s\ntext=%s",
+            anomaly.kind,
+            anomaly.message,
+            format_frame_hex(anomaly.raw, limit=None),
+            preview or "(empty)",
+        )
+
+    def _log_upstream_packet_anomaly(
+        self,
+        reason: str,
+        *,
+        packet: bytes,
+        text_preview: str = "",
+    ) -> None:
+        _log.warning(
+            "upstream packet dropped (%s): packet_len=%d\nhex=%s\ntext=%s",
+            reason,
+            len(packet),
+            format_frame_hex(packet, limit=None),
+            (text_preview or "").strip() or "(empty)",
+        )
+
+    async def _recover_stale_upstream(self, reason: str = "heartbeat_streak") -> None:
+        """上游无应答或连续指令失败：关闭读循环与 TCP，由 auto-reconnect 重建会话。"""
         if self._shutting_down:
             return
         async with self._stale_recover_lock:
             if not self._upstream_transport_usable():
                 return
             _log.warning(
-                "upstream Heartbeat 无应答，回收僵死 TCP（连续失败 %d 次）",
+                "upstream 回收僵死 TCP（reason=%s hb_fail=%d cmd_fail=%d）",
+                reason,
                 self._upstream_heartbeat_fail_streak,
+                self._upstream_command_fail_streak,
             )
             self._upstream_heartbeat_fail_streak = 0
+            self._upstream_command_fail_streak = 0
+            self._pending_hb_cookie = ""
             await self._drop_upstream_transport()
             self._schedule_upstream_reconnect()
 
@@ -582,6 +688,7 @@ class GatewayHub:
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[str] = loop.create_future()
         hb_cookie = secrets.token_hex(8)
+        self._pending_hb_cookie = hb_cookie
         text = self._inject_cookie_culture(HEARTBEAT_XML, hb_cookie)
         await self._register(hb_cookie, _FutureWaiter(fut))
         try:
@@ -593,18 +700,14 @@ class GatewayHub:
                     return
                 uw.write(_frame(text, self.encoding))
                 await uw.drain()
-            await asyncio.wait_for(fut, timeout=15.0)
-            self._last_upstream_heartbeat_reply_at = time.time()
-            self._upstream_heartbeat_fail_streak = 0
+            resp = await asyncio.wait_for(fut, timeout=15.0)
+            self._note_upstream_heartbeat_reply(resp)
         except asyncio.TimeoutError:
             async with self._cookie_lock:
                 self._cookie_to_target.pop(hb_cookie, None)
             self._upstream_heartbeat_fail_streak += 1
             log_throttled_warning(_log, "upstream_heartbeat_timeout", "upstream Heartbeat wait timeout")
-            if self._should_recycle_upstream_after_heartbeat_failure():
-                asyncio.create_task(
-                    self._recover_stale_upstream(), name="gateway_upstream_stale_recover"
-                )
+            self._schedule_recycle_upstream_if_needed()
         except (asyncio.CancelledError, OSError, RuntimeError):
             async with self._cookie_lock:
                 self._cookie_to_target.pop(hb_cookie, None)
@@ -612,6 +715,9 @@ class GatewayHub:
             async with self._cookie_lock:
                 self._cookie_to_target.pop(hb_cookie, None)
             _log.warning("upstream Heartbeat error: %s", e)
+        finally:
+            if self._pending_hb_cookie == hb_cookie:
+                self._pending_hb_cookie = ""
 
     async def _upstream_reconnect_worker(self) -> None:
         if not self._upstream_auto_reconnect:
@@ -682,6 +788,8 @@ class GatewayHub:
             )
             created_new = True
         if created_new:
+            self._upstream_heartbeat_fail_streak = 0
+            self._upstream_command_fail_streak = 0
             self._start_upstream_heartbeat()
             self._schedule_remote_control_state_probe_after_connect()
         assert self._upstream_reader is not None and self._upstream_writer is not None
@@ -690,6 +798,10 @@ class GatewayHub:
     async def _dispatch_upstream_xml_text(self, text: str) -> None:
         cookie = _parse_cookie_from_payload(text)
         tag = _root_tag(text)
+        local = inbound_xml_local_tag(text) or _xml_local_tag(tag)
+        if local.lower() == "heartbeat":
+            self._note_upstream_heartbeat_reply(text)
+            await self._try_satisfy_pending_heartbeat(text, cookie=cookie)
         if tag == "Logon":
             ec = ""
             with contextlib.suppress(ET.ParseError):
@@ -708,6 +820,7 @@ class GatewayHub:
         if isinstance(target, _FutureWaiter):
             if not target.fut.done():
                 target.fut.set_result(text)
+            self._classify_upstream_command_response(text, tag=tag)
             return
         if target.is_closing():
             return
@@ -717,80 +830,66 @@ class GatewayHub:
                 self.on_client_logon_response(target, text)
             target.write(_frame(text, self.encoding))
             await target.drain()
+            self._classify_upstream_command_response(text, tag=tag)
         except Exception as e:
             _log.warning("failed to deliver to client: %s", e)
 
-    async def _process_upstream_payload_bytes(self, payload_bytes: bytes, *, outer_length: int) -> bool:
+    async def _process_upstream_inner_packet(self, packet: bytes) -> bool:
         """
-        解析一条外层 TCP 长度帧。返回 True 表示应断开并重连（整帧无法挽救的格式错误）。
+        处理一条完整 inner 正文（UTF-16 XML 字节，已无 4 字节 inner 头）。
+        返回 True 表示应断开上游读循环。
         """
         enc = self.encoding
-        seg_meta = segment_cornerstone_payload(payload_bytes, enc)
-        segments = [s.data for s in seg_meta]
-        seg_diag = format_payload_segmentation_diagnostics(
-            payload_bytes, seg_meta, encoding=enc
-        )
-        if len(segments) > 1 or (
-            len(payload_bytes) >= 6 and payload_bytes[4:6] == b"<\x00"
-        ):
-            _log.warning(
-                "upstream tcp_outer_len=%d split into %d segment(s) (inner uint32 length)\n%s",
-                outer_length,
-                len(segments),
-                seg_diag,
+        text, decode_err = decode_frame_payload_bytes(packet, enc)
+        if decode_err:
+            self._log_upstream_packet_anomaly(
+                decode_err, packet=packet, text_preview=text or ""
             )
+            return True
         dispatched = False
-        for seg_i, seg_bytes in enumerate(segments):
-            text, decode_err = decode_inbound_segment_bytes(seg_bytes, enc)
-            if decode_err:
-                self._log_upstream_bad_frame(
-                    decode_err,
-                    declared_length=outer_length,
-                    payload_bytes=payload_bytes,
-                    segmentation=seg_diag,
-                    segment_index=seg_i,
-                    segment_bytes=seg_bytes,
-                    text_preview=text or "",
-                )
-                return True
-            for doc in split_concatenated_xml_documents(text or ""):
-                xml_err = frame_xml_defect(doc)
-                if xml_err:
-                    if frame_xml_routable(doc):
-                        log_throttled_warning(
-                            _log,
-                            "upstream_lenient_xml_route",
-                            "upstream xml not strictly valid (%s); routing by cookie/tag outer_len=%d",
-                            xml_err,
-                            outer_length,
-                        )
-                        dispatched = True
-                        await self._dispatch_upstream_xml_text(doc)
-                        continue
-                    self._log_upstream_bad_frame(
+        for doc in split_concatenated_xml_documents(text or ""):
+            xml_err = frame_xml_defect(doc)
+            if xml_err:
+                if frame_xml_routable(doc):
+                    log_throttled_warning(
+                        _log,
+                        "upstream_lenient_xml_route",
+                        "upstream xml not strictly valid (%s); routing by cookie/tag",
                         xml_err,
-                        declared_length=outer_length,
-                        payload_bytes=payload_bytes,
-                        text_preview=doc,
-                        segmentation=seg_diag,
-                        segment_index=seg_i,
-                        segment_bytes=seg_bytes,
                     )
-                    if not dispatched:
-                        return True
-                    _log.warning(
-                        "upstream trailing incomplete xml (%s) after prior good doc(s); "
-                        "tcp_outer_len=%d segment_index=%d\n%s\n"
-                        "trailing_text=%s",
-                        xml_err,
-                        outer_length,
-                        seg_i,
-                        seg_diag,
-                        doc,
-                    )
+                    dispatched = True
+                    await self._dispatch_upstream_xml_text(doc)
                     continue
-                dispatched = True
-                await self._dispatch_upstream_xml_text(doc)
+                self._log_upstream_packet_anomaly(
+                    xml_err, packet=packet, text_preview=doc
+                )
+                if not dispatched:
+                    return True
+                continue
+            dispatched = True
+            await self._dispatch_upstream_xml_text(doc)
+        return False
+
+    def _note_upstream_rx_activity(self) -> None:
+        self._last_upstream_rx_at = time.time()
+
+    def _apply_upstream_drain_result(self, dr: DrainResult) -> None:
+        for anomaly in dr.anomalies:
+            self._log_upstream_drain_anomaly(anomaly)
+        if dr.buffer_cleared:
+            _log.warning("upstream recv buffer cleared after sync loss")
+
+    async def _dispatch_drained_packets(self, dr: DrainResult) -> bool:
+        """处理 drain 出的 inner 包；返回 True 表示应断开读循环。"""
+        if len(dr.packets) > 1:
+            _log.info(
+                "upstream drained %d inner packet(s) from buffer (sticky)",
+                len(dr.packets),
+            )
+        for packet in dr.packets:
+            self._note_upstream_rx_activity()
+            if await self._process_upstream_inner_packet(packet):
+                return True
         return False
 
     async def _read_one_upstream_tcp_payload(self) -> Tuple[bytes, int]:
@@ -807,148 +906,20 @@ class GatewayHub:
             raise ValueError(f"short_read:{length}:{len(payload_bytes)}")
         return payload_bytes, length
 
-    def _reset_upstream_reassembly_hold(self) -> None:
-        self._upstream_reassembly_buf = b""
-        self._upstream_reassembly_acc_outer = 0
-        self._upstream_reassembly_deadline = 0.0
-        self._upstream_reassembly_target_bytes = 0
-
-    def _reassembly_seconds_left(self) -> float:
-        if self._upstream_reassembly_deadline <= 0:
-            return 0.0
-        return max(0.0, self._upstream_reassembly_deadline - time.monotonic())
-
-    def _reassembly_deadline_expired(self) -> bool:
-        if self._upstream_reassembly_deadline <= 0:
-            return False
-        return time.monotonic() > self._upstream_reassembly_deadline
-
-    def _hold_upstream_reassembly(
-        self, buf: bytes, acc_tcp_outer: int, *, target_bytes: int = 0
-    ) -> None:
-        self._upstream_reassembly_buf = buf
-        self._upstream_reassembly_acc_outer = acc_tcp_outer
-        self._upstream_reassembly_target_bytes = max(0, int(target_bytes))
-        if self._upstream_reassembly_deadline <= 0:
-            self._upstream_reassembly_deadline = (
-                time.monotonic() + self._upstream_inner_reassembly_timeout_s
-            )
-
-    def _upstream_payload_xml_complete(self, payload_bytes: bytes) -> bool:
-        text, err = decode_frame_payload_bytes(payload_bytes, self.encoding)
-        if err is not None or not text:
-            return False
-        return frame_xml_defect(text) is None
-
-    def _finish_reassembly_buffer_deferred(
-        self, buf: bytes, acc_tcp_outer: int
-    ) -> Optional[Tuple[bytes, int]]:
-        """无 inner 头的 UTF-16 XML：未闭合则暂存，由下一条 TCP 读循环续拼（不阻塞读循环）。"""
-        if not _utf16le_xml_magic_at(buf, 0):
-            self._upstream_reassembly_deadline = 0.0
-            return buf, acc_tcp_outer
-        if self._upstream_payload_xml_complete(buf):
-            self._upstream_reassembly_deadline = 0.0
-            return buf, acc_tcp_outer
-        if self._upstream_inner_reassembly_timeout_s <= 0:
-            return buf, acc_tcp_outer
-        if self._reassembly_deadline_expired():
-            self._hold_upstream_reassembly(buf, acc_tcp_outer, target_bytes=0)
-            self._log_reassembly_abandoned("xml_tail_deadline")
-            self._reset_upstream_reassembly_hold()
-            return buf, acc_tcp_outer
-        self._hold_upstream_reassembly(buf, acc_tcp_outer, target_bytes=0)
-        _log.info(
-            "upstream xml tail reassembly waiting: have=%d bytes timeout_in=%.1fs "
-            "(raw socket read, not TCP length header)",
-            len(buf),
-            self._reassembly_seconds_left(),
-        )
-        return None
-
-    async def _iter_reassembled_upstream_payloads(
-        self, chunk: bytes, tcp_outer_len: int
-    ) -> List[Tuple[bytes, int]]:
+    async def _try_recv_inner_continuation(self) -> Optional[bool]:
         """
-        inner 帧跨多条 TCP 外层包时，在读循环多次调用间累积缓冲（非阻塞等待）。
-
-        完整判定：``inner_len == len(accumulated_payload) - 4``。
-        超时内未凑齐则丢弃缓冲并打日志，不把半帧交给 XML 解析。
-        """
-        out: List[Tuple[bytes, int]] = []
-
-        if self._upstream_reassembly_buf and self._reassembly_deadline_expired():
-            self._log_reassembly_abandoned("deadline_before_chunk")
-            self._reset_upstream_reassembly_hold()
-
-        buf = self._upstream_reassembly_buf + chunk
-        acc_tcp_outer = self._upstream_reassembly_acc_outer + tcp_outer_len
-        self._upstream_reassembly_buf = b""
-        self._upstream_reassembly_acc_outer = 0
-
-        while buf:
-            inner_len = utf16le_inner_length_at(buf, 0)
-            if inner_len is None:
-                finished = self._finish_reassembly_buffer_deferred(buf, acc_tcp_outer)
-                if finished is not None:
-                    out.append(finished)
-                return out
-
-            need = inner_framed_total_bytes(inner_len)
-            if len(buf) < need:
-                if self._upstream_inner_reassembly_timeout_s <= 0:
-                    out.append((buf, acc_tcp_outer))
-                    return out
-                if self._reassembly_deadline_expired():
-                    self._hold_upstream_reassembly(buf, acc_tcp_outer, target_bytes=need)
-                    self._log_reassembly_abandoned("inner_deadline")
-                    self._reset_upstream_reassembly_hold()
-                    return out
-                self._hold_upstream_reassembly(buf, acc_tcp_outer, target_bytes=need)
-                _log.info(
-                    "upstream inner reassembly waiting: inner_hdr=%d have=%d need=%d "
-                    "timeout_in=%.1fs (raw socket continuation, not TCP length header)",
-                    inner_len,
-                    len(buf),
-                    need,
-                    self._reassembly_seconds_left(),
-                )
-                return out
-
-            self._upstream_reassembly_deadline = 0.0
-            if not inner_framed_tcp_payload_complete(buf[:need]):
-                _log.warning(
-                    "upstream inner slice length mismatch after reassembly inner_hdr=%d slice=%d",
-                    inner_len,
-                    len(buf[:need]),
-                )
-            out.append((buf[:need], acc_tcp_outer))
-            buf = buf[need:]
-            acc_tcp_outer = 0
-            if not buf:
-                return out
-            continue
-
-        return out
-
-    async def _dispatch_reassembled_frames(
-        self, frames: List[Tuple[bytes, int]]
-    ) -> bool:
-        """处理已拼好的帧；返回 True 表示应断开上游读循环。"""
-        for frame_bytes, frame_outer in frames:
-            if await self._process_upstream_payload_bytes(
-                frame_bytes, outer_length=frame_outer
-            ):
-                return True
-        return False
-
-    async def _read_inner_continuation_bytes(self, remaining: int, timeout_s: float) -> Optional[bool]:
-        """
-        读取 inner 帧续包。返回 None=超时需继续等待；False=已追加；True=连接断开。
+        inner 拆包续读：先探测下一段是否为 TCP 长度帧，否则按 raw 字节拼接进 recv 缓冲。
+        返回 None=超时；False=已追加；True=连接断开。
         """
         assert self._upstream_reader is not None
+        recv = self._upstream_recv
+        remaining = recv.bytes_needed()
         if remaining <= 0:
             return False
+        timeout_s = recv.incomplete_seconds_left()
+        if timeout_s <= 0:
+            timeout_s = max(self._upstream_inner_reassembly_timeout_s, 0.1)
+
         try:
             prefix = await asyncio.wait_for(
                 self._upstream_reader.readexactly(4), timeout=timeout_s
@@ -964,133 +935,77 @@ class GatewayHub:
             try:
                 body = await asyncio.wait_for(
                     self._upstream_reader.readexactly(next_len),
-                    timeout=self._reassembly_seconds_left(),
+                    timeout=recv.incomplete_seconds_left() or timeout_s,
                 )
             except asyncio.TimeoutError:
-                self._upstream_reassembly_buf += prefix
+                recv.append(prefix)
                 return None
             except asyncio.IncompleteReadError:
                 return True
-            self._upstream_reassembly_buf += body
-            self._upstream_reassembly_acc_outer += 4 + next_len
+            recv.append(body)
             _log.info(
-                "upstream inner continuation framed tcp_outer=%d have=%d",
+                "upstream inner continuation framed tcp_outer=%d recv_buf=%d",
                 next_len,
-                len(self._upstream_reassembly_buf),
+                len(recv.buf),
             )
             return False
 
-        self._upstream_reassembly_buf += prefix
+        recv.append(prefix)
         still = remaining - 4
         if still > 0:
             try:
                 rest = await asyncio.wait_for(
                     self._upstream_reader.readexactly(still),
-                    timeout=self._reassembly_seconds_left(),
+                    timeout=recv.incomplete_seconds_left() or timeout_s,
                 )
             except asyncio.TimeoutError:
                 return None
             except asyncio.IncompleteReadError:
                 return True
-            self._upstream_reassembly_buf += rest
+            recv.append(rest)
         _log.info(
-            "upstream inner continuation raw have=%d (prefix was not a TCP length header)",
-            len(self._upstream_reassembly_buf),
+            "upstream inner continuation raw recv_buf=%d (prefix was not a TCP length header)",
+            len(recv.buf),
         )
         return False
 
-    async def _advance_upstream_reassembly(self) -> bool:
-        """
-        缓冲中 inner/XML 未凑齐时：从 socket 续读（先探测 framed，否则按 raw 字节拼接）。
-        返回 True 表示读循环应断开。
-        """
-        assert self._upstream_reader is not None
-        if not self._upstream_reassembly_buf:
-            return False
-        if self._reassembly_deadline_expired():
-            self._log_reassembly_abandoned("deadline")
-            self._reset_upstream_reassembly_hold()
-            return False
-
-        target = self._upstream_reassembly_target_bytes
-        timeout_s = self._reassembly_seconds_left()
-        if timeout_s <= 0:
-            self._log_reassembly_abandoned("deadline")
-            self._reset_upstream_reassembly_hold()
-            return False
-
-        if target > 0:
-            remaining = target - len(self._upstream_reassembly_buf)
-            if remaining <= 0:
-                buf = self._upstream_reassembly_buf
-                acc = self._upstream_reassembly_acc_outer
-                self._reset_upstream_reassembly_hold()
-                frames = await self._iter_reassembled_upstream_payloads(buf, acc)
-                return await self._dispatch_reassembled_frames(frames)
-
-            read_ok = await self._read_inner_continuation_bytes(remaining, timeout_s)
-            if read_ok is None:
-                _log.info(
-                    "upstream inner reassembly still waiting: have=%d need=%d timeout_in=%.1fs",
-                    len(self._upstream_reassembly_buf),
-                    target,
-                    self._reassembly_seconds_left(),
-                )
-                return False
-            if read_ok is True:
-                return True
-
-            if len(self._upstream_reassembly_buf) >= target:
-                buf = self._upstream_reassembly_buf
-                acc = self._upstream_reassembly_acc_outer
-                self._reset_upstream_reassembly_hold()
-                frames = await self._iter_reassembled_upstream_payloads(buf, acc)
-                return await self._dispatch_reassembled_frames(frames)
-            return False
-
-        # XML 尾段：无固定 target，读一块 raw 并尝试完成
-        try:
-            chunk = await asyncio.wait_for(
-                self._upstream_reader.read(4096),
-                timeout=timeout_s,
-            )
-        except asyncio.TimeoutError:
-            _log.info(
-                "upstream xml tail still waiting: have=%d timeout_in=%.1fs",
-                have,
-                self._reassembly_seconds_left(),
-            )
-            return False
-        except asyncio.IncompleteReadError:
-            return True
-        if not chunk:
-            return True
-        self._upstream_reassembly_buf += chunk
-        if self._upstream_payload_xml_complete(self._upstream_reassembly_buf):
-            buf = self._upstream_reassembly_buf
-            acc = self._upstream_reassembly_acc_outer
-            self._reset_upstream_reassembly_hold()
-            frames = await self._iter_reassembled_upstream_payloads(buf, acc)
-            return await self._dispatch_reassembled_frames(frames)
-        _log.info(
-            "upstream xml tail still waiting: have=%d timeout_in=%.1fs",
-            len(self._upstream_reassembly_buf),
-            self._reassembly_seconds_left(),
-        )
-        return False
+    async def _upstream_drain_and_dispatch(self) -> bool:
+        """drain 缓冲并分发；返回 True 表示应断开读循环。"""
+        recv = self._upstream_recv
+        dr = recv.drain()
+        self._apply_upstream_drain_result(dr)
+        return await self._dispatch_drained_packets(dr)
 
     async def _upstream_read_loop(self) -> None:
         assert self._upstream_reader is not None
+        recv = self._upstream_recv
+        disconnect = False
         try:
-            while self._upstream_reader is not None:
-                if self._upstream_reassembly_buf:
-                    if await self._advance_upstream_reassembly():
-                        break
-                    continue
+            while self._upstream_reader is not None and not disconnect:
+                if recv.needs_more():
+                    if recv.incomplete_expired():
+                        self._log_upstream_incomplete_abandoned("deadline")
+                        recv.clear()
+                    else:
+                        cont = await self._try_recv_inner_continuation()
+                        if cont is True:
+                            disconnect = True
+                            break
+                        if cont is None and recv.needs_more():
+                            _log.info(
+                                "upstream inner waiting: have=%d need=%d timeout_in=%.1fs",
+                                len(recv.buf),
+                                recv.bytes_needed() + len(recv.buf),
+                                recv.incomplete_seconds_left(),
+                            )
+                        elif await self._upstream_drain_and_dispatch():
+                            disconnect = True
+                            break
 
                 try:
                     payload_bytes, length = await self._read_one_upstream_tcp_payload()
                 except (asyncio.IncompleteReadError, asyncio.CancelledError):
+                    disconnect = True
                     break
                 except ValueError as ex:
                     err = str(ex)
@@ -1098,39 +1013,60 @@ class GatewayHub:
                         parts = err.split(":")
                         declared = int(parts[2]) if len(parts) > 2 else 0
                         reason = parts[1] if len(parts) > 1 else err
-                        if self._upstream_reassembly_buf:
-                            self._log_reassembly_abandoned(
+                        if recv.buf:
+                            self._log_upstream_incomplete_abandoned(
                                 f"length_header_while_holding:{reason}"
                             )
-                            self._reset_upstream_reassembly_hold()
+                            recv.clear()
                         self._log_upstream_bad_frame(
                             f"length_header:{reason}",
                             declared_length=declared,
                             payload_bytes=b"",
                             text_preview=f"tcp_length_header_hex={format_frame_hex(struct.pack('<I', declared), limit=None) if declared else ''}",
                         )
+                    disconnect = True
                     break
                 except _UPSTREAM_READ_DISCONNECT_EXC as ex:
                     _log.warning("upstream read disconnected: %s", ex)
+                    disconnect = True
                     break
 
-                try:
-                    complete_frames = await self._iter_reassembled_upstream_payloads(
-                        payload_bytes, length
+                if recv.append(payload_bytes):
+                    self._log_upstream_recv_idle_clear()
+
+                dr = recv.drain()
+                self._apply_upstream_drain_result(dr)
+                if len(dr.packets) > 1:
+                    _log.info(
+                        "upstream tcp_outer_len=%d -> %d inner packet(s) recv_buf_remain=%d",
+                        length,
+                        len(dr.packets),
+                        len(recv.buf),
                     )
-                except (asyncio.IncompleteReadError, asyncio.CancelledError):
-                    break
-                except _UPSTREAM_READ_DISCONNECT_EXC as ex:
-                    _log.warning("upstream read disconnected: %s", ex)
+                if await self._dispatch_drained_packets(dr):
+                    disconnect = True
                     break
 
-                if await self._dispatch_reassembled_frames(complete_frames):
-                    break
+                while recv.needs_more() and not disconnect:
+                    if recv.incomplete_expired():
+                        self._log_upstream_incomplete_abandoned("deadline_after_outer")
+                        recv.clear()
+                        break
+                    cont = await self._try_recv_inner_continuation()
+                    if cont is True:
+                        disconnect = True
+                        break
+                    if cont is None:
+                        break
+                    if await self._upstream_drain_and_dispatch():
+                        disconnect = True
+                        break
         except Exception as ex:
             if not isinstance(ex, asyncio.CancelledError):
                 _log.error("upstream read loop error: %s", ex)
         finally:
             _log.info("upstream read loop ended")
+            recv.clear()
             if not self._shutting_down:
                 await self._drop_upstream_transport()
                 self._schedule_upstream_reconnect()
@@ -1178,19 +1114,24 @@ class GatewayHub:
             except asyncio.TimeoutError:
                 async with self._cookie_lock:
                     self._cookie_to_target.pop(logon_cookie, None)
+                self._record_upstream_command_failure("web_logon_timeout")
                 return False, "上游 Logon 等待应答超时。"
             except OSError as e:
                 async with self._cookie_lock:
                     self._cookie_to_target.pop(logon_cookie, None)
+                self._record_upstream_command_failure(f"web_logon_os:{e}")
                 return False, f"上游连接错误: {e}"
             except Exception as e:
                 async with self._cookie_lock:
                     self._cookie_to_target.pop(logon_cookie, None)
+                self._record_upstream_command_failure(f"web_logon:{e}")
                 return False, str(e)
             if _upstream_logon_response_ok(resp):
                 self._upstream_session_authenticated = True
                 self._logon_seen_upstream_success = True
+                self._record_upstream_command_success()
                 return True, ""
+            self._record_upstream_command_failure("web_logon_rejected")
             return False, f"上游 Logon 未成功: {(resp or '')[:800]}"
 
     async def _register(self, cookie: str, target: Union[asyncio.StreamWriter, _FutureWaiter]) -> None:
@@ -1198,6 +1139,20 @@ class GatewayHub:
             return
         async with self._cookie_lock:
             self._cookie_to_target[cookie] = target
+
+    async def _watch_client_forward_timeout(
+        self, cookie: str, client_writer: asyncio.StreamWriter, tag_name: str
+    ) -> None:
+        if tag_name.lower() in ("heartbeat", "logon"):
+            return
+        await asyncio.sleep(self._upstream_client_forward_timeout_s)
+        async with self._cookie_lock:
+            if self._cookie_to_target.get(cookie) is not client_writer:
+                return
+            self._cookie_to_target.pop(cookie, None)
+        self._record_upstream_command_failure(
+            f"tcp_forward_timeout tag={tag_name} cookie={cookie[:16]}"
+        )
 
     async def forward_client_frame(self, text: str, client_writer: asyncio.StreamWriter) -> None:
         tag_name = _xml_local_tag(_root_tag(text))
@@ -1210,6 +1165,13 @@ class GatewayHub:
             )
             return
         if tag_name == "Logon":
+            if self.should_synthesize_client_logon():
+                _log.warning(
+                    "TCP Logon reached forward_client_frame while gateway session is up; "
+                    "caller should synthesize (cookie=%s)",
+                    (_parse_cookie_from_payload(text) or "")[:16],
+                )
+                return
             text = _logon_merge_web_credentials(text, self.web_user, self.web_password)
         elif self.web_user and self.web_password:
             ok, err = await self._ensure_upstream_instrument_logon_for_web()
@@ -1220,6 +1182,10 @@ class GatewayHub:
             cookie = secrets.token_hex(16)
             text = self._inject_cookie_culture(text, cookie)
         await self._register(cookie, client_writer)
+        asyncio.create_task(
+            self._watch_client_forward_timeout(cookie, client_writer, tag_name),
+            name=f"gateway_fwd_timeout_{cookie[:8]}",
+        )
         await self._ensure_upstream()
         uw = self._upstream_writer
         assert uw is not None
@@ -1276,16 +1242,24 @@ class GatewayHub:
         except asyncio.TimeoutError:
             async with self._cookie_lock:
                 self._cookie_to_target.pop(web_cookie, None)
+            self._record_upstream_command_failure("instrument_rq_timeout")
             return {"ok": False, "error": "上游等待应答超时", "xml": "", "rootTag": ""}
         except OSError as e:
             async with self._cookie_lock:
                 self._cookie_to_target.pop(web_cookie, None)
+            self._record_upstream_command_failure(f"instrument_rq_os:{e}")
             return {"ok": False, "error": f"上游: {e}", "xml": "", "rootTag": ""}
         except Exception as e:
             async with self._cookie_lock:
                 self._cookie_to_target.pop(web_cookie, None)
+            self._record_upstream_command_failure(f"instrument_rq:{e}")
             return {"ok": False, "error": str(e), "xml": (resp or "")[:4000], "rootTag": ""}
-        return GatewayHub._instrument_response_dict(resp)
+        result = GatewayHub._instrument_response_dict(resp)
+        if result["ok"]:
+            self._record_upstream_command_success()
+        else:
+            self._record_upstream_command_failure(result.get("error") or "instrument_rq_bad_response")
+        return result
 
     async def _instrument_rq_tcp_short(self, command_xml: str, *, timeout_s: float) -> Dict[str, Any]:
         """独立 TCP 会话：Logon + 一条命令（与 cornerstone-cli 一致）；与上游长连接并存。"""
@@ -1343,19 +1317,24 @@ class GatewayHub:
                 _log.info("web OUT AddSamples cookie=%r", web_cookie)
                 uw.write(_frame(text, self.encoding))
                 await uw.drain()
-            return await asyncio.wait_for(fut, timeout=120.0)
+            resp = await asyncio.wait_for(fut, timeout=120.0)
         except asyncio.TimeoutError:
             async with self._cookie_lock:
                 self._cookie_to_target.pop(web_cookie, None)
+            self._record_upstream_command_failure("add_samples_timeout")
             return "<Error>Timeout waiting for upstream</Error>"
         except OSError as e:
             async with self._cookie_lock:
                 self._cookie_to_target.pop(web_cookie, None)
+            self._record_upstream_command_failure(f"add_samples_os:{e}")
             return f"<Error>upstream: {e}</Error>"
         except Exception as e:
             async with self._cookie_lock:
                 self._cookie_to_target.pop(web_cookie, None)
+            self._record_upstream_command_failure(f"add_samples:{e}")
             return f"<Error>{e}</Error>"
+        self._record_upstream_command_success()
+        return resp
 
     async def instrument_rq(self, command_xml: str, *, timeout_s: float = 120.0) -> Dict[str, Any]:
         """
@@ -1371,16 +1350,34 @@ class GatewayHub:
                 return await self._instrument_rq_tcp_short(command_xml, timeout_s=timeout_s)
         return await self._instrument_rq_upstream_long(command_xml, timeout_s=timeout_s)
 
-    def upstream_connected(self) -> bool:
+    def upstream_transport_up(self) -> bool:
+        return self._upstream_transport_usable()
+
+    def instrument_online(self) -> bool:
+        """上游仪器业务可用：传输存活、未达失败阈值、近期有有效入站活动。"""
         if not self._upstream_transport_usable():
             return False
-        if self._upstream_heartbeat_interval_s <= 0:
+        if not self._upstream_connection_enabled:
+            return False
+        if self._upstream_heartbeat_fail_streak >= self._upstream_heartbeat_fail_max:
+            return False
+        if self._upstream_command_fail_streak >= self._upstream_command_fail_max:
+            return False
+        last = max(self._last_upstream_rx_at, self._last_upstream_heartbeat_reply_at)
+        if last <= 0:
             return True
-        last_ok = self._last_upstream_heartbeat_reply_at
-        if last_ok <= 0:
-            return True
-        interval = max(float(self._upstream_heartbeat_interval_s), 0.5)
-        return (time.time() - last_ok) <= max(3.0 * interval, 90.0)
+        return (time.time() - last) <= self._upstream_activity_stale_seconds()
+
+    def business_online(self) -> bool:
+        """网关业务在线：TCP 网关启用且上游仪器在线。"""
+        return (
+            self._tcp_gateway_enabled
+            and self.instrument_online()
+        )
+
+    def upstream_connected(self) -> bool:
+        """兼容旧字段：等同 ``instrument_online``。"""
+        return self.instrument_online()
 
     def _schedule_remote_control_state_probe_after_connect(self) -> None:
         """上游新 TCP 建立后异步问询 ``<RemoteControlState/>``（避免在 ``instrument_rq`` 持锁栈内嵌套调用）。"""

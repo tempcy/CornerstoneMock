@@ -1,6 +1,6 @@
 # Cornerstone Mock 安装程序
 
-**发布版本**由仓库根目录 [`VERSION`](../VERSION) 决定（当前 **0.1.2**）；`build-release.ps1` 与 Inno Setup 均读取该文件，输出 `CornerstoneMock-Setup-<版本>.exe`。
+**发布版本**由仓库根目录 [`VERSION`](../VERSION) 决定（当前 **0.1.2**）；`build-release.ps1` 与 Inno Setup 均读取该文件。每次打包还会自动生成**构建标识码**（UTC 时间戳 + Git 短哈希，例如 `20250525143000-a1b2c3d`），输出 `CornerstoneMock-Setup-<版本>-<标识码>.exe`。
 
 生成 **Bridge（必选）**、**Web / Queue / CLI（可选）** 的 Windows 安装包；支持将 **Bridge**、**Web** 注册为 Windows 服务（默认勾选）。
 
@@ -12,7 +12,7 @@
 | --- | --- |
 | Python 3.14+ | PyInstaller 打包 `cornerstone-bridge` / `cornerstone-web` / `cornerstone-cli`（`build-release.ps1` 优先使用 `py -3.14`） |
 | .NET 8 SDK | `dotnet publish` 打包 `CornerstoneQueue` |
-| [Inno Setup 6](https://jrsoftware.org/isinfo.php) | 生成 `CornerstoneMock-Setup-0.1.2.exe` |
+| [Inno Setup 6](https://jrsoftware.org/isinfo.php) | 生成 `CornerstoneMock-Setup-0.1.2-<标识码>.exe` |
 | Visual Studio 2022+（仅 Queue） | WinUI 3 + Windows App SDK |
 
 ## 一键构建
@@ -34,8 +34,9 @@ cd installer
 产物：
 
 - `installer\staging\` — 待打包文件树
-- `%LOCALAPPDATA%\CornerstoneMock\installer-dist\CornerstoneMock-Setup-0.1.2.exe` — **请运行此安装包**（构建默认输出，避免云同步占位符）
-- `installer\dist\CornerstoneMock-Setup-0.1.2.exe` — 可选副本（若仓库在 OneDrive/网盘同步，此文件可能是**占位符**，双击会报 *The setup files are corrupted*；请在资源管理器中对该文件选「始终保留在此设备上」，或只使用上面 LocalAppData 路径）
+- `%LOCALAPPDATA%\CornerstoneMock\installer-dist\CornerstoneMock-Setup-0.1.2-<标识码>.exe` — **请运行此安装包**（构建默认输出，避免云同步占位符）
+- `installer\dist\CornerstoneMock-Setup-0.1.2-<标识码>.exe` — 可选副本（若仓库在 OneDrive/网盘同步，此文件可能是**占位符**，双击会报 *The setup files are corrupted*；请在资源管理器中对该文件选「始终保留在此设备上」，或只使用上面 LocalAppData 路径）
+- 安装目录 `{app}\build-info.json` — 记录 `version`、`build_id`、`built_at`，便于现场确认所装包
 
 仅构建 exe、不编译安装包：
 
@@ -91,6 +92,7 @@ C:\Program Files\CornerstoneMock\
   Queue\CornerstoneQueue.exe
   CLI\cornerstone-cli.exe
   config\*.example.json
+  build-info.json
   tools\nssm.exe
   scripts\*.ps1
 ```
@@ -108,7 +110,7 @@ C:\Program Files\CornerstoneMock\
 
 多为 **安装 exe 是云同步占位符**（文件带「云」图标、未完全下载到本机），CRC 校验失败。处理：
 
-1. 运行 `%LOCALAPPDATA%\CornerstoneMock\installer-dist\CornerstoneMock-Setup-0.1.2.exe`（`build-release.ps1` 的默认输出）。
+1. 运行 `%LOCALAPPDATA%\CornerstoneMock\installer-dist\` 下最新的 `CornerstoneMock-Setup-*.exe`（`build-release.ps1` 的默认输出）。
 2. 或重新构建后，在资源管理器中对该 exe 选 **始终保留在此设备上**。
 3. 勿从尚未同步完成的 `installer\dist\` 占位符直接安装。
 

@@ -1,6 +1,6 @@
 # Cornerstone 远程控制（Python CLI + Bridge + Web）
 
-**当前版本：0.1.2**（变更见 [CHANGELOG.md](CHANGELOG.md)）
+**当前版本：0.1.4**（变更见 [CHANGELOG.md](CHANGELOG.md)）
 
 后续开发路线图见 [PLAN.md](PLAN.md)。
 
@@ -145,7 +145,11 @@ copy cornerstone-web.config.example.json cornerstone-web.config.json
 | `host` / `port`                       | 网关对 **TCP 客户端**（含 C# 远程客户端）的监听 |
 | `bridge_api_host` / `bridge_api_port` | Bridge 对内 REST（默认 `8081`）      |
 | `upstream_heartbeat_interval`         | 上游 TCP 心跳间隔（秒，默认 `60`）         |
-| `upstream_inner_reassembly_timeout`   | 上游 inner 帧跨多条 TCP 分段时的拼接等待（秒，默认 `5`；`0`= 不等待） |
+| `upstream_inner_reassembly_timeout`   | 拆包续读等待（秒，默认 `5`；`0`= 不等待） |
+| `upstream_recv_idle_clear`          | recv 缓冲空闲超过该秒数后下次数据到达前清空（默认 `30`） |
+| `upstream_heartbeat_fail_max`       | 连续心跳无应答达此次数则回收上游 TCP（默认 `2`） |
+| `upstream_command_fail_max`         | 连续仪器指令超时/异常达此次数则回收上游 TCP（默认 `3`） |
+| `upstream_client_forward_timeout`   | TCP 客户端经网关转发后等待上游应答（秒，默认 `120`） |
 | `upstream_auto_reconnect`             | 上游断线后自动重连（配置里为 `true`/`false`；CLI 用 `--no-upstream-auto-reconnect` 关闭） |
 | `instrument_long_connection`          | 长连接复用上游 TCP（`true` 默认；对应 CLI `--instrument-short-connection` 的反义） |
 | `web_user` / `web_password`           | 网页「发送到仪器」、环境/分析页拉数用的仪器远程账号     |
@@ -424,7 +428,9 @@ cornerstone-cli tcp session --host 127.0.0.1 --port 12345 --heartbeat 5
 - **凭据补全**：配置 `web_user` / `web_password` 后，TCP 客户端空 `<Logon>` 由网关补全；网页发令与仪器 API 共用该上游登录。
 - **AddSamples**：默认入 FIFO 队列；`privileged_add_samples_host` 匹配来源 IP 时直通上游。
 - **RemoteControlState**：上游连接/重连后自动问询，供 `/api/status` 与 Web 顶栏。
-- **上游 inner 帧拼接**：仪器应答有时将单条 inner 帧拆成多条 TCP 段；Bridge 在 `upstream_inner_reassembly_timeout`（默认 5s）内缓冲拼接后再解析（`0` 关闭）。
+- **上游报文解包**：外层 TCP 长度帧正文进入全局 `recv` 缓冲，按 `[inner_len][UTF-16 XML]` 循环切分（粘包/拆包）；无 inner 头的整段 XML（如部分 Logon 应答）按单条处理。`upstream_inner_reassembly_timeout` 控制拆包续读；`upstream_recv_idle_clear` 控制断流清缓冲。
+- **业务在线**：`GET /api/status` 返回 `instrumentOnline`、`businessOnline`、`heartbeatFailStreak`、`commandFailStreak`；Web 顶栏与 Queue 状态行据此显示（不再仅依赖 Cookie 心跳应答）。
+- **上游回收**：连续 `upstream_heartbeat_fail_max` 次心跳无应答，或连续 `upstream_command_fail_max` 次指令失败，或过久无上行活动 → 自动断开并重连上游。
 - **监听**：TCP `host`/`port`；REST `bridge_api_host`/`bridge_api_port`（示例 8081）。
 - **配置写回**：以 `-c` 指定 JSON 时，`PUT /api/settings` 可合并写回文件；改 TCP/Web **监听端口** 须重启进程。
 
@@ -463,7 +469,7 @@ cornerstone-cli tcp logon --host 127.0.0.1 --port 54321 --user demo --password d
 | --- | --- |
 | 队列只读 | `GET /api/queue`，自动/手动刷新；数据未变时不重绘列表（避免闪烁） |
 | 发送至仪器 | 多选 + `POST /api/queue/send`；底部单行结果摘要 |
-| 状态一行 | `GET /api/status` + `GET /api/config`（上游/队列/RCS、未配置 web 账号提示） |
+| 状态一行 | `GET /api/status`（`businessOnline`、失败计数、队列/RCS；未配置 web 账号见 `/api/config`） |
 | 精简 UI | 顶栏状态一行、试样一行（`样品名 → 说明`）、底栏结果一行；默认小窗 |
 | 设置（M3） | Bridge URL、状态/队列轮询间隔、置顶、透明度、字号/窗体缩放、断线重连 |
 | 贴边收纳 | 拖至屏幕上/左/右边缘可滑出隐藏或显示细条唤回（`EdgeDockController`） |

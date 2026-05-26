@@ -115,9 +115,9 @@ async def _handle_client(
                 hub.on_client_logon_request(writer, text)
 
             if tag == "Logon":
-                if hub._synthetic_logon_after_first and hub._logon_seen_upstream_success:
+                if hub.should_synthesize_client_logon():
                     resp = _synthetic_logon_success(cookie)
-                    _log.info("synthetic Logon for %s", peer_s)
+                    _log.info("synthetic Logon for %s (gateway session)", peer_s)
                     hub.on_client_tx(writer)
                     hub.on_client_logon_response(writer, resp)
                     writer.write(_frame(resp, enc))

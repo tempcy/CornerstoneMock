@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.1.4
+
+**定位**：0.1.3 现场联调修复（TCP 248 粘包尾段、合成 Logon、指令失败计数）。
+
+### Bridge
+
+- **修复**：`tcp_outer_len=248` 类布局（`inner152` Heartbeat + `RemoteControlState` 前缀）不再把 92 字节残缺 XML 当整包下发，避免 `truncated_tags` 断连。
+- **修复**：上游 TCP 重连后 TCP 客户端 Logon 走合成应答（保留 `_logon_seen_upstream_success`）；Logon 转发超时不计入 `command_fail_streak`。
+- **修复**：`should_synthesize_client_logon()` 统一合成 Logon 判定。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.4 |
+| cornerstone-web | 0.1.4 |
+| cornerstone-cli | 0.1.4 |
+
+---
+
+## 0.1.3
+
+**定位**：上游仪器报文解析与业务在线判定重构（Issue #2 粘包/分包、心跳误判断线）。安装包带 **build_id** 后缀。
+
+### Bridge
+
+- **UpstreamRecvBuffer**：全局 recv 缓冲 + `inner_len` 循环解包（粘包/拆包）；无 inner 头的整段 UTF-16 XML（如 Logon 应答）单独识别。
+- **业务在线**：`instrumentOnline` / `businessOnline`；连续心跳失败（默认 2 次）或连续指令失败（默认 3 次）回收上游 TCP；入站 Heartbeat 不要求 Cookie 回显。
+- **配置**：`upstream_recv_idle_clear`、`upstream_heartbeat_fail_max`、`upstream_command_fail_max`、`upstream_client_forward_timeout`。
+- **API**：`/api/status`、`/api/monitor` 增加失败计数与 recv 缓冲诊断字段。
+
+### Web / Queue
+
+- 顶栏连接状态优先 `businessOnline`；Queue 状态行显示失败计数与缓冲字节。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.3 |
+| cornerstone-web | 0.1.3 |
+| cornerstone-cli | 0.1.3 |
+
+---
+
 ## 0.1.2
 
 **定位**：在 0.1.1 基础上的小版本，增加 **Bridge 桌面控制台** 与连接/队列监控 API。组件与安装包统一为 **0.1.2**。

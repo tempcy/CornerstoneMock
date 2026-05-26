@@ -90,6 +90,31 @@ def _logon_user_from_client_xml(xml_text: str) -> str:
     return ""
 
 
+def _upstream_xml_error_code(resp: Optional[str]) -> Optional[str]:
+    """解析 XML 根 ``ErrorCode``；无属性或非法 XML 时返回 None。"""
+    if not resp or not (resp or "").strip().startswith("<"):
+        return None
+    try:
+        root = ET.fromstring(resp.strip())
+    except ET.ParseError:
+        return None
+    ec = (root.attrib.get("ErrorCode") or "").strip()
+    return ec if ec else None
+
+
+def _upstream_heartbeat_response_ok(resp: Optional[str]) -> bool:
+    if not resp or not (resp or "").strip().startswith("<"):
+        return False
+    try:
+        root = ET.fromstring(resp.strip())
+    except ET.ParseError:
+        return False
+    if _xml_local_tag(root.tag).lower() != "heartbeat":
+        return False
+    ec = (root.attrib.get("ErrorCode") or "").strip()
+    return ec == "" or ec == "0"
+
+
 def _upstream_logon_response_ok(resp: Optional[str]) -> bool:
     if not resp or not (resp or "").strip().startswith("<"):
         return False

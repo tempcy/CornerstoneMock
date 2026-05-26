@@ -62,6 +62,36 @@ function Convert-IssDefinePath([string]$Path) {
     return (Resolve-Path -LiteralPath $Path).Path.Replace('\', '/')
 }
 
+function Get-BuildId([string]$RepoRoot) {
+    # 每次打包唯一标识：UTC 时间戳 + Git 短哈希（无 Git 时仅时间戳）
+    $ts = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
+    $hash = $null
+    Push-Location $RepoRoot
+    try {
+        $hash = (git rev-parse --short=7 HEAD 2>$null | Out-String).Trim()
+    } finally {
+        Pop-Location
+    }
+    if ($hash) { return "${ts}-${hash}" }
+    return $ts
+}
+
+function Write-BuildInfo {
+    param(
+        [string]$StagingRoot,
+        [string]$Version,
+        [string]$BuildId
+    )
+    $info = [ordered]@{
+        version  = $Version
+        build_id = $BuildId
+        built_at = (Get-Date).ToUniversalTime().ToString("o")
+    }
+    $path = Join-Path $StagingRoot "build-info.json"
+    $json = ($info | ConvertTo-Json -Compress) + "`n"
+    [IO.File]::WriteAllText($path, $json, [Text.UTF8Encoding]::new($false))
+}
+
 function Test-InstallerExeReady([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) {
         throw "Installer not found: $Path"
@@ -192,6 +222,9 @@ function Ensure-Nssm {
     return $nssm
 }
 
+$BuildId = Get-BuildId -RepoRoot $Root
+
+Write-Host "[build] Version $AppVersion, build id $BuildId"
 Write-Host "[build] Clean staging / dist ..."
 Stop-CornerstoneMockRuntime -StagingRoot $Staging
 Remove-BuildTree $Staging
@@ -280,7 +313,9 @@ if (-not $SkipPython) {
 
 if ($BridgeOnly) {
     $bridgeStaging = Join-Path $Staging "Bridge"
-    $zipPath = Join-Path $Dist "CornerstoneBridge-$AppVersion-win64.zip"
+    # 写入 Bridge\，与 Compress-Archive 范围一致（现场覆盖 Bridge 目录时可读到 build-info.json）
+    Write-BuildInfo -StagingRoot $bridgeStaging -Version $AppVersion -BuildId $BuildId
+    $zipPath = Join-Path $Dist "CornerstoneBridge-$AppVersion-$BuildId-win64.zip"
     if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
     Compress-Archive -Path (Join-Path $bridgeStaging "*") -DestinationPath $zipPath -Force
     Write-Host ""
@@ -327,6 +362,8 @@ foreach ($scriptName in @(
     Write-InstallScript -SourcePath $src -DestPath (Join-Path $Staging "scripts\$scriptName")
 }
 
+Write-BuildInfo -StagingRoot $Staging -Version $AppVersion -BuildId $BuildId
+
 # --- Inno Setup ---
 if (-not $SkipInstaller) {
     $iscc = @(
@@ -343,10 +380,10 @@ if (-not $SkipInstaller) {
     Write-Host "[build] Compile installer (output: $Dist) ..."
     $stagingIss = Convert-IssDefinePath $Staging
     $distIss = Convert-IssDefinePath $Dist
-    & $iscc (Join-Path $InstallerDir "Cornerstone.iss") "/DStagingRoot=$stagingIss" "/DOutputDir=$distIss" "/DMyAppVersion=$AppVersion"
+    & $iscc (Join-Path $InstallerDir "Cornerstone.iss") "/DStagingRoot=$stagingIss" "/DOutputDir=$distIss" "/DMyAppVersion=$AppVersion" "/DMyBuildId=$BuildId"
     if ($LASTEXITCODE -ne 0) { throw "ISCC failed (exit $LASTEXITCODE)" }
 
-    $setupExe = Join-Path $Dist "CornerstoneMock-Setup-$AppVersion.exe"
+    $setupExe = Join-Path $Dist "CornerstoneMock-Setup-$AppVersion-$BuildId.exe"
     Test-InstallerExeReady $setupExe
     try {
         Publish-InstallerToRepo $setupExe

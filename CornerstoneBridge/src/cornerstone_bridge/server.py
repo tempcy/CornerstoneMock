@@ -67,6 +67,10 @@ async def run_bridge(
     upstream_heartbeat_interval: float,
     upstream_auto_reconnect: bool,
     upstream_inner_reassembly_timeout: float,
+    upstream_recv_idle_clear: float,
+    upstream_heartbeat_fail_max: int,
+    upstream_command_fail_max: int,
+    upstream_client_forward_timeout: float,
     async_message_interval: float,
     web_user: str,
     web_password: str,
@@ -85,6 +89,10 @@ async def run_bridge(
         upstream_heartbeat_interval_s=upstream_heartbeat_interval,
         upstream_auto_reconnect=upstream_auto_reconnect,
         upstream_inner_reassembly_timeout_s=upstream_inner_reassembly_timeout,
+        upstream_recv_idle_clear_s=upstream_recv_idle_clear,
+        upstream_heartbeat_fail_max=upstream_heartbeat_fail_max,
+        upstream_command_fail_max=upstream_command_fail_max,
+        upstream_client_forward_timeout_s=upstream_client_forward_timeout,
         web_user=web_user,
         web_password=web_password,
         privileged_add_samples_host=privileged_add_samples_host,
@@ -260,6 +268,32 @@ def main() -> int:
         metavar="SEC",
         help="上游 inner_len 帧跨多条 TCP 包时等待拼接的超时（秒）；0=不等待",
     )
+    parser.add_argument(
+        "--upstream-recv-idle-clear",
+        type=float,
+        default=30.0,
+        metavar="SEC",
+        help="上游 recv 缓冲空闲超过该秒数则下次 append 前清空",
+    )
+    parser.add_argument(
+        "--upstream-heartbeat-fail-max",
+        type=int,
+        default=2,
+        help="连续心跳无应答达到此次数则回收上游 TCP",
+    )
+    parser.add_argument(
+        "--upstream-command-fail-max",
+        type=int,
+        default=3,
+        help="连续仪器指令无应答/异常达到此次数则回收上游 TCP",
+    )
+    parser.add_argument(
+        "--upstream-client-forward-timeout",
+        type=float,
+        default=120.0,
+        metavar="SEC",
+        help="TCP 客户端经网关转发后等待上游应答的超时",
+    )
     parser.add_argument("--no-upstream-auto-reconnect", action="store_true")
     parser.add_argument(
         "--no-persist-add-samples-queue",
@@ -349,6 +383,10 @@ def main() -> int:
                 upstream_heartbeat_interval=args.upstream_heartbeat_interval,
                 upstream_auto_reconnect=not args.no_upstream_auto_reconnect,
                 upstream_inner_reassembly_timeout=args.upstream_inner_reassembly_timeout,
+                upstream_recv_idle_clear=args.upstream_recv_idle_clear,
+                upstream_heartbeat_fail_max=args.upstream_heartbeat_fail_max,
+                upstream_command_fail_max=args.upstream_command_fail_max,
+                upstream_client_forward_timeout=args.upstream_client_forward_timeout,
                 async_message_interval=args.async_message_interval,
                 web_user=args.web_user,
                 web_password=args.web_password,

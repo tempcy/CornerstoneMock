@@ -175,7 +175,7 @@ flowchart LR
 | ---------------------- | ---------------------------------------------- |
 | `GET /api/queue`       | 列表：`id`、`sampleName`、`sampleDescription`、时间、来源 |
 | `POST /api/queue/send` | `{"ids":[...]}`，发送后**保留**队列（`queueKept: true`） |
-| `GET /api/status`（可选）  | 网关/上游连接、队列条数、RemoteControl 状态                  |
+| `GET /api/status`（可选）  | `businessOnline`、失败计数、队列、RemoteControl 状态                  |
 
 
 配置：Bridge REST 基址 `**http://<bridge_api_host>:<bridge_api_port>`**（示例 `http://127.0.0.1:8081`）。勿与 Web 页端口 `web_port`（8080）混淆。

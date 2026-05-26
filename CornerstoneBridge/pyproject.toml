@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cornerstone-bridge"
-version = "0.1.2"
+version = "0.1.4"
 description = "Cornerstone TCP 网关、XML 解析、对内 REST API 与可选桌面控制台（依赖 cornerstone-cli）。"
 requires-python = ">=3.14"
 license = { text = "Proprietary" }

@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -34,6 +34,44 @@ from PySide6.QtWidgets import (
 )
 
 from .bridge_api import BridgeApiClient, BridgeApiError
+
+
+class _MenuToolButtonSync(QObject):
+    """MenuButtonPopup：右侧弹出区与左侧主按钮同宽；菜单与整钮同宽。"""
+
+    def __init__(self, btn: QToolButton, menu: QMenu) -> None:
+        super().__init__(btn)
+        self._btn = btn
+        self._menu = menu
+        menu.aboutToShow.connect(self._sync_menu_width)
+        btn.installEventFilter(self)
+        self._sync_split()
+
+    def _sync_menu_width(self) -> None:
+        w = self._btn.width()
+        if w > 0:
+            self._menu.setFixedWidth(w)
+
+    def _sync_split(self) -> None:
+        w = self._btn.width()
+        if w < 4:
+            return
+        half = w // 2
+        self._btn.setStyleSheet(
+            "QToolButton::menu-button {"
+            f" width: {half}px;"
+            " border-left: 1px solid palette(mid);"
+            " }"
+        )
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self._btn and event.type() in (
+            QEvent.Type.Resize,
+            QEvent.Type.Show,
+            QEvent.Type.StyleChange,
+        ):
+            self._sync_split()
+        return False
 from .config_io import (
     api_base_url,
     load_config_dict,
@@ -113,6 +151,7 @@ class MainWindow(QMainWindow):
         btn.setMenu(menu)
         btn.clicked.connect(default_cb)
         MainWindow._style_action_button(btn)
+        btn._menu_sync = _MenuToolButtonSync(btn, menu)  # type: ignore[attr-defined]
         return btn
 
     @staticmethod
@@ -241,6 +280,16 @@ class MainWindow(QMainWindow):
         tlay = QFormLayout(toggles)
         self._chk_long_conn = QCheckBox("仪器长连接 (instrument_long_connection)")
         self._chk_auto_reco = QCheckBox("上游自动重连 (upstream_auto_reconnect)")
+        self._sp_recv_idle_clear = QSpinBox()
+        self._sp_recv_idle_clear.setRange(0, 3600)
+        self._sp_recv_idle_clear.setSuffix(" s")
+        self._sp_hb_fail_max = QSpinBox()
+        self._sp_hb_fail_max.setRange(1, 20)
+        self._sp_cmd_fail_max = QSpinBox()
+        self._sp_cmd_fail_max.setRange(1, 20)
+        self._sp_client_fwd_timeout = QSpinBox()
+        self._sp_client_fwd_timeout.setRange(5, 600)
+        self._sp_client_fwd_timeout.setSuffix(" s")
         self._chk_no_syn_logon = QCheckBox("禁用合成 Logon (no_synthetic_logon)")
         self._chk_verbose_gw = QCheckBox("网关 XML 详细日志 (log_verbose_gateway，应用后立即生效)")
         self._chk_persist_q = QCheckBox("持久化队列 (persist_add_samples_queue)")
@@ -248,6 +297,10 @@ class MainWindow(QMainWindow):
         self._sp_queue_max.setRange(1, 256)
         tlay.addRow(self._chk_long_conn)
         tlay.addRow(self._chk_auto_reco)
+        tlay.addRow("recv 空闲清缓冲", self._sp_recv_idle_clear)
+        tlay.addRow("心跳失败上限", self._sp_hb_fail_max)
+        tlay.addRow("指令失败上限", self._sp_cmd_fail_max)
+        tlay.addRow("TCP转发超时", self._sp_client_fwd_timeout)
         tlay.addRow(self._chk_no_syn_logon)
         tlay.addRow(self._chk_verbose_gw)
         tlay.addRow(self._chk_persist_q)
@@ -364,11 +417,22 @@ class MainWindow(QMainWindow):
             if hb > 0
             else "—"
         )
+        biz_online = up.get("businessOnline")
+        hb_fail = int(up.get("heartbeatFailStreak") or 0)
+        cmd_fail = int(up.get("commandFailStreak") or 0)
+        buf_n = int(up.get("recvBufferBytes") or 0)
         if not up_enabled:
             state = "已手动断开"
+        elif biz_online is not None:
+            state = "业务在线" if biz_online else "业务离线"
         else:
             state = "已连接" if connected else "未连接"
-        self._lbl_upstream.setText(f"{host}:{port} — {state}（心跳 {hb_txt}）")
+        extra = ""
+        if hb_fail or cmd_fail:
+            extra = f" · HB失败{hb_fail} CMD失败{cmd_fail}"
+        if buf_n:
+            extra += f" · recv缓冲{buf_n}B"
+        self._lbl_upstream.setText(f"{host}:{port} — {state}（心跳 {hb_txt}{extra}）")
 
         gw = mon.get("tcpGateway") or {}
         gw_enabled = bool(gw.get("enabled", True))
@@ -488,6 +552,12 @@ class MainWindow(QMainWindow):
         self._ed_priv_host.setText(str(self._cfg.get("privileged_add_samples_host") or ""))
         self._chk_long_conn.setChecked(bool(self._cfg.get("instrument_long_connection", True)))
         self._chk_auto_reco.setChecked(bool(self._cfg.get("upstream_auto_reconnect", True)))
+        self._sp_recv_idle_clear.setValue(int(self._cfg.get("upstream_recv_idle_clear") or 30))
+        self._sp_hb_fail_max.setValue(int(self._cfg.get("upstream_heartbeat_fail_max") or 2))
+        self._sp_cmd_fail_max.setValue(int(self._cfg.get("upstream_command_fail_max") or 3))
+        self._sp_client_fwd_timeout.setValue(
+            int(self._cfg.get("upstream_client_forward_timeout") or 120)
+        )
         self._chk_no_syn_logon.setChecked(bool(self._cfg.get("no_synthetic_logon", False)))
         self._chk_verbose_gw.setChecked(bool(self._cfg.get("log_verbose_gateway", False)))
         self._chk_persist_q.setChecked(bool(self._cfg.get("persist_add_samples_queue", True)))
@@ -510,6 +580,10 @@ class MainWindow(QMainWindow):
             "privileged_add_samples_host": self._ed_priv_host.text().strip(),
             "instrument_long_connection": self._chk_long_conn.isChecked(),
             "upstream_auto_reconnect": self._chk_auto_reco.isChecked(),
+            "upstream_recv_idle_clear": self._sp_recv_idle_clear.value(),
+            "upstream_heartbeat_fail_max": self._sp_hb_fail_max.value(),
+            "upstream_command_fail_max": self._sp_cmd_fail_max.value(),
+            "upstream_client_forward_timeout": self._sp_client_fwd_timeout.value(),
             "no_synthetic_logon": self._chk_no_syn_logon.isChecked(),
             "log_verbose_gateway": self._chk_verbose_gw.isChecked(),
             "persist_add_samples_queue": self._chk_persist_q.isChecked(),

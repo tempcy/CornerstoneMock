@@ -1,0 +1,165 @@
+2026-05-25 22:43:55 INFO     [cornerstone.bridge] logging initialized console=info verbose_gateway=True file=C:\work\CornerstoneMock\CornerstoneBridge\logs\bridge.log file_level=info
+2026-05-25 22:43:55 INFO     [cornerstone.bridge.server] 配置文件: C:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.config.json
+2026-05-25 22:43:55 INFO     [cornerstone.bridge.gateway] 已从磁盘恢复 8 条 AddSamples 队列: C:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.add-samples-queue.json
+2026-05-25 22:43:55 INFO     [cornerstone.bridge.server] TCP 网关监听 (客户端连这里): ('0.0.0.0', 54321) (encoding=utf-16-le)
+2026-05-25 22:43:55 INFO     [cornerstone.bridge.server] REST API: http://127.0.0.1:8081/ (('127.0.0.1', 8081))
+2026-05-25 22:43:55 INFO     [cornerstone.bridge.server] 上游仪器 (Bridge 主动连): 190.2.96.210:12345 ; synthetic 2nd+ Logon=on ; instrument API=long (reuse upstream) ; upstream heartbeat=60.0s ; upstream auto-reconnect=on
+2026-05-25 22:43:55 INFO     [cornerstone.bridge.server] 上游 inner 帧跨 TCP 拼接: timeout=5.0s（inner_len == tcp_payload-4 为完整）
+2026-05-25 22:43:55 INFO     [cornerstone.bridge.server] Web→upstream Logon user: 'remote' (password set)
+2026-05-25 22:43:55 INFO     [cornerstone.bridge.server] AddSamples 直通上位机 IP: '127.0.0.1' (其余 TCP 客户端仍截留)
+2026-05-25 22:43:55 INFO     [cornerstone.bridge.server] AddSamples 队列持久化: C:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.add-samples-queue.json
+2026-05-25 22:43:55 INFO     [cornerstone.bridge.gateway] connecting upstream 190.2.96.210:12345 (encoding=utf-16-le)
+2026-05-25 22:43:55 INFO     [cornerstone.bridge.server] upstream TCP connected at startup (instrument long mode)
+2026-05-25 22:43:55 INFO     [cornerstone.bridge.gateway] web upstream Logon cookie='614008437b3146320368675cdc51da54'
+2026-05-25 22:43:55 ERROR    [cornerstone.bridge.gateway] upstream recv sync lost (sync_lost): inner_xml_magic_mismatch
+hex=3c004c006f0067006f006e0020004500720072006f00720043006f00640065003d0022003000220020004500720072006f0072004d006500730073006100670065003d00220053007500630063006500730073002200200043006f006f006b00690065003d00220036003100340030003000380034003300370062003300310034003600330032003000330036003800360037003500630064006300350031006400610035003400220020002f003e00
+text=<Logon ErrorCode="0" ErrorMessage="Success" Cookie="614008437b3146320368675cdc51da54" />
+2026-05-25 22:43:55 WARNING  [cornerstone.bridge.gateway] upstream recv buffer cleared after sync loss
+2026-05-25 22:44:53 INFO     [cornerstone.bridge] logging initialized console=info verbose_gateway=True file=C:\work\CornerstoneMock\CornerstoneBridge\logs\bridge.log file_level=info
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.server] 配置文件: C:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.config.json
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.gateway] 已从磁盘恢复 8 条 AddSamples 队列: C:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.add-samples-queue.json
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.server] TCP 网关监听 (客户端连这里): ('0.0.0.0', 54321) (encoding=utf-16-le)
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.server] REST API: http://127.0.0.1:8081/ (('127.0.0.1', 8081))
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.server] 上游仪器 (Bridge 主动连): 190.2.96.210:12345 ; synthetic 2nd+ Logon=on ; instrument API=long (reuse upstream) ; upstream heartbeat=60.0s ; upstream auto-reconnect=on
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.server] 上游 inner 帧跨 TCP 拼接: timeout=5.0s（inner_len == tcp_payload-4 为完整）
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.server] Web→upstream Logon user: 'remote' (password set)
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.server] AddSamples 直通上位机 IP: '127.0.0.1' (其余 TCP 客户端仍截留)
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.server] AddSamples 队列持久化: C:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.add-samples-queue.json
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.gateway] connecting upstream 190.2.96.210:12345 (encoding=utf-16-le)
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.server] upstream TCP connected at startup (instrument long mode)
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.gateway] web upstream Logon cookie='9e677957e256177ed41cc1ce9e54db3e'
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.gateway] upstream IN tag=Logon cookie='9e677957e256177ed41cc1ce9e54db3e' bytes=88
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.server] upstream web Logon completed at startup
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.gateway] web instrument_rq OUT tag=RemoteControlState cookie='10536b64a30dc41bdcffb223ea76a116' bytes=80
+2026-05-25 22:44:53 INFO     [cornerstone.bridge.gateway] upstream IN tag=RemoteControlState cookie='10536b64a30dc41bdcffb223ea76a116' bytes=124
+2026-05-25 22:45:14 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 37478)
+2026-05-25 22:45:14 INFO     [cornerstone.bridge.client] client IN tag=Version cookie='283329c82b43800f232caeb27c602e81' bytes=69
+2026-05-25 22:45:14 INFO     [cornerstone.bridge.gateway] upstream OUT tag=Version cookie='283329c82b43800f232caeb27c602e81' bytes=69
+2026-05-25 22:45:14 INFO     [cornerstone.bridge.gateway] upstream IN tag=Version cookie='283329c82b43800f232caeb27c602e81' bytes=207
+2026-05-25 22:45:14 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 37478)
+2026-05-25 22:45:42 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 37548)
+2026-05-25 22:45:42 INFO     [cornerstone.bridge.client] client IN tag=RemoteControlState cookie='67ea8343ab6275b811b914c163843f75' bytes=80
+2026-05-25 22:45:42 INFO     [cornerstone.bridge.gateway] upstream OUT tag=RemoteControlState cookie='67ea8343ab6275b811b914c163843f75' bytes=80
+2026-05-25 22:45:42 INFO     [cornerstone.bridge.gateway] upstream IN tag=RemoteControlState cookie='67ea8343ab6275b811b914c163843f75' bytes=124
+2026-05-25 22:45:42 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 37548)
+2026-05-25 22:45:43 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 37551)
+2026-05-25 22:45:43 INFO     [cornerstone.bridge.client] client IN tag=InstrumentInfo cookie='980b9d65f951dfdb0a090dee667b5633' bytes=76
+2026-05-25 22:45:43 INFO     [cornerstone.bridge.gateway] upstream OUT tag=InstrumentInfo cookie='980b9d65f951dfdb0a090dee667b5633' bytes=76
+2026-05-25 22:45:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=InstrumentInfo cookie='980b9d65f951dfdb0a090dee667b5633' bytes=1729
+2026-05-25 22:45:43 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 37551)
+2026-05-25 22:45:53 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='3a2902d6fbe01061' bytes=76
+2026-05-25 22:46:53 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='bf422bafa9ae8a40' bytes=76
+2026-05-25 22:47:53 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='1151590442ad0618' bytes=76
+2026-05-25 22:48:53 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='d4176e5f557b5776' bytes=76
+2026-05-25 22:49:01 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 37954)
+2026-05-25 22:49:01 INFO     [cornerstone.bridge.client] client IN tag=Version cookie='e520d91ecaa30756221e8734c595b959' bytes=69
+2026-05-25 22:49:01 INFO     [cornerstone.bridge.gateway] upstream OUT tag=Version cookie='e520d91ecaa30756221e8734c595b959' bytes=69
+2026-05-25 22:49:01 INFO     [cornerstone.bridge.gateway] upstream IN tag=Version cookie='e520d91ecaa30756221e8734c595b959' bytes=207
+2026-05-25 22:49:01 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 37954)
+2026-05-25 22:49:28 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 38015)
+2026-05-25 22:49:28 INFO     [cornerstone.bridge.client] client IN tag=RemoteControlState cookie='a706ee57abea4bc401ade0809c22ab91' bytes=80
+2026-05-25 22:49:28 INFO     [cornerstone.bridge.gateway] upstream OUT tag=RemoteControlState cookie='a706ee57abea4bc401ade0809c22ab91' bytes=80
+2026-05-25 22:49:28 INFO     [cornerstone.bridge.gateway] upstream IN tag=RemoteControlState cookie='a706ee57abea4bc401ade0809c22ab91' bytes=124
+2026-05-25 22:49:28 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 38015)
+2026-05-25 22:49:36 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 38030)
+2026-05-25 22:49:36 INFO     [cornerstone.bridge.client] client IN tag=RemoteControlState cookie='95803a9d059f112a9ab7f8a4096245a6' bytes=80
+2026-05-25 22:49:36 INFO     [cornerstone.bridge.gateway] upstream OUT tag=RemoteControlState cookie='95803a9d059f112a9ab7f8a4096245a6' bytes=80
+2026-05-25 22:49:36 INFO     [cornerstone.bridge.gateway] upstream IN tag=RemoteControlState cookie='95803a9d059f112a9ab7f8a4096245a6' bytes=124
+2026-05-25 22:49:36 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 38030)
+2026-05-25 22:49:38 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 38038)
+2026-05-25 22:49:38 INFO     [cornerstone.bridge.client] client IN tag=RemoteControlState cookie='0a159dac67be5972af3cd3187822e20c' bytes=80
+2026-05-25 22:49:38 INFO     [cornerstone.bridge.gateway] upstream OUT tag=RemoteControlState cookie='0a159dac67be5972af3cd3187822e20c' bytes=80
+2026-05-25 22:49:38 INFO     [cornerstone.bridge.gateway] upstream IN tag=RemoteControlState cookie='0a159dac67be5972af3cd3187822e20c' bytes=124
+2026-05-25 22:49:38 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 38038)
+2026-05-25 22:49:40 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 38044)
+2026-05-25 22:49:40 INFO     [cornerstone.bridge.client] client IN tag=RemoteControlState cookie='fb22cb57c8fa42215e624fb877866241' bytes=80
+2026-05-25 22:49:40 INFO     [cornerstone.bridge.gateway] upstream OUT tag=RemoteControlState cookie='fb22cb57c8fa42215e624fb877866241' bytes=80
+2026-05-25 22:49:40 INFO     [cornerstone.bridge.gateway] upstream IN tag=RemoteControlState cookie='fb22cb57c8fa42215e624fb877866241' bytes=124
+2026-05-25 22:49:40 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 38044)
+2026-05-25 22:49:42 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 38049)
+2026-05-25 22:49:42 INFO     [cornerstone.bridge.client] client IN tag=RemoteControlState cookie='d582ac490621aa092dbf1d03807117a8' bytes=80
+2026-05-25 22:49:42 INFO     [cornerstone.bridge.gateway] upstream OUT tag=RemoteControlState cookie='d582ac490621aa092dbf1d03807117a8' bytes=80
+2026-05-25 22:49:42 INFO     [cornerstone.bridge.gateway] upstream IN tag=RemoteControlState cookie='d582ac490621aa092dbf1d03807117a8' bytes=124
+2026-05-25 22:49:42 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 38049)
+2026-05-25 22:49:47 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 38061)
+2026-05-25 22:49:47 INFO     [cornerstone.bridge.client] client IN tag=RemoteControlState cookie='ad0fdb4f70c67c24062c0a61b74bc669' bytes=80
+2026-05-25 22:49:47 INFO     [cornerstone.bridge.gateway] upstream OUT tag=RemoteControlState cookie='ad0fdb4f70c67c24062c0a61b74bc669' bytes=80
+2026-05-25 22:49:47 INFO     [cornerstone.bridge.gateway] upstream IN tag=RemoteControlState cookie='ad0fdb4f70c67c24062c0a61b74bc669' bytes=124
+2026-05-25 22:49:47 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 38061)
+2026-05-25 22:49:53 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='45a858d06354406a' bytes=76
+2026-05-25 22:50:53 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='b4fc6a1a175a19f7' bytes=76
+2026-05-25 22:51:01 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 38218)
+2026-05-25 22:51:01 INFO     [cornerstone.bridge.client] client IN tag=Logon cookie='LOGON' bytes=93
+2026-05-25 22:51:01 INFO     [cornerstone.bridge.client] synthetic Logon for ('127.0.0.1', 38218)
+2026-05-25 22:51:01 INFO     [cornerstone.bridge.client] client IN tag=LastRemoteAddedSets cookie='LastRemoteAddedSets' bytes=68
+2026-05-25 22:51:01 INFO     [cornerstone.bridge.gateway] upstream OUT tag=LastRemoteAddedSets cookie='LastRemoteAddedSets' bytes=68
+2026-05-25 22:51:01 INFO     [cornerstone.bridge.gateway] upstream IN tag=LastRemoteAddedSets cookie='LastRemoteAddedSets' bytes=89
+2026-05-25 22:51:01 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 38218)
+2026-05-25 22:51:29 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 38280)
+2026-05-25 22:51:29 INFO     [cornerstone.bridge.client] client IN tag=Logon cookie='LOGON' bytes=93
+2026-05-25 22:51:29 INFO     [cornerstone.bridge.client] synthetic Logon for ('127.0.0.1', 38280)
+2026-05-25 22:51:29 INFO     [cornerstone.bridge.client] client IN tag=Ambients cookie='96800e7fb79dc821e7b1c9b03b0e12af' bytes=70
+2026-05-25 22:51:29 INFO     [cornerstone.bridge.gateway] upstream OUT tag=Ambients cookie='96800e7fb79dc821e7b1c9b03b0e12af' bytes=70
+2026-05-25 22:51:30 INFO     [cornerstone.bridge.gateway] upstream IN tag=Ambients cookie='96800e7fb79dc821e7b1c9b03b0e12af' bytes=11786
+2026-05-25 22:51:30 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 38280)
+2026-05-25 22:51:53 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='ad4b6380313822d1' bytes=76
+2026-05-25 22:52:54 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='f8ce8fac15fde8f1' bytes=76
+2026-05-25 22:57:42 INFO     [cornerstone.bridge] logging initialized console=info verbose_gateway=True file=C:\work\CornerstoneMock\CornerstoneBridge\logs\bridge.log file_level=info
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.server] 配置文件: C:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.config.json
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.gateway] 已从磁盘恢复 8 条 AddSamples 队列: C:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.add-samples-queue.json
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.server] TCP 网关监听 (客户端连这里): ('0.0.0.0', 54321) (encoding=utf-16-le)
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.server] REST API: http://127.0.0.1:8081/ (('127.0.0.1', 8081))
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.server] 上游仪器 (Bridge 主动连): 190.2.96.210:12345 ; synthetic 2nd+ Logon=on ; instrument API=long (reuse upstream) ; upstream heartbeat=60.0s ; upstream auto-reconnect=on
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.server] 上游 inner 帧跨 TCP 拼接: timeout=5.0s（inner_len == tcp_payload-4 为完整）
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.server] Web→upstream Logon user: 'remote' (password set)
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.server] AddSamples 直通上位机 IP: '127.0.0.1' (其余 TCP 客户端仍截留)
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.server] AddSamples 队列持久化: C:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.add-samples-queue.json
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.gateway] connecting upstream 190.2.96.210:12345 (encoding=utf-16-le)
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.server] upstream TCP connected at startup (instrument long mode)
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.gateway] web upstream Logon cookie='c8925386934ed45acc66ef8786aa983a'
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.gateway] upstream IN tag=Logon cookie='c8925386934ed45acc66ef8786aa983a' bytes=88
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.server] upstream web Logon completed at startup
+2026-05-25 22:57:42 INFO     [cornerstone.bridge.gateway] web instrument_rq OUT tag=RemoteControlState cookie='7b466959dd11c1a81fafb2bb0ff548fe' bytes=80
+2026-05-25 22:57:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=RemoteControlState cookie='7b466959dd11c1a81fafb2bb0ff548fe' bytes=124
+2026-05-25 22:57:47 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 39078)
+2026-05-25 22:57:47 INFO     [cornerstone.bridge.client] client IN tag=Version cookie='6e19a5264bf1ff55f96f889e5fbe9dde' bytes=69
+2026-05-25 22:57:47 INFO     [cornerstone.bridge.gateway] upstream OUT tag=Version cookie='6e19a5264bf1ff55f96f889e5fbe9dde' bytes=69
+2026-05-25 22:57:47 INFO     [cornerstone.bridge.gateway] upstream IN tag=Version cookie='6e19a5264bf1ff55f96f889e5fbe9dde' bytes=207
+2026-05-25 22:57:47 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 39078)
+2026-05-25 22:58:42 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='a23d017083a03225' bytes=76
+2026-05-25 22:59:35 INFO     [cornerstone.bridge.client] client connected: ('127.0.0.1', 39289)
+2026-05-25 22:59:35 INFO     [cornerstone.bridge.client] client IN tag=InstrumentInfo cookie='f92756824b861bffc47ab6c16d835f3f' bytes=76
+2026-05-25 22:59:35 INFO     [cornerstone.bridge.gateway] upstream OUT tag=InstrumentInfo cookie='f92756824b861bffc47ab6c16d835f3f' bytes=76
+2026-05-25 22:59:35 INFO     [cornerstone.bridge.gateway] upstream IN tag=InstrumentInfo cookie='f92756824b861bffc47ab6c16d835f3f' bytes=1729
+2026-05-25 22:59:35 INFO     [cornerstone.bridge.client] client disconnected: ('127.0.0.1', 39289)
+2026-05-25 22:59:42 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='f9501e68820cd7bf' bytes=76
+2026-05-25 23:00:42 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='badfe95ef95c22bc' bytes=76
+2026-05-25 23:01:42 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='a9adb4a34bdc0624' bytes=76
+2026-05-25 23:02:42 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='31a609416b782232' bytes=76
+2026-05-25 23:03:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='ee7fcc6a4fdb84a2' bytes=76
+2026-05-25 23:04:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='611f4e293be7597a' bytes=76
+2026-05-25 23:05:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='56f3b616ea5bccfe' bytes=76
+2026-05-25 23:06:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='5f6fc18fe12fd709' bytes=76
+2026-05-25 23:07:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='0906f8694add8167' bytes=76
+2026-05-25 23:08:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='1be08560c50f8bc6' bytes=76
+2026-05-25 23:09:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='50c36e1b1b2fc494' bytes=76
+2026-05-25 23:10:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='69ff8f184067b143' bytes=76
+2026-05-25 23:11:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='aa7254d4607ab49b' bytes=76
+2026-05-25 23:12:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='5219d6d37f3d42e0' bytes=76
+2026-05-25 23:13:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='0590c7034a620a54' bytes=76
+2026-05-25 23:14:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='cc626316a77a766c' bytes=76
+2026-05-25 23:15:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='61d3db51d801a771' bytes=76
+2026-05-25 23:16:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='e7b84afd4e2306be' bytes=76
+2026-05-25 23:17:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='93e1dd5e5aa52015' bytes=76
+2026-05-25 23:18:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='d823615d714810f4' bytes=76
+2026-05-25 23:19:43 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='b75e57c438750b9a' bytes=76
+2026-05-25 23:20:44 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='b5cddb43cecf4e08' bytes=76
+2026-05-25 23:21:44 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='5ac212f22e3d41cf' bytes=76
+2026-05-25 23:22:44 INFO     [cornerstone.bridge.gateway] upstream IN tag=Heartbeat cookie='39fd1d4ab63e64c5' bytes=76
+2026-05-25 23:23:18 INFO     [cornerstone.bridge.gateway] upstream read loop ended
+2026-05-25 23:23:19 INFO     [cornerstone.bridge.gateway] connecting upstream 190.2.96.210:12345 (encoding=utf-16-le)
+2026-05-25 23:23:19 INFO     [cornerstone.bridge.gateway] upstream reconnected after drop
+2026-05-25 23:23:19 INFO     [cornerstone.bridge.gateway] web upstream Logon cookie='9852dbd65561a0979e4a9e781b3e071e'
+2026-05-25 23:23:19 INFO     [cornerstone.bridge.gateway] upstream IN tag=Logon cookie='9852dbd65561a0979e4a9e781b3e071e' bytes=88
+2026-05-25 23:23:19 INFO     [cornerstone.bridge.gateway] web instrument_rq OUT tag=RemoteControlState cookie='606e3dcb91dab9bde5acd9266a1fd22e' bytes=80
+2026-05-25 23:23:19 INFO     [cornerstone.bridge.gateway] upstream IN tag=RemoteControlState cookie='606e3dcb91dab9bde5acd9266a1fd22e' bytes=124

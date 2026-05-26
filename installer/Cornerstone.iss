@@ -14,6 +14,9 @@
 #ifndef MyAppVersion
   #define MyAppVersion "0.1.2"
 #endif
+#ifndef MyBuildId
+  #define MyBuildId "dev"
+#endif
 #define MyAppPublisher "LECO"
 #define MyAppId "{{A7B3C2E1-9F4D-4A2B-8C1E-5D6F7A8B9C0D}"
 
@@ -21,13 +24,14 @@
 AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+AppVerName={#MyAppVersion} ({#MyBuildId})
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\CornerstoneMock
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
 UsedUserAreasWarning=no
-OutputBaseFilename=CornerstoneMock-Setup-{#MyAppVersion}
+OutputBaseFilename=CornerstoneMock-Setup-{#MyAppVersion}-{#MyBuildId}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -77,6 +81,7 @@ Source: "{#StagingRoot}\CLI\*"; DestDir: "{app}\CLI"; Components: cli; Flags: ig
 Source: "{#StagingRoot}\config\*"; DestDir: "{app}\config"; Flags: ignoreversion
 Source: "{#StagingRoot}\tools\nssm.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "{#StagingRoot}\scripts\*.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "{#StagingRoot}\build-info.json"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Cornerstone Queue"; Filename: "{app}\Queue\CornerstoneQueue.exe"; WorkingDir: "{app}\Queue"; Components: queue

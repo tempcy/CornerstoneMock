@@ -49,6 +49,21 @@ public sealed class StatusResponse
     [JsonPropertyName("upstreamConnected")]
     public bool UpstreamConnected { get; set; }
 
+    [JsonPropertyName("instrumentOnline")]
+    public bool InstrumentOnline { get; set; }
+
+    [JsonPropertyName("businessOnline")]
+    public bool BusinessOnline { get; set; }
+
+    [JsonPropertyName("heartbeatFailStreak")]
+    public int HeartbeatFailStreak { get; set; }
+
+    [JsonPropertyName("commandFailStreak")]
+    public int CommandFailStreak { get; set; }
+
+    [JsonPropertyName("recvBufferBytes")]
+    public int RecvBufferBytes { get; set; }
+
     [JsonPropertyName("queueCount")]
     public int QueueCount { get; set; }
 

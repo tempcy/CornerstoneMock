@@ -4,6 +4,7 @@
   var pollTimer = null;
   var statusPollTimer = null;
   var lastHeartbeatReplyAt = -1;
+  var lastUpstreamActivityAt = -1;
   var statusPollSeen = false;
   var lastGwSettings = null;
 
@@ -82,15 +83,48 @@
     }
   }
 
+  function gatewayInstrumentOnline(data) {
+    if (!data) return false;
+    if (data.businessOnline != null) return !!data.businessOnline;
+    if (data.instrumentOnline != null) return !!data.instrumentOnline;
+    return !!data.upstreamConnected;
+  }
+
+  function statusConnTitle(data) {
+    var parts = [];
+    if (data.businessOnline != null) {
+      parts.push("业务在线: " + (data.businessOnline ? "是" : "否"));
+    }
+    if (data.instrumentOnline != null) {
+      parts.push("仪器在线: " + (data.instrumentOnline ? "是" : "否"));
+    }
+    if (data.upstreamTransportUp != null) {
+      parts.push("TCP传输: " + (data.upstreamTransportUp ? "存活" : "断开"));
+    }
+    if (data.heartbeatFailStreak > 0) {
+      parts.push("心跳失败连续 " + data.heartbeatFailStreak);
+    }
+    if (data.commandFailStreak > 0) {
+      parts.push("指令失败连续 " + data.commandFailStreak);
+    }
+    if (data.recvBufferBytes > 0) {
+      parts.push("recv缓冲 " + data.recvBufferBytes + " 字节");
+    }
+    return parts.length ? parts.join(" · ") : "上游仪器状态";
+  }
+
   function applyStatusPayload(data) {
     if (!data || !data.ok) return;
     var heart = $("conn-icon-heart");
     var bolt = $("conn-icon-bolt");
     var hb = Number(data.lastHeartbeatReplyAt) || 0;
-    if (data.upstreamConnected) {
+    var rx = Number(data.lastUpstreamRxAt) || 0;
+    var activity = Math.max(hb, rx);
+    var online = gatewayInstrumentOnline(data);
+    if (online) {
       show(heart, true);
       show(bolt, false);
-      if (statusPollSeen && hb > lastHeartbeatReplyAt + 1e-9) {
+      if (statusPollSeen && activity > lastUpstreamActivityAt + 1e-9) {
         heart.classList.remove("flash");
         void heart.offsetWidth;
         heart.classList.add("flash");
@@ -102,7 +136,10 @@
       show(heart, false);
       show(bolt, true);
     }
+    if (heart) heart.title = statusConnTitle(data);
+    if (bolt) bolt.title = statusConnTitle(data);
     lastHeartbeatReplyAt = hb;
+    lastUpstreamActivityAt = activity;
     statusPollSeen = true;
     applyQueueFooterFromPayload(data);
     applyRcsFromPayload(data);

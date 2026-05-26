@@ -446,10 +446,19 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var upstream = data.UpstreamConnected ? "上游已连接" : "上游未连接";
+        var online = data.BusinessOnline || data.InstrumentOnline || data.UpstreamConnected;
+        var upstream = online ? "仪器在线" : "仪器离线";
         var rcs = string.IsNullOrWhiteSpace(data.RemoteControlState) ? "—" : data.RemoteControlState;
         var line =
             $"Bridge · {upstream} · 队列 {data.QueueCount}/{data.QueueMax} · RCS {rcs}";
+        if (data.HeartbeatFailStreak > 0 || data.CommandFailStreak > 0)
+        {
+            line += $" · HB{data.HeartbeatFailStreak} CMD{data.CommandFailStreak}";
+        }
+        if (data.RecvBufferBytes > 0)
+        {
+            line += $" · buf{data.RecvBufferBytes}";
+        }
         if (!string.IsNullOrWhiteSpace(data.RemoteControlStateError))
         {
             line += $" ({data.RemoteControlStateError})";
