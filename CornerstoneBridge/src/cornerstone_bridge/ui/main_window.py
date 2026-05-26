@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import time
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -34,10 +35,13 @@ from PySide6.QtWidgets import (
 )
 
 from .bridge_api import BridgeApiClient, BridgeApiError
+from .build_info import packaging_time_label
 
 
 class _MenuToolButtonSync(QObject):
-    """MenuButtonPopup：右侧弹出区与左侧主按钮同宽；菜单与整钮同宽。"""
+    """MenuButtonPopup：窄箭头区；主区文字居中；下拉菜单与整钮同宽。"""
+
+    _MENU_ARROW_WIDTH = 28
 
     def __init__(self, btn: QToolButton, menu: QMenu) -> None:
         super().__init__(btn)
@@ -45,21 +49,21 @@ class _MenuToolButtonSync(QObject):
         self._menu = menu
         menu.aboutToShow.connect(self._sync_menu_width)
         btn.installEventFilter(self)
-        self._sync_split()
+        self._apply_style()
 
     def _sync_menu_width(self) -> None:
         w = self._btn.width()
         if w > 0:
             self._menu.setFixedWidth(w)
 
-    def _sync_split(self) -> None:
-        w = self._btn.width()
-        if w < 4:
-            return
-        half = w // 2
+    def _apply_style(self) -> None:
+        aw = self._MENU_ARROW_WIDTH
         self._btn.setStyleSheet(
+            "QToolButton { text-align: center; }"
             "QToolButton::menu-button {"
-            f" width: {half}px;"
+            f" width: {aw}px;"
+            " subcontrol-origin: border;"
+            " subcontrol-position: right center;"
             " border-left: 1px solid palette(mid);"
             " }"
         )
@@ -70,7 +74,7 @@ class _MenuToolButtonSync(QObject):
             QEvent.Type.Show,
             QEvent.Type.StyleChange,
         ):
-            self._sync_split()
+            self._apply_style()
         return False
 from .config_io import (
     api_base_url,
@@ -83,9 +87,11 @@ from .config_io import (
 
 
 class MainWindow(QMainWindow):
+    _APP_TITLE = "Cornerstone Bridge 控制台"
+
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Cornerstone Bridge 控制台")
+        self.setWindowTitle(self._build_window_title())
         self.resize(920, 640)
 
         self._config_path = resolve_config_path()
@@ -123,6 +129,20 @@ class MainWindow(QMainWindow):
         self.show()
         self.raise_()
         self.activateWindow()
+
+    @classmethod
+    def _build_window_title(cls) -> str:
+        try:
+            ver = version("cornerstone-bridge")
+        except PackageNotFoundError:
+            ver = ""
+        parts = [cls._APP_TITLE]
+        if ver:
+            parts.append(f"v{ver}")
+        built = packaging_time_label()
+        if built:
+            parts.append(f"打包 {built}")
+        return "  ".join(parts)
 
     @staticmethod
     def _format_duration(seconds: float) -> str:
@@ -552,11 +572,11 @@ class MainWindow(QMainWindow):
         self._ed_priv_host.setText(str(self._cfg.get("privileged_add_samples_host") or ""))
         self._chk_long_conn.setChecked(bool(self._cfg.get("instrument_long_connection", True)))
         self._chk_auto_reco.setChecked(bool(self._cfg.get("upstream_auto_reconnect", True)))
-        self._sp_recv_idle_clear.setValue(int(self._cfg.get("upstream_recv_idle_clear") or 30))
+        self._sp_recv_idle_clear.setValue(int(self._cfg.get("upstream_recv_idle_clear") or 5))
         self._sp_hb_fail_max.setValue(int(self._cfg.get("upstream_heartbeat_fail_max") or 2))
         self._sp_cmd_fail_max.setValue(int(self._cfg.get("upstream_command_fail_max") or 3))
         self._sp_client_fwd_timeout.setValue(
-            int(self._cfg.get("upstream_client_forward_timeout") or 120)
+            int(self._cfg.get("upstream_client_forward_timeout") or 10)
         )
         self._chk_no_syn_logon.setChecked(bool(self._cfg.get("no_synthetic_logon", False)))
         self._chk_verbose_gw.setChecked(bool(self._cfg.get("log_verbose_gateway", False)))
