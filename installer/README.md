@@ -1,6 +1,6 @@
 # Cornerstone Mock 安装程序
 
-**发布版本**由仓库根目录 [`VERSION`](../VERSION) 决定（当前 **0.1.5**）；`build-release.ps1` 与 Inno Setup 均读取该文件。每次打包还会自动生成**构建标识码**（UTC 时间戳 + Git 短哈希，例如 `20250525143000-a1b2c3d`），输出 `CornerstoneMock-Setup-<版本>-<标识码>.exe`。
+**发布版本**由仓库根目录 [`VERSION`](../VERSION) 决定（当前 **0.1.6**）；`build-release.ps1` 与 Inno Setup 均读取该文件。每次打包还会自动生成**构建标识码**（UTC 时间戳 + Git 短哈希，例如 `20250525143000-a1b2c3d`），输出 `CornerstoneMock-Setup-<版本>-<标识码>.exe`。
 
 生成 **Bridge（必选）**、**Web / Queue / CLI（可选）** 的 Windows 安装包；支持将 **Bridge**、**Web** 注册为 Windows 服务（默认勾选）。
 

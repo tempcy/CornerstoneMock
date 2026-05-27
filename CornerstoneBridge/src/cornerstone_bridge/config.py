@@ -126,6 +126,10 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
         "upstream_heartbeat_fail_max",
         "upstream_command_fail_max",
         "upstream_client_forward_timeout",
+        "upstream_heartbeat_wait_timeout",
+        "upstream_activity_stale_seconds",
+        "upstream_read_cancel_timeout",
+        "upstream_stale_check_interval",
         "upstream_auto_reconnect",
         "async_message_interval",
         "web_user",
@@ -183,6 +187,10 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
             "upstream_inner_reassembly_timeout",
             "upstream_recv_idle_clear",
             "upstream_client_forward_timeout",
+            "upstream_heartbeat_wait_timeout",
+            "upstream_activity_stale_seconds",
+            "upstream_read_cancel_timeout",
+            "upstream_stale_check_interval",
         ):
             out[k] = float(v)
             continue

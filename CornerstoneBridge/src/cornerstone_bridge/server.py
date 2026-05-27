@@ -71,6 +71,10 @@ async def run_bridge(
     upstream_heartbeat_fail_max: int,
     upstream_command_fail_max: int,
     upstream_client_forward_timeout: float,
+    upstream_heartbeat_wait_timeout: float,
+    upstream_activity_stale_seconds: float,
+    upstream_read_cancel_timeout: float,
+    upstream_stale_check_interval: float,
     async_message_interval: float,
     web_user: str,
     web_password: str,
@@ -93,6 +97,10 @@ async def run_bridge(
         upstream_heartbeat_fail_max=upstream_heartbeat_fail_max,
         upstream_command_fail_max=upstream_command_fail_max,
         upstream_client_forward_timeout_s=upstream_client_forward_timeout,
+        upstream_heartbeat_wait_timeout_s=upstream_heartbeat_wait_timeout,
+        upstream_activity_stale_seconds=upstream_activity_stale_seconds,
+        upstream_read_cancel_timeout_s=upstream_read_cancel_timeout,
+        upstream_stale_check_interval_s=upstream_stale_check_interval,
         web_user=web_user,
         web_password=web_password,
         privileged_add_samples_host=privileged_add_samples_host,
@@ -180,6 +188,7 @@ async def run_bridge(
                 log.warning("startup upstream web Logon failed: %s", err)
 
     async with srv_client, srv_api:
+        hub.start_background_maintenance()
         await _preconnect_upstream_long_instrument()
         try:
             await asyncio.gather(srv_client.serve_forever(), srv_api.serve_forever())
@@ -294,6 +303,34 @@ def main() -> int:
         metavar="SEC",
         help="TCP 客户端经网关转发后等待上游应答的超时",
     )
+    parser.add_argument(
+        "--upstream-heartbeat-wait-timeout",
+        type=float,
+        default=0.0,
+        metavar="SEC",
+        help="Bridge 主动 Heartbeat 等待应答超时（0= max(TCP转发超时, 15)）",
+    )
+    parser.add_argument(
+        "--upstream-activity-stale-seconds",
+        type=float,
+        default=0.0,
+        metavar="SEC",
+        help="无上行活动超过该秒数则回收上游 TCP（0= max(3×心跳间隔, 90)）",
+    )
+    parser.add_argument(
+        "--upstream-read-cancel-timeout",
+        type=float,
+        default=5.0,
+        metavar="SEC",
+        help="回收上游 TCP 时等待读循环 cancel 的最长时间",
+    )
+    parser.add_argument(
+        "--upstream-stale-check-interval",
+        type=float,
+        default=30.0,
+        metavar="SEC",
+        help="定时检查 activity_stale 的间隔（0= 关闭）",
+    )
     parser.add_argument("--no-upstream-auto-reconnect", action="store_true")
     parser.add_argument(
         "--no-persist-add-samples-queue",
@@ -387,6 +424,10 @@ def main() -> int:
                 upstream_heartbeat_fail_max=args.upstream_heartbeat_fail_max,
                 upstream_command_fail_max=args.upstream_command_fail_max,
                 upstream_client_forward_timeout=args.upstream_client_forward_timeout,
+                upstream_heartbeat_wait_timeout=args.upstream_heartbeat_wait_timeout,
+                upstream_activity_stale_seconds=args.upstream_activity_stale_seconds,
+                upstream_read_cancel_timeout=args.upstream_read_cancel_timeout,
+                upstream_stale_check_interval=args.upstream_stale_check_interval,
                 async_message_interval=args.async_message_interval,
                 web_user=args.web_user,
                 web_password=args.web_password,

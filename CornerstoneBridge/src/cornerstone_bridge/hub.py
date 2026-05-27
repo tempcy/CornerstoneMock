@@ -75,6 +75,10 @@ class GatewayHub:
         upstream_heartbeat_fail_max: int = 2,
         upstream_command_fail_max: int = 3,
         upstream_client_forward_timeout_s: float = 10.0,
+        upstream_heartbeat_wait_timeout_s: float = 0.0,
+        upstream_activity_stale_seconds: float = 0.0,
+        upstream_read_cancel_timeout_s: float = 5.0,
+        upstream_stale_check_interval_s: float = 30.0,
         web_user: str,
         web_password: str,
         privileged_add_samples_host: str = "",
@@ -109,8 +113,23 @@ class GatewayHub:
         self._upstream_client_forward_timeout_s = max(
             1.0, float(upstream_client_forward_timeout_s)
         )
+        self._upstream_heartbeat_wait_timeout_s = max(
+            0.0, float(upstream_heartbeat_wait_timeout_s)
+        )
+        self._upstream_activity_stale_seconds_cfg = max(
+            0.0, float(upstream_activity_stale_seconds)
+        )
+        self._upstream_read_cancel_timeout_s = max(
+            0.5, float(upstream_read_cancel_timeout_s)
+        )
+        self._upstream_stale_check_interval_s = max(
+            0.0, float(upstream_stale_check_interval_s)
+        )
         self._last_upstream_rx_at: float = 0.0
         self._upstream_command_fail_streak: int = 0
+        self._upstream_recover_generation: int = 0
+        self._stale_recover_pending: bool = False
+        self._upstream_recover_in_progress: bool = False
         self._pending_hb_cookie: str = ""
         self.web_user = (web_user or "").strip()
         self.web_password = web_password or ""
@@ -155,6 +174,7 @@ class GatewayHub:
         self._upstream_reader_task: Optional[asyncio.Task[None]] = None
         self._upstream_heartbeat_task: Optional[asyncio.Task[None]] = None
         self._upstream_reconnect_task: Optional[asyncio.Task[None]] = None
+        self._upstream_stale_check_task: Optional[asyncio.Task[None]] = None
         self._upstream_heartbeat_fail_streak = 0
         self._stale_recover_lock = asyncio.Lock()
         self._instrument_sidecar_lock = asyncio.Lock()
@@ -431,6 +451,7 @@ class GatewayHub:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await rct
         self._upstream_reconnect_task = None
+        await self._stop_upstream_stale_check()
         await self._send_upstream_logoff()
         await self._force_close_upstream()
 
@@ -441,8 +462,17 @@ class GatewayHub:
         self._upstream_reader_task = None
         if t is not None and not t.done():
             t.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await t
+            try:
+                await asyncio.wait_for(t, timeout=self._upstream_read_cancel_timeout_s)
+            except asyncio.TimeoutError:
+                log_throttled_warning(
+                    _log,
+                    "upstream_read_cancel_timeout",
+                    "upstream read loop cancel timed out (%.0fs); forcing writer close",
+                    self._upstream_read_cancel_timeout_s,
+                )
+            except (asyncio.CancelledError, Exception):
+                pass
         async with self._upstream_connect_lock:
             uw = self._upstream_writer
             self._upstream_reader = None
@@ -498,6 +528,51 @@ class GatewayHub:
             self._upstream_heartbeat_loop(), name="gateway_upstream_heartbeat"
         )
 
+    async def _stop_upstream_stale_check(self) -> None:
+        t = self._upstream_stale_check_task
+        self._upstream_stale_check_task = None
+        if t is None:
+            return
+        if not t.done():
+            t.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await t
+
+    def start_background_maintenance(self) -> None:
+        """启动上游活性巡检（activity_stale）；须在运行中的 event loop 内调用。"""
+        if self._upstream_stale_check_interval_s <= 0:
+            return
+        if self._upstream_stale_check_task is not None and not self._upstream_stale_check_task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._upstream_stale_check_task = loop.create_task(
+            self._upstream_stale_check_loop(), name="gateway_upstream_stale_check"
+        )
+
+    async def _upstream_stale_check_loop(self) -> None:
+        interval = max(float(self._upstream_stale_check_interval_s), 5.0)
+        while True:
+            await asyncio.sleep(interval)
+            if self._shutting_down or not self._upstream_connection_enabled:
+                return
+            if not self._upstream_transport_usable():
+                continue
+            last = max(self._last_upstream_rx_at, self._last_upstream_heartbeat_reply_at)
+            if last <= 0:
+                continue
+            stale_s = self._upstream_activity_stale_seconds()
+            if (time.time() - last) <= stale_s:
+                continue
+            _log.warning(
+                "upstream activity stale (%.0fs since last rx, limit=%.0fs)",
+                time.time() - last,
+                stale_s,
+            )
+            self._schedule_recycle_upstream_if_needed()
+
     async def _upstream_heartbeat_loop(self) -> None:
         interval = max(float(self._upstream_heartbeat_interval_s), 0.5)
         while True:
@@ -506,18 +581,28 @@ class GatewayHub:
                 return
             await self._send_upstream_heartbeat_once()
 
-    def _schedule_upstream_reconnect(self) -> None:
+    def _schedule_upstream_reconnect(self, *, replace: bool = False) -> None:
         if self._shutting_down or not self._upstream_auto_reconnect:
             return
         if not self._upstream_connection_enabled:
             return
-        if self._upstream_reconnect_task is not None and not self._upstream_reconnect_task.done():
-            return
+        rct = self._upstream_reconnect_task
+        if rct is not None and not rct.done():
+            if not replace:
+                return
+            rct.cancel()
         self._upstream_reconnect_task = asyncio.create_task(
             self._upstream_reconnect_worker(), name="gateway_upstream_reconnect"
         )
 
+    def _effective_heartbeat_wait_timeout_s(self) -> float:
+        if self._upstream_heartbeat_wait_timeout_s > 0:
+            return self._upstream_heartbeat_wait_timeout_s
+        return max(self._upstream_client_forward_timeout_s, 15.0)
+
     def _upstream_activity_stale_seconds(self) -> float:
+        if self._upstream_activity_stale_seconds_cfg > 0:
+            return self._upstream_activity_stale_seconds_cfg
         interval = max(float(self._upstream_heartbeat_interval_s), 0.5)
         return max(3.0 * interval, 90.0)
 
@@ -546,10 +631,17 @@ class GatewayHub:
 
     def _record_upstream_command_failure(self, reason: str) -> None:
         self._upstream_command_fail_streak += 1
+        streak = self._upstream_command_fail_streak
+        max_f = self._upstream_command_fail_max
+        extra = ""
+        if streak > max_f:
+            pending = "pending" if self._stale_recover_pending else "idle"
+            extra = f" (recycle {pending})"
         _log.warning(
-            "upstream command failure (%d/%d): %s",
-            self._upstream_command_fail_streak,
-            self._upstream_command_fail_max,
+            "upstream command failure (%d/%d)%s: %s",
+            streak,
+            max_f,
+            extra,
             reason,
         )
         self._schedule_recycle_upstream_if_needed()
@@ -668,19 +760,39 @@ class GatewayHub:
         if self._shutting_down:
             return
         async with self._stale_recover_lock:
-            if not self._upstream_transport_usable():
+            if self._stale_recover_pending:
                 return
-            _log.warning(
-                "upstream 回收僵死 TCP（reason=%s hb_fail=%d cmd_fail=%d）",
-                reason,
-                self._upstream_heartbeat_fail_streak,
-                self._upstream_command_fail_streak,
-            )
+            self._stale_recover_pending = True
+            transport_usable = self._upstream_transport_usable()
+            hb_fail = self._upstream_heartbeat_fail_streak
+            cmd_fail = self._upstream_command_fail_streak
             self._upstream_heartbeat_fail_streak = 0
             self._upstream_command_fail_streak = 0
             self._pending_hb_cookie = ""
-            await self._drop_upstream_transport()
-            self._schedule_upstream_reconnect()
+            self._upstream_recover_generation += 1
+        self._upstream_recover_in_progress = True
+        try:
+            if transport_usable:
+                _log.warning(
+                    "upstream 回收僵死 TCP（reason=%s hb_fail=%d cmd_fail=%d）",
+                    reason,
+                    hb_fail,
+                    cmd_fail,
+                )
+                await self._drop_upstream_transport()
+            else:
+                _log.warning(
+                    "upstream stale recover skipped (transport down, reason=%s "
+                    "hb_fail=%d cmd_fail=%d); scheduling reconnect",
+                    reason,
+                    hb_fail,
+                    cmd_fail,
+                )
+            self._schedule_upstream_reconnect(replace=True)
+        finally:
+            self._upstream_recover_in_progress = False
+            async with self._stale_recover_lock:
+                self._stale_recover_pending = False
 
     async def _send_upstream_heartbeat_once(self) -> None:
         if self._upstream_writer is None or self._upstream_writer.is_closing():
@@ -700,7 +812,9 @@ class GatewayHub:
                     return
                 uw.write(_frame(text, self.encoding))
                 await uw.drain()
-            resp = await asyncio.wait_for(fut, timeout=15.0)
+            resp = await asyncio.wait_for(
+                fut, timeout=self._effective_heartbeat_wait_timeout_s()
+            )
             self._note_upstream_heartbeat_reply(resp)
         except asyncio.TimeoutError:
             async with self._cookie_lock:
@@ -731,7 +845,12 @@ class GatewayHub:
                 async with self._upstream_connect_lock:
                     w = self._upstream_writer
                     if w is not None and not w.is_closing():
-                        return
+                        if self.instrument_online():
+                            return
+                        _log.warning(
+                            "upstream transport present but instrument offline; forcing reconnect"
+                        )
+                await self._drop_upstream_transport()
                 await self._ensure_upstream()
                 _log.info("upstream reconnected after drop")
                 if self.web_user and self.web_password:
@@ -1068,8 +1187,11 @@ class GatewayHub:
             _log.info("upstream read loop ended")
             recv.clear()
             if not self._shutting_down:
-                await self._drop_upstream_transport()
-                self._schedule_upstream_reconnect()
+                if self._upstream_recover_in_progress:
+                    await self._drop_upstream_transport()
+                else:
+                    await self._drop_upstream_transport()
+                    self._schedule_upstream_reconnect()
 
     def _inject_cookie_culture(self, xml: str, cookie: str) -> str:
         s = (xml or "").lstrip()
@@ -1145,11 +1267,16 @@ class GatewayHub:
     ) -> None:
         if tag_name.lower() in ("heartbeat", "logon"):
             return
+        gen = self._upstream_recover_generation
         await asyncio.sleep(self._upstream_client_forward_timeout_s)
+        if gen != self._upstream_recover_generation:
+            return
         async with self._cookie_lock:
             if self._cookie_to_target.get(cookie) is not client_writer:
                 return
             self._cookie_to_target.pop(cookie, None)
+        if gen != self._upstream_recover_generation:
+            return
         self._record_upstream_command_failure(
             f"tcp_forward_timeout tag={tag_name} cookie={cookie[:16]}"
         )
