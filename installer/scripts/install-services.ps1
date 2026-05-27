@@ -142,8 +142,11 @@ function Install-OneService {
 
 if ($InstallBridge) {
     $bridgeExe = Join-Path $AppDir "Bridge\cornerstone-bridge.exe"
-    $bridgeCfg = Join-Path $ConfigDir "cornerstone-bridge.config.json"
-    if (-not (Test-Path $bridgeCfg)) { throw "Config not found: $bridgeCfg" }
+    $bridgeCfgToml = Join-Path $ConfigDir "cornerstone-bridge.config.toml"
+    $bridgeCfgJson = Join-Path $ConfigDir "cornerstone-bridge.config.json"
+    if (Test-Path $bridgeCfgToml) { $bridgeCfg = $bridgeCfgToml }
+    elseif (Test-Path $bridgeCfgJson) { $bridgeCfg = $bridgeCfgJson }
+    else { throw "Config not found: $bridgeCfgToml (or legacy .json)" }
     $bridgeArgs = '-c "{0}"' -f $bridgeCfg
     Install-OneService -Name "CornerstoneBridge" `
         -DisplayName "Cornerstone Mock Bridge" `
@@ -155,8 +158,11 @@ if ($InstallBridge) {
 
 if ($InstallWeb) {
     $webExe = Join-Path $AppDir "Web\cornerstone-web.exe"
-    $webCfg = Join-Path $ConfigDir "cornerstone-web.config.json"
-    if (-not (Test-Path $webCfg)) { throw "Config not found: $webCfg" }
+    $webCfgToml = Join-Path $ConfigDir "cornerstone-web.config.toml"
+    $webCfgJson = Join-Path $ConfigDir "cornerstone-web.config.json"
+    if (Test-Path $webCfgToml) { $webCfg = $webCfgToml }
+    elseif (Test-Path $webCfgJson) { $webCfg = $webCfgJson }
+    else { throw "Config not found: $webCfgToml (or legacy .json)" }
     $webArgs = '-c "{0}"' -f $webCfg
     Install-OneService -Name "CornerstoneWeb" `
         -DisplayName "Cornerstone Mock Web" `

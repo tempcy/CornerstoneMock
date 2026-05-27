@@ -303,11 +303,11 @@ if (-not $SkipPython) {
 
     $cfgDir = Join-Path $Staging "config"
     Ensure-Dir $cfgDir
-    Copy-Item (Join-Path $Root "CornerstoneBridge\cornerstone-bridge.config.example.json") `
-        (Join-Path $cfgDir "cornerstone-bridge.config.example.json") -Force
+    Copy-Item (Join-Path $Root "CornerstoneBridge\cornerstone-bridge.config.example.toml") `
+        (Join-Path $cfgDir "cornerstone-bridge.config.example.toml") -Force
     if (-not $BridgeOnly) {
-        Copy-Item (Join-Path $Root "CornerstoneWeb\cornerstone-web.config.example.json") `
-            (Join-Path $cfgDir "cornerstone-web.config.example.json") -Force
+        Copy-Item (Join-Path $Root "CornerstoneWeb\cornerstone-web.config.example.toml") `
+            (Join-Path $cfgDir "cornerstone-web.config.example.toml") -Force
     }
 }
 

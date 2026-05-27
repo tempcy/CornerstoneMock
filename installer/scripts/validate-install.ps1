@@ -9,6 +9,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "merge-config.ps1")
+
 function Write-ValidateLog {
     param([string]$Message)
     Write-Host "  $Message"
@@ -19,9 +21,65 @@ function Write-ValidateLog {
 
 function Read-JsonFile([string]$Path) {
     if (-not (Test-Path $Path)) { return $null }
-    $raw = Get-Content -Path $Path -Raw -Encoding UTF8
-    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
-    return $raw | ConvertFrom-Json
+    return Read-JsonConfigFile $Path
+}
+
+function Resolve-BridgeConfigPath {
+    $toml = Join-Path $ConfigDir "cornerstone-bridge.config.toml"
+    $json = Join-Path $ConfigDir "cornerstone-bridge.config.json"
+    if (Test-Path $toml) { return $toml }
+    if (Test-Path $json) { return $json }
+    return $toml
+}
+
+function Resolve-WebConfigPath {
+    $toml = Join-Path $ConfigDir "cornerstone-web.config.toml"
+    $json = Join-Path $ConfigDir "cornerstone-web.config.json"
+    if (Test-Path $toml) { return $toml }
+    if (Test-Path $json) { return $json }
+    return $toml
+}
+
+function Read-FlatTomlFile([string]$Path) {
+    if (-not (Test-Path $Path)) { return $null }
+    $data = @{}
+    foreach ($line in Get-Content -Path $Path -Encoding UTF8) {
+        $t = $line.Trim()
+        if ($t -eq "" -or $t.StartsWith("#")) { continue }
+        if ($t.StartsWith("[")) { continue }
+        if ($t -match '^([A-Za-z0-9_]+)\s*=\s*(.+)$') {
+            $key = $Matches[1]
+            $val = $Matches[2].Trim()
+            if ($val.Length -ge 2 -and $val.StartsWith('"') -and $val.EndsWith('"')) {
+                $val = $val.Substring(1, $val.Length - 2)
+            }
+            if ($val -eq "true") { $data[$key] = $true }
+            elseif ($val -eq "false") { $data[$key] = $false }
+            elseif ($val -match '^\d+$') { $data[$key] = [int]$val }
+            elseif ($val -match '^\d+(\.\d+)?$') { $data[$key] = [double]$val }
+            else { $data[$key] = $val }
+        }
+    }
+    if ($data.Count -eq 0) { return $null }
+    return [PSCustomObject]$data
+}
+
+function Read-BridgeConfigFile {
+    $path = Resolve-BridgeConfigPath
+    if (-not (Test-Path $path)) { return $null, $path }
+    if ($path -like "*.toml") {
+        return (Read-FlatTomlFile $path), $path
+    }
+    return (Read-JsonFile $path), $path
+}
+
+function Read-WebConfigFile {
+    $path = Resolve-WebConfigPath
+    if (-not (Test-Path $path)) { return $null, $path }
+    if ($path -like "*.toml") {
+        return (Read-FlatTomlFile $path), $path
+    }
+    return (Read-JsonFile $path), $path
 }
 
 function Test-PortFree([int]$Port) {
@@ -62,13 +120,13 @@ function Collect-Issues {
     param($BridgeCfg, $WebCfg)
 
     $issues = New-Object System.Collections.Generic.List[string]
-    $bridgePath = Join-Path $ConfigDir "cornerstone-bridge.config.json"
-    $webPath = Join-Path $ConfigDir "cornerstone-web.config.json"
+    $bridgePath = Resolve-BridgeConfigPath
+    $webPath = Resolve-WebConfigPath
 
     if ($InstallBridge -eq "1" -and $BridgeCfg) {
         $ok, $why = Test-PortFree -Port ([int]$BridgeCfg.port)
         if (-not $ok) {
-            $issues.Add("TCP 网关端口 $($BridgeCfg.port) (cornerstone-bridge.config.json -> port) $why")
+            $issues.Add("TCP 网关端口 $($BridgeCfg.port) (bridge 配置 -> port) $why")
         }
         $ok2, $why2 = Test-PortFree -Port ([int]$BridgeCfg.bridge_api_port)
         if (-not $ok2) {
@@ -85,7 +143,7 @@ function Collect-Issues {
     if ($InstallWeb -eq "1" -and $WebCfg) {
         $ok3, $why3 = Test-PortFree -Port ([int]$WebCfg.web_port)
         if (-not $ok3) {
-            $issues.Add("Web 监听端口 $($WebCfg.web_port) (cornerstone-web.config.json -> web_port) $why3")
+            $issues.Add("Web 监听端口 $($WebCfg.web_port) (web 配置 -> web_port) $why3")
         }
         if ($InstallBridge -eq "1" -and $BridgeCfg) {
             $apiPort = [int]$BridgeCfg.bridge_api_port
@@ -133,10 +191,8 @@ function Show-ValidationDialog {
 
 Write-ValidateLog "start NonInteractive=$($NonInteractive.IsPresent)"
 
-$bridgeCfgPath = Join-Path $ConfigDir "cornerstone-bridge.config.json"
-$webCfgPath = Join-Path $ConfigDir "cornerstone-web.config.json"
-$bridge = Read-JsonFile $bridgeCfgPath
-$web = Read-JsonFile $webCfgPath
+$bridge, $bridgeCfgPath = Read-BridgeConfigFile
+$web, $webCfgPath = Read-WebConfigFile
 
 if ($NonInteractive) {
     Write-ValidateLog "collecting issues"
@@ -162,15 +218,15 @@ while ($true) {
                 Start-Process explorer.exe $ConfigDir
             }
             Start-Sleep -Milliseconds 800
-            $bridge = Read-JsonFile $bridgeCfgPath
-            $web = Read-JsonFile $webCfgPath
+            $bridge, $bridgeCfgPath = Read-BridgeConfigFile
+            $web, $webCfgPath = Read-WebConfigFile
         }
         ([System.Windows.Forms.DialogResult]::No) {
             exit 0
         }
         default {
-            $bridge = Read-JsonFile $bridgeCfgPath
-            $web = Read-JsonFile $webCfgPath
+            $bridge, $bridgeCfgPath = Read-BridgeConfigFile
+            $web, $webCfgPath = Read-WebConfigFile
         }
     }
 }

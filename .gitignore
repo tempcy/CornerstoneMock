@@ -51,6 +51,7 @@ ehthumbs.db
 # 本机配置（保留 *.example.json）
 CornerstoneBridge/cornerstone-bridge.config.json
 CornerstoneWeb/cornerstone-web.config.json
+CornerstoneWeb/cornerstone-web.config.toml
 
 # 安装包构建产物（build-release.ps1 / ISCC）
 installer/staging/

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import time
 from datetime import datetime
@@ -8,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -84,10 +85,18 @@ from .config_io import (
     resolve_config_path,
     save_config_dict,
 )
+from .win_admin import (
+    windows_service_start,
+    windows_service_state,
+    windows_service_stop,
+)
 
 
 class MainWindow(QMainWindow):
     _APP_TITLE = "Cornerstone Bridge 控制台"
+    _LOG_LEVEL_RE = re.compile(
+        r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} (DEBUG|INFO|WARNING|ERROR|CRITICAL)\s"
+    )
 
     def __init__(self) -> None:
         super().__init__()
@@ -310,6 +319,21 @@ class MainWindow(QMainWindow):
         self._sp_client_fwd_timeout = QSpinBox()
         self._sp_client_fwd_timeout.setRange(5, 600)
         self._sp_client_fwd_timeout.setSuffix(" s")
+        self._sp_hb_wait_timeout = QSpinBox()
+        self._sp_hb_wait_timeout.setRange(0, 600)
+        self._sp_hb_wait_timeout.setSuffix(" s")
+        self._sp_hb_wait_timeout.setSpecialValueText("自动")
+        self._sp_activity_stale = QSpinBox()
+        self._sp_activity_stale.setRange(0, 3600)
+        self._sp_activity_stale.setSuffix(" s")
+        self._sp_activity_stale.setSpecialValueText("自动")
+        self._sp_read_cancel_timeout = QSpinBox()
+        self._sp_read_cancel_timeout.setRange(1, 60)
+        self._sp_read_cancel_timeout.setSuffix(" s")
+        self._sp_stale_check_interval = QSpinBox()
+        self._sp_stale_check_interval.setRange(0, 600)
+        self._sp_stale_check_interval.setSuffix(" s")
+        self._sp_stale_check_interval.setSpecialValueText("关闭")
         self._chk_no_syn_logon = QCheckBox("禁用合成 Logon (no_synthetic_logon)")
         self._chk_verbose_gw = QCheckBox("网关 XML 详细日志 (log_verbose_gateway，应用后立即生效)")
         self._chk_persist_q = QCheckBox("持久化队列 (persist_add_samples_queue)")
@@ -321,6 +345,10 @@ class MainWindow(QMainWindow):
         tlay.addRow("心跳失败上限", self._sp_hb_fail_max)
         tlay.addRow("指令失败上限", self._sp_cmd_fail_max)
         tlay.addRow("TCP转发超时", self._sp_client_fwd_timeout)
+        tlay.addRow("Heartbeat等待", self._sp_hb_wait_timeout)
+        tlay.addRow("无活动回收", self._sp_activity_stale)
+        tlay.addRow("读循环cancel", self._sp_read_cancel_timeout)
+        tlay.addRow("活性巡检间隔", self._sp_stale_check_interval)
         tlay.addRow(self._chk_no_syn_logon)
         tlay.addRow(self._chk_verbose_gw)
         tlay.addRow(self._chk_persist_q)
@@ -379,6 +407,20 @@ class MainWindow(QMainWindow):
         self._btn_clear_log_view = QPushButton("清空视图")
         self._btn_clear_log_view.clicked.connect(lambda: self._log_view.clear())
         row.addWidget(self._btn_clear_log_view)
+        row.addWidget(QLabel("级别:"))
+        self._chk_log_debug = QCheckBox("DEBUG")
+        self._chk_log_info = QCheckBox("INFO")
+        self._chk_log_warning = QCheckBox("WARNING")
+        self._chk_log_error = QCheckBox("ERROR")
+        for chk in (
+            self._chk_log_debug,
+            self._chk_log_info,
+            self._chk_log_warning,
+            self._chk_log_error,
+        ):
+            chk.setChecked(True)
+            chk.toggled.connect(self._on_log_filter_changed)
+            row.addWidget(chk)
         row.addStretch()
         layout.addLayout(row)
         self._log_view = QTextEdit()
@@ -389,11 +431,13 @@ class MainWindow(QMainWindow):
             QLabel(
                 "说明：RQ 类 XML（Status / Sets / Heartbeat 等）默认不写入日志文件；"
                 "勾选「详细日志」并点「应用到运行中的 Bridge」后才会出现在此。"
+                "向上滚动查看历史时，新日志不会自动跳到底部。"
             )
         )
         self._tabs.addTab(w, "日志")
 
     def _on_poll(self) -> None:
+        self._update_bridge_connection_status()
         if not self._chk_auto.isChecked():
             return
         if self._tabs.currentIndex() == 0:
@@ -409,16 +453,21 @@ class MainWindow(QMainWindow):
         self._refresh_queue()
         self._refresh_logs()
 
-    def _reload_api_client(self) -> None:
-        self._cfg = load_config_dict(self._config_path)
-        self._api = BridgeApiClient(api_base_url(self._cfg))
+    def _update_bridge_connection_status(self) -> None:
+        """左下状态栏：探测 REST API 是否可达（与当前页签无关，随轮询刷新）。"""
         ok, err = self._api.ping()
+        base = api_base_url(self._cfg)
         if ok:
-            self._status_bridge.setText(f"Bridge: 已连接 {api_base_url(self._cfg)}")
+            self._status_bridge.setText(f"Bridge: 已连接 {base}")
             self._status_bridge.setStyleSheet("")
         else:
             self._status_bridge.setText(f"Bridge: 未连接 — {err}")
             self._status_bridge.setStyleSheet("color: #c0392b;")
+
+    def _reload_api_client(self) -> None:
+        self._cfg = load_config_dict(self._config_path)
+        self._api = BridgeApiClient(api_base_url(self._cfg))
+        self._update_bridge_connection_status()
 
     def _refresh_monitor(self) -> None:
         try:
@@ -578,6 +627,18 @@ class MainWindow(QMainWindow):
         self._sp_client_fwd_timeout.setValue(
             int(self._cfg.get("upstream_client_forward_timeout") or 10)
         )
+        self._sp_hb_wait_timeout.setValue(
+            int(self._cfg.get("upstream_heartbeat_wait_timeout") or 0)
+        )
+        self._sp_activity_stale.setValue(
+            int(self._cfg.get("upstream_activity_stale_seconds") or 0)
+        )
+        self._sp_read_cancel_timeout.setValue(
+            int(self._cfg.get("upstream_read_cancel_timeout") or 5)
+        )
+        self._sp_stale_check_interval.setValue(
+            int(self._cfg.get("upstream_stale_check_interval") or 30)
+        )
         self._chk_no_syn_logon.setChecked(bool(self._cfg.get("no_synthetic_logon", False)))
         self._chk_verbose_gw.setChecked(bool(self._cfg.get("log_verbose_gateway", False)))
         self._chk_persist_q.setChecked(bool(self._cfg.get("persist_add_samples_queue", True)))
@@ -604,6 +665,10 @@ class MainWindow(QMainWindow):
             "upstream_heartbeat_fail_max": self._sp_hb_fail_max.value(),
             "upstream_command_fail_max": self._sp_cmd_fail_max.value(),
             "upstream_client_forward_timeout": self._sp_client_fwd_timeout.value(),
+            "upstream_heartbeat_wait_timeout": self._sp_hb_wait_timeout.value(),
+            "upstream_activity_stale_seconds": self._sp_activity_stale.value(),
+            "upstream_read_cancel_timeout": self._sp_read_cancel_timeout.value(),
+            "upstream_stale_check_interval": self._sp_stale_check_interval.value(),
             "no_synthetic_logon": self._chk_no_syn_logon.isChecked(),
             "log_verbose_gateway": self._chk_verbose_gw.isChecked(),
             "persist_add_samples_queue": self._chk_persist_q.isChecked(),
@@ -684,65 +749,127 @@ class MainWindow(QMainWindow):
         subprocess.Popen(["explorer", str(path)])
 
     def _stop_bridge_service(self) -> None:
+        svc = "CornerstoneBridge"
+        if windows_service_state(svc) == "stopped":
+            QMessageBox.information(self, "停止服务", f"{svc} 服务当前未运行。")
+            self._reload_api_client()
+            return
         if (
             QMessageBox.question(
                 self,
                 "停止服务",
-                "将停止 Windows 服务 CornerstoneBridge（需要管理员权限）。继续？",
+                f"将停止 Windows 服务 {svc}（需要管理员权限）。继续？",
             )
             != QMessageBox.StandardButton.Yes
         ):
             return
-        r = subprocess.run(
-            ["net", "stop", "CornerstoneBridge"],
-            capture_output=True,
-            text=True,
-        )
-        if r.returncode != 0:
-            QMessageBox.warning(
-                self,
-                "停止服务",
-                f"停止失败:\n{r.stderr or r.stdout}",
-            )
+        ok, err = windows_service_stop(svc)
+        if not ok:
+            QMessageBox.warning(self, "停止服务", f"停止失败:\n{err}")
             return
-        QMessageBox.information(self, "停止服务", "CornerstoneBridge 服务已停止。")
+        QMessageBox.information(self, "停止服务", f"{svc} 服务已停止。")
         self._reload_api_client()
 
     def _restart_bridge_service(self) -> None:
-        if (
-            QMessageBox.question(
-                self,
-                "重启服务",
-                "将尝试重启 Windows 服务 CornerstoneBridge（需要管理员权限）。继续？",
+        svc = "CornerstoneBridge"
+        was_stopped = windows_service_state(svc) == "stopped"
+        if was_stopped:
+            title, prompt = (
+                "启动服务",
+                f"将启动 Windows 服务 {svc}（需要管理员权限）。继续？",
             )
+        else:
+            title, prompt = (
+                "重启服务",
+                f"将重启 Windows 服务 {svc}（需要管理员权限）。继续？",
+            )
+        if (
+            QMessageBox.question(self, title, prompt)
             != QMessageBox.StandardButton.Yes
         ):
             return
-        for cmd in (
-            ["net", "stop", "CornerstoneBridge"],
-            ["net", "start", "CornerstoneBridge"],
-        ):
-            r = subprocess.run(cmd, capture_output=True, text=True)
-            if r.returncode != 0:
-                QMessageBox.warning(
-                    self,
-                    "重启服务",
-                    f"{' '.join(cmd)} 失败:\n{r.stderr or r.stdout}",
-                )
+        if not was_stopped:
+            ok, err = windows_service_stop(svc)
+            if not ok:
+                QMessageBox.warning(self, "重启服务", f"停止失败:\n{err}")
                 return
-        QMessageBox.information(self, "重启服务", "CornerstoneBridge 服务已重启。")
+        ok, err = windows_service_start(svc)
+        if not ok:
+            QMessageBox.warning(
+                self,
+                title,
+                f"{'启动' if was_stopped else '启动（重启）'}失败:\n{err}",
+            )
+            return
+        done = f"{svc} 服务已启动。" if was_stopped else f"{svc} 服务已重启。"
+        QMessageBox.information(self, title, done)
         time.sleep(1.0)
         self._refresh_all()
 
-    def _refresh_logs(self) -> None:
+    def _enabled_log_levels(self) -> set[str]:
+        levels: set[str] = set()
+        if self._chk_log_debug.isChecked():
+            levels.add("DEBUG")
+        if self._chk_log_info.isChecked():
+            levels.add("INFO")
+        if self._chk_log_warning.isChecked():
+            levels.add("WARNING")
+        if self._chk_log_error.isChecked():
+            levels.update({"ERROR", "CRITICAL"})
+        return levels
+
+    def _filter_log_text(self, text: str) -> str:
+        if not text:
+            return ""
+        enabled = self._enabled_log_levels()
+        if not enabled:
+            return ""
+        out: List[str] = []
+        show_continuation = False
+        for line in text.splitlines(keepends=True):
+            m = self._LOG_LEVEL_RE.match(line)
+            if m:
+                show_continuation = m.group(1) in enabled
+                if show_continuation:
+                    out.append(line)
+            elif show_continuation:
+                out.append(line)
+        return "".join(out)
+
+    def _log_scroll_at_bottom(self) -> bool:
+        sb = self._log_view.verticalScrollBar()
+        return sb.maximum() <= 0 or sb.value() >= sb.maximum() - 2
+
+    def _append_log_text(self, text: str) -> None:
+        if not text:
+            return
+        at_bottom = self._log_scroll_at_bottom()
+        cursor = self._log_view.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertText(text)
+        if at_bottom:
+            sb = self._log_view.verticalScrollBar()
+            sb.setValue(sb.maximum())
+
+    def _on_log_filter_changed(self) -> None:
+        self._log_offset = 0
+        self._log_view.clear()
+        self._refresh_logs(force_full=True)
+
+    def _refresh_logs(self, *, force_full: bool = False) -> None:
         path = log_file_path(self._cfg)
         if not path.is_file():
             self._log_view.setPlainText(f"日志文件不存在: {path}")
             self._log_offset = 0
             return
+        replace_all = force_full
         try:
             size = path.stat().st_size
             if size < self._log_offset:
+                self._log_offset = 0
+                self._log_view.clear()
+                replace_all = True
+            elif force_full:
                 self._log_offset = 0
                 self._log_view.clear()
             with path.open("r", encoding="utf-8", errors="replace") as f:
@@ -752,7 +879,12 @@ class MainWindow(QMainWindow):
         except OSError as e:
             self._log_view.setPlainText(str(e))
             return
-        if chunk:
-            self._log_view.moveCursor(self._log_view.textCursor().MoveOperation.End)
-            self._log_view.insertPlainText(chunk)
-            self._log_view.moveCursor(self._log_view.textCursor().MoveOperation.End)
+        filtered = self._filter_log_text(chunk)
+        if not filtered:
+            return
+        if replace_all:
+            self._log_view.setPlainText(filtered)
+            sb = self._log_view.verticalScrollBar()
+            sb.setValue(sb.maximum())
+        else:
+            self._append_log_text(filtered)

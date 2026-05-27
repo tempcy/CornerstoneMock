@@ -1,6 +1,6 @@
 # Cornerstone Mock 安装程序
 
-**发布版本**由仓库根目录 [`VERSION`](../VERSION) 决定（当前 **0.1.5**）；`build-release.ps1` 与 Inno Setup 均读取该文件。每次打包还会自动生成**构建标识码**（UTC 时间戳 + Git 短哈希，例如 `20250525143000-a1b2c3d`），输出 `CornerstoneMock-Setup-<版本>-<标识码>.exe`。
+**发布版本**由仓库根目录 [`VERSION`](../VERSION) 决定（当前 **0.1.8**）；`build-release.ps1` 与 Inno Setup 均读取该文件。每次打包还会自动生成**构建标识码**（UTC 时间戳 + Git 短哈希，例如 `20250525143000-a1b2c3d`），输出 `CornerstoneMock-Setup-<版本>-<标识码>.exe`。
 
 生成 **Bridge（必选）**、**Web / Queue / CLI（可选）** 的 Windows 安装包；支持将 **Bridge**、**Web** 注册为 Windows 服务（默认勾选）。
 
@@ -13,7 +13,7 @@
 | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Python 3.14+                                      | PyInstaller 打包 `cornerstone-bridge` / `cornerstone-web` / `cornerstone-cli`（`build-release.ps1` 优先使用 `py -3.14`） |
 | .NET 8 SDK                                        | `dotnet publish` 打包 `CornerstoneQueue`                                                                           |
-| [Inno Setup 6](https://jrsoftware.org/isinfo.php) | 生成 `CornerstoneMock-Setup-0.1.2-<标识码>.exe`                                                                       |
+| [Inno Setup 6](https://jrsoftware.org/isinfo.php) | 生成 `CornerstoneMock-Setup-<版本>-<标识码>.exe`                                                                       |
 | Visual Studio 2022+（仅 Queue）                      | WinUI 3 + Windows App SDK                                                                                        |
 
 
@@ -58,26 +58,31 @@ Stop-Service CornerstoneBridge, CornerstoneWeb -Force -ErrorAction SilentlyConti
 | 组件              | 默认       | 说明                                                                      |
 | --------------- | -------- | ----------------------------------------------------------------------- |
 | **Bridge**      | 必选（不可取消） | TCP 网关 + REST `:8081`                                                   |
+| **Bridge 控制台** | 选中       | `Bridge\cornerstone-bridge-ui.exe`（托盘：配置、日志筛选、连接/队列监控、服务启停）              |
 | **Web**         | 选中       | 静态页 `:8080`，代理 `/api/`*                                                 |
 | **Queue**       | 选中       | WinUI 悬浮窗（自包含 .NET 8 + WASDK；语言资源仅 **en-us** / **zh-CN** / **zh-Hans**） |
 | **CLI**         | 选中       | `cornerstone-cli` 命令行                                                   |
 | **Bridge 系统服务** | 选中       | 服务名 `CornerstoneBridge`（以 **LocalSystem** 运行，满足管理员权限要求）                 |
 | **Web 系统服务**    | 选中       | 服务名 `CornerstoneWeb`                                                    |
 
+可选任务（勾选 **Bridge 控制台** 时可见）：
 
-**单实例（Bridge / Web / Queue）**
+- **登录时启动 Bridge 控制台**：写入 `HKCU\...\Run\CornerstoneBridgeUI`，系统托盘常驻。
+
+**单实例（Bridge / Web / Queue / Bridge 控制台）**
 
 同一应用同时只保留一个进程。再次启动时会先结束已有实例（按 PID 锁文件与进程名），再启动新进程。锁文件目录：`%ProgramData%\CornerstoneMock\run\`。
 
-**管理员权限（Bridge / Queue）**
+**管理员权限（Bridge / Queue / Bridge 控制台）**
 
 - **Bridge**：打包 exe **不**嵌入 `requireAdministrator`（监听端口 >1024，无需 UAC）；否则 NSSM 以 LocalSystem 启动服务时会**立即退出**（services.msc 显示 Paused/Stopped、双击闪退）。需管理员时可对快捷方式选「以管理员身份运行」。服务由 NSSM 以 **LocalSystem** 运行。
+- **Bridge 控制台**：安装版 `cornerstone-bridge-ui.exe` 嵌入 `requireAdministrator`（便于停止/重启 Bridge 服务）；开发版 pip 安装默认不要求 UAC。
 - **Queue**：`CornerstoneQueue.exe` 嵌入 `requireAdministrator` 清单，从快捷方式或直接运行 exe 时均会弹出 UAC。
 
-配置文件与样品队列持久化（首次安装从安装包内 `config\*.example.json` 复制，默认为**与 Cornerstone 同机**的 `127.0.0.1`；现场 IP 请在安装后编辑 Roaming 下 JSON，勿改仓库 example）：
+配置文件与样品队列持久化（首次安装从安装包内 `config\*.example.toml` 复制为 TOML；若 Roaming 下仍有旧版 `.json` 会自动迁移并删除 JSON。样品队列**仍为 JSON**，不转换）：
 
-`%APPDATA%\CornerstoneMock\cornerstone-bridge.config.json`  
-`%APPDATA%\CornerstoneMock\cornerstone-web.config.json`  
+`%APPDATA%\CornerstoneMock\cornerstone-bridge.config.toml`（仍兼容未迁移的 `.json`）  
+`%APPDATA%\CornerstoneMock\cornerstone-web.config.toml`（仍兼容未迁移的 `.json`）  
 `%APPDATA%\CornerstoneMock\cornerstone-bridge.add-samples-queue.json`（样品队列持久化）
 
 服务与安装日志（同配置目录下）：
@@ -91,11 +96,12 @@ Stop-Service CornerstoneBridge, CornerstoneWeb -Force -ErrorAction SilentlyConti
 ```text
 C:\Program Files\CornerstoneMock\
   Bridge\cornerstone-bridge.exe
+  Bridge\cornerstone-bridge-ui.exe
   Bridge\_internal\...
   Web\cornerstone-web.exe
   Queue\CornerstoneQueue.exe
   CLI\cornerstone-cli.exe
-  config\*.example.json
+  config\*.example.toml
   build-info.json
   tools\nssm.exe
   scripts\*.ps1
@@ -115,13 +121,13 @@ C:\Program Files\CornerstoneMock\
 安装程序启动时若检测到**同 AppId 已安装**或仍存在 `C:\Program Files\CornerstoneMock\Bridge\cornerstone-bridge.exe`，会提示**先卸载原版本**：
 
 - 可选「是」自动运行已注册的卸载程序（静默停止服务、结束进程后删除程序目录）。
-- **不会删除** `%APPDATA%\CornerstoneMock\` 下的 `cornerstone-bridge.config.json`、`cornerstone-web.config.json`、样品队列 JSON 等用户配置。
+- **不会删除** `%APPDATA%\CornerstoneMock\` 下的 `cornerstone-bridge.config.toml`（或 `.json`）、`cornerstone-web.config.toml`（或 `.json`）、样品队列 JSON 等用户配置。
 - 卸载完成后请**重新运行**安装包；若目录仍存在，安装程序会退出并提示手动检查。
 
 新安装或覆盖安装时，`post-install.ps1` 会：
 
 1. 若存在旧版 `%ProgramData%\CornerstoneMock\` 配置，先迁移到 `%APPDATA%\CornerstoneMock\`。
-2. 若已有 Roaming 下 JSON，则与安装包内 `*.example.json` **合并**（保留您的 IP/端口/账号等，仅补全新增配置项，例如 `upstream_inner_reassembly_timeout`）。
+2. 若 Roaming 下仍有旧版 `.json`，则与安装包内 `config\*.example.toml` **合并**并迁移为 TOML（保留 IP/端口/账号等，仅补全新增项；**样品队列 JSON 不转换**）。
 
 ## 卸载
 

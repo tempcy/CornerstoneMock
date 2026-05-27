@@ -71,6 +71,10 @@ async def run_bridge(
     upstream_heartbeat_fail_max: int,
     upstream_command_fail_max: int,
     upstream_client_forward_timeout: float,
+    upstream_heartbeat_wait_timeout: float,
+    upstream_activity_stale_seconds: float,
+    upstream_read_cancel_timeout: float,
+    upstream_stale_check_interval: float,
     async_message_interval: float,
     web_user: str,
     web_password: str,
@@ -93,6 +97,10 @@ async def run_bridge(
         upstream_heartbeat_fail_max=upstream_heartbeat_fail_max,
         upstream_command_fail_max=upstream_command_fail_max,
         upstream_client_forward_timeout_s=upstream_client_forward_timeout,
+        upstream_heartbeat_wait_timeout_s=upstream_heartbeat_wait_timeout,
+        upstream_activity_stale_seconds=upstream_activity_stale_seconds,
+        upstream_read_cancel_timeout_s=upstream_read_cancel_timeout,
+        upstream_stale_check_interval_s=upstream_stale_check_interval,
         web_user=web_user,
         web_password=web_password,
         privileged_add_samples_host=privileged_add_samples_host,
@@ -180,6 +188,7 @@ async def run_bridge(
                 log.warning("startup upstream web Logon failed: %s", err)
 
     async with srv_client, srv_api:
+        hub.start_background_maintenance()
         await _preconnect_upstream_long_instrument()
         try:
             await asyncio.gather(srv_client.serve_forever(), srv_api.serve_forever())
@@ -233,7 +242,7 @@ def main() -> int:
         type=str,
         default=None,
         metavar="PATH",
-        help="JSON 配置文件路径（命令行参数优先覆盖文件）",
+        help="配置文件路径（TOML 或 JSON；命令行参数优先覆盖文件）",
     )
     parser.add_argument("--host", default="0.0.0.0", help="TCP 网关监听地址（远程客户端/CLI 连此端口）")
     parser.add_argument("--port", type=int, default=54321, help="TCP 网关监听端口")
@@ -260,7 +269,13 @@ def main() -> int:
     parser.add_argument("--web-password", default="")
     parser.add_argument("--privileged-add-samples-host", default="", metavar="HOST")
     parser.add_argument("--instrument-short-connection", action="store_true")
-    parser.add_argument("--upstream-heartbeat-interval", type=float, default=60.0, metavar="SEC")
+    parser.add_argument(
+        "--upstream-heartbeat-interval",
+        type=float,
+        default=60.0,
+        metavar="SEC",
+        help="上游无入站活动超过该秒数时 Bridge 才主动发 Heartbeat（0=禁用）；有客户端转发应答则不发",
+    )
     parser.add_argument(
         "--upstream-inner-reassembly-timeout",
         type=float,
@@ -294,6 +309,34 @@ def main() -> int:
         metavar="SEC",
         help="TCP 客户端经网关转发后等待上游应答的超时",
     )
+    parser.add_argument(
+        "--upstream-heartbeat-wait-timeout",
+        type=float,
+        default=0.0,
+        metavar="SEC",
+        help="Bridge 主动 Heartbeat 等待应答超时（0= max(TCP转发超时, 15)）",
+    )
+    parser.add_argument(
+        "--upstream-activity-stale-seconds",
+        type=float,
+        default=0.0,
+        metavar="SEC",
+        help="无上行活动超过该秒数则回收上游 TCP（0= max(3×心跳间隔, 90)）",
+    )
+    parser.add_argument(
+        "--upstream-read-cancel-timeout",
+        type=float,
+        default=5.0,
+        metavar="SEC",
+        help="回收上游 TCP 时等待读循环 cancel 的最长时间",
+    )
+    parser.add_argument(
+        "--upstream-stale-check-interval",
+        type=float,
+        default=30.0,
+        metavar="SEC",
+        help="定时检查 activity_stale 的间隔（0= 关闭）",
+    )
     parser.add_argument("--no-upstream-auto-reconnect", action="store_true")
     parser.add_argument(
         "--no-persist-add-samples-queue",
@@ -326,12 +369,12 @@ def main() -> int:
         cfg_path = resolve_explicit_config_path(pre_args.config)
         if cfg_path is None:
             tried = Path(pre_args.config).expanduser()
-            hint = Path(__file__).resolve().parents[2] / "cornerstone-bridge.config.json"
+            hint = Path(__file__).resolve().parents[2] / "cornerstone-bridge.config.toml"
             print(
                 f"[cornerstone-bridge] 配置文件不存在: {tried}\n"
                 f"  当前目录: {Path.cwd()}\n"
                 f"  可尝试: {hint}\n"
-                f"  或在 CornerstoneWeb 下: ..\\CornerstoneBridge\\cornerstone-bridge.config.json\n"
+                f"  或在 CornerstoneWeb 下: ..\\CornerstoneBridge\\cornerstone-bridge.config.toml\n"
                 f"  也可省略 -c（将自动查找 Bridge 包内配置）",
                 file=sys.stderr,
             )
@@ -387,6 +430,10 @@ def main() -> int:
                 upstream_heartbeat_fail_max=args.upstream_heartbeat_fail_max,
                 upstream_command_fail_max=args.upstream_command_fail_max,
                 upstream_client_forward_timeout=args.upstream_client_forward_timeout,
+                upstream_heartbeat_wait_timeout=args.upstream_heartbeat_wait_timeout,
+                upstream_activity_stale_seconds=args.upstream_activity_stale_seconds,
+                upstream_read_cancel_timeout=args.upstream_read_cancel_timeout,
+                upstream_stale_check_interval=args.upstream_stale_check_interval,
                 async_message_interval=args.async_message_interval,
                 web_user=args.web_user,
                 web_password=args.web_password,

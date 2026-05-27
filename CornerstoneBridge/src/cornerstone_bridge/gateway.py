@@ -34,6 +34,7 @@ from .protocol import (
     frame_xml_defect,
     validate_frame_length,
     _synthetic_add_samples_held,
+    _synthetic_logoff_success,
     _synthetic_logon_success,
 )
 
@@ -120,6 +121,18 @@ async def _handle_client(
                     _log.info("synthetic Logon for %s (gateway session)", peer_s)
                     hub.on_client_tx(writer)
                     hub.on_client_logon_response(writer, resp)
+                    writer.write(_frame(resp, enc))
+                    await writer.drain()
+                    continue
+                await hub.forward_client_frame(text, writer)
+                continue
+
+            if tag == "Logoff":
+                if hub.should_synthesize_client_logon():
+                    resp = _synthetic_logoff_success(cookie)
+                    _log.info("synthetic Logoff for %s (gateway session)", peer_s)
+                    hub.on_client_logoff(writer)
+                    hub.on_client_tx(writer)
                     writer.write(_frame(resp, enc))
                     await writer.drain()
                     continue

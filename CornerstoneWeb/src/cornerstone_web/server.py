@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
-import json
 import sys
 from pathlib import Path
 from typing import Optional
@@ -76,7 +75,7 @@ def main() -> int:
         cfg_path = resolve_explicit_config_path(pre_args.config)
         if cfg_path is None:
             tried = Path(pre_args.config).expanduser()
-            hint = Path(__file__).resolve().parents[2] / "cornerstone-web.config.json"
+            hint = Path(__file__).resolve().parents[2] / "cornerstone-web.config.toml"
             print(
                 f"[cornerstone-web] 配置文件不存在: {tried}\n"
                 f"  当前目录: {Path.cwd()}\n"
@@ -87,13 +86,13 @@ def main() -> int:
             return 2
         try:
             parser.set_defaults(**load_web_config_defaults(cfg_path))
-        except (OSError, ValueError, json.JSONDecodeError) as e:
+        except (OSError, ValueError) as e:
             print(f"[cornerstone-web] 读取配置失败: {e}", file=sys.stderr)
             return 2
     elif (auto_cfg := resolve_web_config_path()) is not None:
         try:
             parser.set_defaults(**load_web_config_defaults(auto_cfg))
-        except (OSError, ValueError, json.JSONDecodeError) as e:
+        except (OSError, ValueError) as e:
             print(f"[cornerstone-web] 读取配置失败: {e}", file=sys.stderr)
             return 2
 

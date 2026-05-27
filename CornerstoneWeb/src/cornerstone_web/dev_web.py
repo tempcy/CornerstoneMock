@@ -6,9 +6,9 @@
     python -m cornerstone_web.dev_web
     cornerstone-web-dev
 
-配置：``CornerstoneBridge/cornerstone-bridge.config.json``（网关/上游/REST）
-+ ``CornerstoneWeb/cornerstone-web.config.json``（浏览器与 API 代理）。
-若仅有旧版合并的 ``cornerstone-web.config.json``，将自动兼作 Bridge 配置并提示拆分。
+配置：``CornerstoneBridge/cornerstone-bridge.config.toml``（或 `.json`；网关/上游/REST）
++ ``CornerstoneWeb/cornerstone-web.config.toml``（或 `.json`；浏览器与 API 代理）。
+若仅有旧版合并的 ``cornerstone-web.config.{toml,json}``，将自动兼作 Bridge 配置并提示拆分。
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def _resolve_dev_config_paths() -> Tuple[Path, Path, bool]:
     if bridge_path is None:
         raise FileNotFoundError(
             "未找到 Bridge 配置。请设置 CORNERSTONE_BRIDGE_CONFIG，"
-            "或在当前目录 / CornerstoneBridge 下放置 cornerstone-bridge.config.json。"
+            "或在当前目录 / CornerstoneBridge 下放置 cornerstone-bridge.config.toml（或 .json）。"
         )
     if web_path is None:
         web_path = bridge_path
@@ -80,7 +80,7 @@ def main() -> int:
 
     if legacy:
         print(
-            "[cornerstone-web-dev] 未找到 cornerstone-bridge.config.json，"
+            "[cornerstone-web-dev] 未找到 cornerstone-bridge.config.toml/.json，"
             f"正从 {web_path.name} 读取 Bridge 字段（建议拆分为 Bridge + Web 两份配置）。",
             file=sys.stderr,
         )

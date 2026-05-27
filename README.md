@@ -1,6 +1,6 @@
 # Cornerstone 远程控制（Python CLI + Bridge + Web）
 
-**当前版本：0.1.5**（变更见 [CHANGELOG.md](CHANGELOG.md)）
+**当前版本：0.1.8**（变更见 [CHANGELOG.md](CHANGELOG.md)）
 
 后续开发路线图见 [PLAN.md](PLAN.md)。
 
@@ -10,6 +10,7 @@
 - `**CornerstoneBridge/`**：`cornerstone-bridge`（TCP 网关、XML 解析、`/api/`* REST）；`cornerstone-bridge-ui`（可选 PySide6 托盘控制台，见 `[ui]` 额外依赖）。
 - `**CornerstoneWeb/`**：`cornerstone-web`（静态页 + 将 `/api/`* 代理到 Bridge）；`cornerstone-web-dev` 一键起 Bridge + Web。
 - `**CornerstoneQueue/`**：WinUI 3 桌面悬浮窗（缓存样品队列，HTTP 调 Bridge REST；可选仪器 UI 自动点击确认）。
+- `**CornerstoneAgent/`**（规划）：仪器驻场 Agent——长/短期参数记录、规则建议、经云端 LLM 协作的信息窗口；详见 [CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md) 与 [PLAN.md](PLAN.md) §3。
 
 下文所述 **Python 版通信内核** 与配套工具位于上述三个子目录中，用于替代/复用原客户端中的核心通信逻辑：
 
@@ -25,9 +26,10 @@
 | ------------- | --------------------------------- | ------------------------------------------------------ |
 | **CLI**       | `cornerstone-cli`                 | 直连仪器 TCP 或云端 HTTP；脚本与协议调试。                             |
 | **Bridge**    | `cornerstone-bridge`              | TCP 网关 + `/api/`* REST（队列、instrument_rq、解析 JSON）。      |
-| **Bridge UI** | `cornerstone-bridge-ui`           | 桌面控制台（系统托盘）：配置、日志、连接/队列监控、功能开关；连 Bridge REST API。      |
+| **Bridge UI** | `cornerstone-bridge-ui`           | 桌面控制台（系统托盘）：配置、日志（级别筛选/智能滚动）、连接/队列监控、服务启停；连 Bridge REST API。      |
 | **Web**       | `cornerstone-web`                 | 静态 SPA；`/api/`* 反向代理到 Bridge。                          |
 | **Queue**     | `CornerstoneQueue`（VS 生成 exe）     | 精简悬浮窗：队列查看/发送、状态一行、连 Bridge `:8081`；可选 FlaUI 自动点击仪器确认。 |
+| **Agent**（规划） | `cornerstone-agent`（待实现）         | 长/短期仪器参数采集、规则建议、云端 LLM 信息窗口；经 Bridge / CLI / 日志 / UI 检查取数。 |
 | **本地开发**      | `cornerstone-web-dev` / `dev.ps1` | 同进程启动 Bridge + Web（读 Bridge + Web 两份配置，或兼容旧版单文件）。      |
 
 
@@ -45,13 +47,13 @@ CornerstoneQueue ───┤
                     └── 上游 TCP ──► Cornerstone 仪器
 ```
 
-配置文件拆为两份（复制对应 `.example.json` 为 `.config.json` 后修改）：
+配置文件拆为两份（复制对应示例为本地配置后修改）：
 
 
 | 文件                                                         | 职责                                                                                                                                                |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CornerstoneBridge/cornerstone-bridge.config.example.json` | **本机安装默认**（`upstream_`* / 特权 IP 均为 `127.0.0.1`）；安装包复制到 `%APPDATA%\CornerstoneMock\`。异地/防火墙调试请改 **本地** `cornerstone-bridge.config.json`，勿改 example |
-| `CornerstoneWeb/cornerstone-web.config.example.json`       | 浏览器 `web_`*、Web 代理目标的 `bridge_api_*`（安装包会复制到同目录）                                                                                                  |
+| `CornerstoneBridge/cornerstone-bridge.config.example.toml` | **Bridge**（`#` 注释）；复制为 `cornerstone-bridge.config.toml`。仍兼容旧版 `.json`。安装包复制到 `%APPDATA%\CornerstoneMock\` |
+| `CornerstoneWeb/cornerstone-web.config.example.toml`       | **Web**（`#` 注释）；复制为 `cornerstone-web.config.toml`。仍兼容旧版 `.json`                                                                                    |
 
 
 ## 安装
@@ -86,7 +88,7 @@ cd installer
 .\build-release.ps1
 ```
 
-生成 `CornerstoneMock-Setup-0.1.2.exe`（默认在 `%LOCALAPPDATA%\CornerstoneMock\installer-dist\`）。说明见 [installer/README.md](installer/README.md)。
+生成 `CornerstoneMock-Setup-<版本>-<构建标识码>.exe`（默认在 `%LOCALAPPDATA%\CornerstoneMock\installer-dist\`）。说明见 [installer/README.md](installer/README.md)。
 
 默认程序目录 `C:\Program Files\CornerstoneMock\`；配置与队列缓存 `%APPDATA%\CornerstoneMock\`（安装时从包内 example 复制）。安装结束前会检测端口与特权 IP，并引导打开配置目录修改。
 
@@ -94,7 +96,7 @@ cd installer
 | 安装组件            | 默认           | 说明                                                           |
 | --------------- | ------------ | ------------------------------------------------------------ |
 | **Bridge**      | **必选**（不可取消） | `cornerstone-bridge.exe`（PyInstaller 目录发行版）                  |
-| **Bridge 控制台**  | 选中           | `Bridge\cornerstone-bridge-ui.exe`（与 Bridge 同目录；托盘：配置、日志、监控） |
+| **Bridge 控制台**  | 选中           | `Bridge\cornerstone-bridge-ui.exe`（托盘：配置、日志筛选、连接/队列监控、服务启停） |
 | **Web**         | 选中           | `cornerstone-web.exe`                                        |
 | **Queue**       | 选中           | `CornerstoneQueue.exe`（自包含 .NET 8 + WASDK，仪器机无需另装运行时）        |
 | **CLI**         | 选中           | `cornerstone-cli.exe`                                        |
@@ -102,16 +104,16 @@ cd installer
 | **Web 系统服务**    | 选中           | 服务名 `CornerstoneWeb`                                         |
 
 
-安装后请编辑 `%APPDATA%\CornerstoneMock\cornerstone-bridge.config.json`（上游仪器地址、`privileged_add_samples_host`、端口等）。开发调试仍可用 pip 可编辑安装，不必使用安装包。
+安装后请编辑 `%APPDATA%\CornerstoneMock\cornerstone-bridge.config.toml`（或旧版 `.json`）：上游仪器地址、`privileged_add_samples_host`、端口等。开发调试仍可用 pip 可编辑安装，不必使用安装包。
 
 ## Bridge 桌面控制台
 
 `cornerstone-bridge-ui` 与 Bridge 同包（`cornerstone_bridge.ui`），需安装 `**[ui]`** 额外依赖（PySide6）。托盘应用与 `cornerstone-web` 浏览器界面互补：
 
-- **连接与监控**：上游仪器 TCP、已连接远程客户端列表、`GET /api/monitor`
+- **连接与监控**：上游仪器 TCP、已连接远程客户端列表、`GET /api/monitor`；左下角持续显示 Bridge REST 连接状态；可启停上游连接与 TCP 网关、停止/重启 Bridge 服务（安装版需管理员权限）。
 - **通讯队列**：待发送 AddSamples 列表（`GET /api/queue`）
-- **配置**：编辑 `cornerstone-bridge.config.json`；「**应用到运行中的 Bridge**」可**不重启**更新：上游地址、队列上限、特权 IP、`log_verbose_gateway`、控制台 `log_level`；TCP/REST 监听、长连接模式等须重启服务。
-- **日志**：尾随 `log_file`；**RQ 类 XML** 默认不进日志文件，须勾选详细日志并「应用」后才会出现在此页。
+- **配置**：编辑 `cornerstone-bridge.config.toml`（或 `.json`）；「**应用到运行中的 Bridge**」可**不重启**更新：上游地址、队列上限、特权 IP、`log_verbose_gateway`、控制台 `log_level`；TCP/REST 监听、长连接模式等须重启服务。
+- **日志**：尾随 `log_file`；可按 **DEBUG / INFO / WARNING / ERROR** 级别筛选；向上查看历史时新日志不会强制滚到底部（仅在已处于底部时自动跟随）。**RQ 类 XML** 默认不进日志文件，须勾选详细日志并「应用」后才会出现在此页。
 - **托盘**：单击图标打开主窗口；支持登录时自启动（安装包可选任务）
 
 ```powershell
@@ -133,12 +135,12 @@ Web 界面由 **Bridge**（网关 + `/api/`*）与 **Web**（静态页 + API 代
 
 ```bash
 cd CornerstoneBridge
-copy cornerstone-bridge.config.example.json cornerstone-bridge.config.json
+copy cornerstone-bridge.config.example.toml cornerstone-bridge.config.toml
 cd ..\CornerstoneWeb
-copy cornerstone-web.config.example.json cornerstone-web.config.json
+copy cornerstone-web.config.example.toml cornerstone-web.config.toml
 ```
 
-**Bridge**（`cornerstone-bridge.config.json`）：
+**Bridge**（`cornerstone-bridge.config.toml`，支持 `#` 注释；旧版 `.json` 仍可用）：
 
 
 | 配置项                                   | 含义                                                                     |
@@ -146,18 +148,23 @@ copy cornerstone-web.config.example.json cornerstone-web.config.json
 | `upstream_host` / `upstream_port`     | 真实 Cornerstone 仪器 TCP 地址                                               |
 | `host` / `port`                       | 网关对 **TCP 客户端**（含 C# 远程客户端）的监听                                         |
 | `bridge_api_host` / `bridge_api_port` | Bridge 对内 REST（默认 `8081`）                                              |
-| `upstream_heartbeat_interval`         | 上游 TCP 心跳间隔（秒，默认 `60`）                                                 |
+| `upstream_heartbeat_interval`         | 上游静默超过该秒数时 Bridge 才主动发 Heartbeat（秒，默认 `0` = 禁用；若仪器已对 TCP 客户端有应答或其它上行报文则视为在线、不发心跳） |
 | `upstream_inner_reassembly_timeout`   | 拆包续读等待（秒，默认 `5`；`0`= 不等待）                                              |
 | `upstream_recv_idle_clear`            | recv 缓冲空闲超过该秒数后下次数据到达前清空（默认 `5`）                                       |
 | `upstream_heartbeat_fail_max`         | 连续心跳无应答达此次数则回收上游 TCP（默认 `2`）                                           |
 | `upstream_command_fail_max`           | 连续仪器指令超时/异常达此次数则回收上游 TCP（默认 `3`）                                       |
 | `upstream_client_forward_timeout`     | TCP 客户端经网关转发后等待上游应答（秒，默认 `10`）                                         |
+| `upstream_heartbeat_wait_timeout`     | Bridge 主动 Heartbeat 等待应答（秒；`0` = `max(TCP转发超时, 15)`）                        |
+| `upstream_activity_stale_seconds`     | 无上行活动超过该秒数则回收上游 TCP（`0` = `max(3×心跳间隔, 90)`）                            |
+| `upstream_read_cancel_timeout`        | 回收 TCP 时等待读循环 cancel 的最长时间（秒，默认 `5`）                                     |
+| `upstream_stale_check_interval`       | 定时检查 activity_stale 的间隔（秒，默认 `30`；`0` = 关闭）                                |
 | `upstream_auto_reconnect`             | 上游断线后自动重连（配置里为 `true`/`false`；CLI 用 `--no-upstream-auto-reconnect` 关闭） |
 | `instrument_long_connection`          | 长连接复用上游 TCP（`true` 默认；对应 CLI `--instrument-short-connection` 的反义）      |
+| `no_synthetic_logon`                  | `false`（默认）= 上游曾 Logon 成功后，后续 TCP 客户端 Logon/Logoff 由网关合成应答、不占用仪器会话 |
 | `web_user` / `web_password`           | 网页「发送到仪器」、环境/分析页拉数用的仪器远程账号                                             |
 
 
-**Web**（`cornerstone-web.config.json`）：
+**Web**（`cornerstone-web.config.toml`，支持 `#` 注释；旧版 `.json` 仍可用）：
 
 
 | 配置项                                   | 含义                                   |
@@ -166,14 +173,14 @@ copy cornerstone-web.config.example.json cornerstone-web.config.json
 | `bridge_api_host` / `bridge_api_port` | Web 将 `/api/`* 代理到的 Bridge REST      |
 
 
-环境变量：`CORNERSTONE_BRIDGE_CONFIG`、`CORNERSTONE_WEB_CONFIG`（或兼容旧名 `CORNERSTONE_MOCK_CONFIG`）。也可将 `.config.json` 放在**当前工作目录**。`cornerstone-web-dev` 会合并两份配置；若仍只有旧版单文件 `cornerstone-web.config.json`，会自动兼作 Bridge 配置并提示拆分。
+环境变量：`CORNERSTONE_BRIDGE_CONFIG`、`CORNERSTONE_WEB_CONFIG`（或兼容旧名 `CORNERSTONE_MOCK_CONFIG`）。也可将 `.config.{toml,json}` 放在**当前工作目录**。`cornerstone-web-dev` 会合并两份配置；若仍只有旧版单文件 `cornerstone-web.config.{toml,json}`，会自动兼作 Bridge 配置并提示拆分。
 
 ### 2. 本地开发用仓库内配置
 
 `cornerstone-web-dev` **优先**读取（未设置环境变量时）：
 
-- `CornerstoneBridge/cornerstone-bridge.config.json`（上游仪器等，当前开发机指向 `190.2.96.210:12345`）
-- `CornerstoneWeb/cornerstone-web.config.json`（浏览器 `8080`、Bridge API `8081`）
+- `CornerstoneBridge/cornerstone-bridge.config.toml`（或 `.json`；上游仪器等）
+- `CornerstoneWeb/cornerstone-web.config.toml`（或 `.json`；浏览器 `8080`、Bridge API `8081`）
 
 不会自动使用 `%APPDATA%\CornerstoneMock\` 下的安装版配置。若要用其它文件，请设置 `CORNERSTONE_BRIDGE_CONFIG` / `CORNERSTONE_WEB_CONFIG`。
 
@@ -190,7 +197,7 @@ python scripts\dev-instrument-mock.py
 
 ### 4. 启动（推荐：开发一键）
 
-在仓库根目录或 `**CornerstoneWeb`** 目录（已放置两份 `.config.json` 或旧版单文件）下执行：
+在仓库根目录或 **`CornerstoneWeb`** 目录（已放置两份 `.config.toml` 或旧版 `.config.json` / 单文件）下执行：
 
 ```bash
 python -m cornerstone_web.dev_web
@@ -231,10 +238,10 @@ cornerstone-web-dev
 
 ```bash
 # 终端 1：网关 + API
-cornerstone-bridge -c CornerstoneBridge/cornerstone-bridge.config.json
+cornerstone-bridge -c CornerstoneBridge/cornerstone-bridge.config.toml
 
 # 终端 2：静态页 + /api 代理
-cornerstone-web -c CornerstoneWeb/cornerstone-web.config.json
+cornerstone-web -c CornerstoneWeb/cornerstone-web.config.toml
 ```
 
 命令行覆盖示例（仅改网页端口）：
@@ -283,7 +290,7 @@ cornerstone-web-dev --web-port 9000
 | `instrument-info`        | 否                                      | `<InstrumentInfo/>`                                    | 网页：`GET /api/instrument/instrument-info`，解析字段与版本摘要                                                                                                                                                                                                                                   |
 | `remote-control-state`   | 否                                      | `<RemoteControlState/>`                                | 内部：上游连接/重连后自动问询并解析，供 `/api/status` 与顶栏展示（无单独同名 REST）                                                                                                                                                                                                                                 |
 | `logon`                  | 否（使用 `--user` / `--password`）          | `<Logon/>`                                             | 网关：凭据补全、首登转发、可选后续合成应答                                                                                                                                                                                                                                                                |
-| `logoff`                 | 否                                      | `<Logoff/>`                                            | 透传                                                                                                                                                                                                                                                                                   |
+| `logoff`                 | 否                                      | `<Logoff/>`                                            | 网关：上游会话已由 Bridge 持有时合成成功应答（不转发仪器，避免误释放会话）                                                                                                                                                                                                                                          |
 | `send`                   | 否                                      | 自定义 XML（自动注入 Cookie/Culture），`--xml` 必填                | 透传                                                                                                                                                                                                                                                                                   |
 | `last-remote-added-sets` | 是                                      | RSL：最近远程添加的 set                                        | 透传                                                                                                                                                                                                                                                                                   |
 | `add-samples`            | 是                                      | RSL：`<AddSamples>`；可 `--xml` 或省略走交互问答                  | 网关：默认截留队列、列表元数据解析；网页发送时调用上游并保留应答                                                                                                                                                                                                                                                     |
@@ -342,7 +349,7 @@ cornerstone-web-dev --web-port 9000
 - **透传**：TCP 客户端经 Bridge 网关按 `Cookie` 转发上游，Bridge **未**对该命令的应答做专用结构化解析；与直连仪器行为一致，网页亦无对应该子命令的 REST。
 - **网页**：`GatewayHub.instrument_rq`（`hub.py`）下发与 CLI 同族的 XML，`parsers.py` 解析为 JSON，由 `http_api.py` 暴露 `GET /api/...`；Web 仅代理，不重复解析。
 - **网页（部分）**：与 CLI 子命令同名但 **参数/语义仅为子集**（表中已注明差异）。
-- **网关**：TCP 路径上的路由、队列、合成应答、凭据补全等；`add-samples` 另含队列条目的展示用元数据提取。
+- **网关**：TCP 路径上的路由、队列、合成应答（`Logon`/`Logoff`/`AddSamples`）、凭据补全等；`add-samples` 另含队列条目的展示用元数据提取。
 - **内部**：无与 CLI 子命令一一对应的公开 REST，但 Bridge 在进程内主动下发并解析该 XML，用于状态展示等。
 
 ### `http` 子命令一览
@@ -426,20 +433,20 @@ cornerstone-cli tcp session --host 127.0.0.1 --port 12345 --heartbeat 5
 
 `cornerstone-bridge` 承担原 Mock 中的 **网关与会话** 职责：多台 TCP 客户端 → **单条**上游 Cornerstone 连接；非 `AddSamples` 按 `Cookie` 回路由；`AddSamples` 默认截留队列；`instrument_rq` + `parsers.py` 提供全部 `/api/`*。
 
-- **多用户登录**：首条 `Logon` 转发上游；成功后后续客户端 `Logon` 可合成成功（`no_synthetic_logon: false`，默认）。
+- **多用户登录 / 登出**：首条 `Logon` 转发上游；成功后后续客户端 `Logon` / `Logoff` 可合成成功应答（`no_synthetic_logon: false`，默认），不占用仪器会话。
 - **凭据补全**：配置 `web_user` / `web_password` 后，TCP 客户端空 `<Logon>` 由网关补全；网页发令与仪器 API 共用该上游登录。
 - **AddSamples**：默认入 FIFO 队列；`privileged_add_samples_host` 匹配来源 IP 时直通上游。
 - **RemoteControlState**：上游连接/重连后自动问询，供 `/api/status` 与 Web 顶栏。
 - **上游报文解包**：外层 TCP 长度帧正文进入全局 `recv` 缓冲，按 `[inner_len][UTF-16 XML]` 循环切分（粘包/拆包）；无 inner 头的整段 XML（如部分 Logon 应答）按单条处理。`upstream_inner_reassembly_timeout` 控制拆包续读；`upstream_recv_idle_clear` 控制断流清缓冲。
 - **业务在线**：`GET /api/status` 返回 `instrumentOnline`、`businessOnline`、`heartbeatFailStreak`、`commandFailStreak`；Web 顶栏与 Queue 状态行据此显示（不再仅依赖 Cookie 心跳应答）。
-- **上游回收**：连续 `upstream_heartbeat_fail_max` 次心跳无应答，或连续 `upstream_command_fail_max` 次指令失败，或过久无上行活动 → 自动断开并重连上游。
+- **上游回收**：连续 `upstream_heartbeat_fail_max` 次心跳无应答，或连续 `upstream_command_fail_max` 次指令失败，或过久无上行活动 → 自动断开并重连上游；回收后强制重连（含僵死 TCP）、定时 activity 巡检、转发超时代际失效。
 - **监听**：TCP `host`/`port`；REST `bridge_api_host`/`bridge_api_port`（示例 8081）。
-- **配置写回**：以 `-c` 指定 JSON 时，`PUT /api/settings` 可合并写回文件；改 TCP/Web **监听端口** 须重启进程。
+- **配置写回**：以 `-c` 指定配置文件时，`PUT /api/settings` 可合并写回文件；改 TCP/Web **监听端口** 须重启进程。
 
 仅起 Bridge（无浏览器 UI）：
 
 ```bash
-cornerstone-bridge -c CornerstoneBridge/cornerstone-bridge.config.json
+cornerstone-bridge -c CornerstoneBridge/cornerstone-bridge.config.toml
 ```
 
 CLI 经网关访问仪器：
@@ -479,7 +486,7 @@ cornerstone-cli tcp logon --host 127.0.0.1 --port 54321 --user demo --password d
 | 仪器 UI 自动点击 | 发送成功后可选：FlaUI 点击 Cornerstone「消息」→「添加试样」（设置中开关、AutomationId、延时；**Inspect 检查控件** / **测试点击**）。默认关闭，需按本机仪器版本校准 |
 
 
-用户配置保存在 `%LocalAppData%\CornerstoneQueue\settings.json`（与 Bridge 的 `cornerstone-bridge.config.json` 无关）。相关字段：`autoClickInstrumentUi`、`instrumentWindowTitleContains`、`notificationButtonAutomationId`、`addSampleButtonAutomationId`、`uiClickDelay`* 等。
+用户配置保存在 `%LocalAppData%\CornerstoneQueue\settings.json`（与 Bridge 的 `cornerstone-bridge.config.toml` 无关）。相关字段：`autoClickInstrumentUi`、`instrumentWindowTitleContains`、`notificationButtonAutomationId`、`addSampleButtonAutomationId`、`uiClickDelay`* 等。
 
 **不在范围内（已取消）**：Windows 系统通知（发送失败/队列满 Toast）、全局快捷键唤起悬浮窗。
 
@@ -496,7 +503,7 @@ CornerstoneQueue\CornerstoneQueue\bin\x64\Debug\net8.0-windows10.0.19041.0\win-x
 联调前须先启动 Bridge（`bridge_api_port`，默认 `8081`），例如：
 
 ```bash
-cornerstone-bridge -c CornerstoneBridge/cornerstone-bridge.config.json
+cornerstone-bridge -c CornerstoneBridge/cornerstone-bridge.config.toml
 ```
 
 悬浮窗默认连 `http://127.0.0.1:8081`，可在「设置」中修改。
