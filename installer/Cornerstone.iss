@@ -146,7 +146,7 @@ begin
     '检测到本机已安装 ' + ExpandConstant('{cm:ExistingInstallAppName}') + '。' + #13#10 + #13#10 +
     '请先卸载原版本后再安装，以免服务或进程占用文件。' + #13#10 +
     '卸载将停止 CornerstoneBridge / CornerstoneWeb 服务并结束相关进程；' + #13#10 +
-    '用户配置目录（%APPDATA%\CornerstoneMock 下的 *.json 与样品队列）会保留。' + #13#10 + #13#10 +
+    '用户配置目录（%APPDATA%\CornerstoneMock 下的 *.toml / *.json 与样品队列 JSON）会保留。' + #13#10 + #13#10 +
     '是否现在运行卸载程序？' + #13#10 +
     '（建议卸载完成后重新运行本安装包；点击「否」将退出安装）';
 

@@ -6,13 +6,27 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from cornerstone_bridge.paths import default_web_config_path, expand_config_path
+from cornerstone_bridge.config import (
+    parse_bridge_config_text,
+    write_toml_config_file,
+)
+from cornerstone_bridge.paths import (
+    WEB_CONFIG_SEARCH_NAMES,
+    default_web_config_path,
+    expand_config_path,
+    new_default_web_config_path,
+)
 
 _WEB_PKG_DIR = Path(__file__).resolve().parents[2]
 
-_WEB_CONFIG_FILENAMES = (
-    "cornerstone-web.config.json",
-    "cornerstone-web.config.example.json",
+_WEB_ALLOWED_KEYS = frozenset(
+    {
+        "web_host",
+        "web_port",
+        "bridge_api_host",
+        "bridge_api_port",
+        "bridge_api_url",
+    }
 )
 
 
@@ -32,32 +46,33 @@ def resolve_explicit_config_path(path: str) -> Optional[Path]:
     return None
 
 
+def _first_existing_in_dir(directory: Path, names: tuple[str, ...]) -> Optional[Path]:
+    for name in names:
+        p = directory / name
+        if p.is_file():
+            return p.resolve()
+    return None
+
+
 def repo_web_config_path() -> Optional[Path]:
-    """仓库内 ``CornerstoneWeb/cornerstone-web.config.json``（本地开发用）。"""
-    p = _WEB_PKG_DIR / "cornerstone-web.config.json"
-    return p.resolve() if p.is_file() else None
+    """仓库内 ``CornerstoneWeb/cornerstone-web.config.{toml,json}``（本地开发用）。"""
+    return _first_existing_in_dir(_WEB_PKG_DIR, WEB_CONFIG_SEARCH_NAMES)
 
 
 def resolve_web_config_path() -> Optional[Path]:
-    """查找 Web JSON：环境变量 → ``%APPDATA%\\CornerstoneMock`` → cwd → 包目录。"""
+    """查找 Web 配置：环境变量 → ``%APPDATA%\\CornerstoneMock`` → cwd → 包目录（TOML 优先）。"""
     for env_name in ("CORNERSTONE_WEB_CONFIG",):
         env = (os.environ.get(env_name) or "").strip()
         if env:
             p = Path(expand_config_path(env))
-            return p if p.is_file() else None
+            return p.resolve() if p.is_file() else None
     pd = default_web_config_path()
     if pd.is_file():
         return pd
-    cwd = Path.cwd()
-    for name in _WEB_CONFIG_FILENAMES:
-        cand = cwd / name
-        if cand.is_file():
-            return cand
-    for name in _WEB_CONFIG_FILENAMES:
-        cand = _WEB_PKG_DIR / name
-        if cand.is_file():
-            return cand
-    return None
+    found = _first_existing_in_dir(Path.cwd(), WEB_CONFIG_SEARCH_NAMES)
+    if found is not None:
+        return found
+    return _first_existing_in_dir(_WEB_PKG_DIR, WEB_CONFIG_SEARCH_NAMES)
 
 
 def resolve_dev_web_config_path() -> Optional[Path]:
@@ -68,29 +83,33 @@ def resolve_dev_web_config_path() -> Optional[Path]:
         if explicit is not None:
             return explicit
         p = Path(expand_config_path(env))
-        return p if p.is_file() else None
+        return p.resolve() if p.is_file() else None
     repo = repo_web_config_path()
     if repo is not None:
         return repo
     return resolve_web_config_path()
 
 
+def write_web_config_file(path: Path, values: Dict[str, Any]) -> None:
+    """写入 Web 配置（新文件推荐 TOML）。"""
+    if path.suffix.lower() == ".json":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        filtered = {k: values[k] for k in sorted(values) if k in _WEB_ALLOWED_KEYS}
+        path.write_text(
+            json.dumps(filtered, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return
+    write_toml_config_file(path, values, _WEB_ALLOWED_KEYS)
+
+
 def load_web_config_defaults(config_path: Path) -> Dict[str, Any]:
-    """读取 Web JSON（浏览器监听与 Bridge REST 代理目标）。"""
-    allowed = {
-        "web_host",
-        "web_port",
-        "bridge_api_host",
-        "bridge_api_port",
-        "bridge_api_url",
-    }
+    """读取 Web 配置（浏览器监听与 Bridge REST 代理目标）。"""
     text = config_path.read_text(encoding="utf-8")
-    raw = json.loads(text)
-    if not isinstance(raw, dict):
-        raise ValueError("配置文件根节点须为 JSON 对象 {...}")
+    raw = parse_bridge_config_text(text, path=config_path)
     out: Dict[str, Any] = {}
     for k, v in raw.items():
-        if k not in allowed:
+        if k not in _WEB_ALLOWED_KEYS:
             print(f"[cornerstone-web] 配置文件忽略未知键: {k!r}", file=sys.stderr)
             continue
         if k in ("web_port", "bridge_api_port"):

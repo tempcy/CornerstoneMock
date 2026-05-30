@@ -1,0 +1,13 @@
+# Cornerstone Web 配置示例（复制为 cornerstone-web.config.toml 后修改）
+# 仍支持旧版 cornerstone-web.config.json；新安装推荐使用本文件。
+
+# 浏览器 UI 监听地址；0.0.0.0 表示本机所有网卡
+web_host = "0.0.0.0"
+# 浏览器 UI 端口
+web_port = 8080
+
+# Bridge REST API（网页 /api/* 代理目标）
+bridge_api_host = "127.0.0.1"
+bridge_api_port = 8081
+# 若设置完整 URL，则优先于 host/port（留空则使用 bridge_api_host:bridge_api_port）
+bridge_api_url = ""

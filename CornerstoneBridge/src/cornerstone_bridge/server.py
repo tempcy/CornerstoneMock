@@ -242,7 +242,7 @@ def main() -> int:
         type=str,
         default=None,
         metavar="PATH",
-        help="JSON 配置文件路径（命令行参数优先覆盖文件）",
+        help="配置文件路径（TOML 或 JSON；命令行参数优先覆盖文件）",
     )
     parser.add_argument("--host", default="0.0.0.0", help="TCP 网关监听地址（远程客户端/CLI 连此端口）")
     parser.add_argument("--port", type=int, default=54321, help="TCP 网关监听端口")
@@ -269,7 +269,13 @@ def main() -> int:
     parser.add_argument("--web-password", default="")
     parser.add_argument("--privileged-add-samples-host", default="", metavar="HOST")
     parser.add_argument("--instrument-short-connection", action="store_true")
-    parser.add_argument("--upstream-heartbeat-interval", type=float, default=60.0, metavar="SEC")
+    parser.add_argument(
+        "--upstream-heartbeat-interval",
+        type=float,
+        default=60.0,
+        metavar="SEC",
+        help="上游无入站活动超过该秒数时 Bridge 才主动发 Heartbeat（0=禁用）；有客户端转发应答则不发",
+    )
     parser.add_argument(
         "--upstream-inner-reassembly-timeout",
         type=float,
@@ -363,12 +369,12 @@ def main() -> int:
         cfg_path = resolve_explicit_config_path(pre_args.config)
         if cfg_path is None:
             tried = Path(pre_args.config).expanduser()
-            hint = Path(__file__).resolve().parents[2] / "cornerstone-bridge.config.json"
+            hint = Path(__file__).resolve().parents[2] / "cornerstone-bridge.config.toml"
             print(
                 f"[cornerstone-bridge] 配置文件不存在: {tried}\n"
                 f"  当前目录: {Path.cwd()}\n"
                 f"  可尝试: {hint}\n"
-                f"  或在 CornerstoneWeb 下: ..\\CornerstoneBridge\\cornerstone-bridge.config.json\n"
+                f"  或在 CornerstoneWeb 下: ..\\CornerstoneBridge\\cornerstone-bridge.config.toml\n"
                 f"  也可省略 -c（将自动查找 Bridge 包内配置）",
                 file=sys.stderr,
             )

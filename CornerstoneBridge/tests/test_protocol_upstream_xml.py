@@ -14,9 +14,23 @@ from cornerstone_bridge.protocol import (
     utf16le_inner_length_at,
     _parse_cookie_from_payload,
     _root_tag,
+    _synthetic_logoff_success,
+    _synthetic_logon_success,
 )
 
 ENC = "utf-16-le"
+
+
+def test_synthetic_logon_and_logoff():
+    logon = _synthetic_logon_success("abc")
+    assert 'ErrorCode="0"' in logon
+    assert 'Cookie="abc"' in logon
+    assert frame_xml_defect(logon) is None
+    logoff = _synthetic_logoff_success("xyz")
+    assert 'ErrorCode="0"' in logoff
+    assert 'Cookie="xyz"' in logoff
+    assert _root_tag(logoff) == "Logoff"
+    assert frame_xml_defect(logoff) is None
 
 
 def _inner_framed(xml: str) -> bytes:

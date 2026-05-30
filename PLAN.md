@@ -7,7 +7,8 @@
 
 | 组件                   | 阶段    | 状态                                                                     |
 | -------------------- | ----- | ---------------------------------------------------------------------- |
-| Bridge / Web         | 0–1   | ✅ 分包、独立进程、配置拆分为 `cornerstone-bridge.config` + `cornerstone-web.config` |
+| Bridge / Web         | 0–1   | ✅ 分包、独立进程、配置拆分为 `cornerstone-bridge.config.toml` + `cornerstone-web.config.toml`（兼容旧 `.json`） |
+| **Bridge 控制台**       | —     | ✅ `cornerstone-bridge-ui`：托盘、配置/日志（级别筛选、智能滚动）、连接/队列监控、服务启停 |
 | **Web 分析页谱图**        | —     | ✅ RepPlot 曲线改用 ECharts（`web_static/echarts.min.js`） |
 | **CornerstoneQueue** | M1–M3 + 仪器 UI 自动点击 | ✅ 见下文 §1（发送成功后可选 FlaUI 点击确认；**不**做系统通知/全局快捷键） |
 | Bridge 北向            | P2+   | ⏳ Modbus/MQTT                                                          |
@@ -61,7 +62,7 @@ flowchart TB
 | `web_host:web_port`（如 `127.0.0.1:8080`）               | Web    | 浏览器访问；`/api/*` 代理到 Bridge API |
 
 
-**Bridge 包内模块**（`CornerstoneBridge/src/cornerstone_bridge/`）：`protocol.py`、`parsers.py`、`hub.py`、`hub_helpers.py`、`hub_types.py`、`gateway.py`、`http_api.py`、`server.py`、`config.py`。
+**Bridge 包内模块**（`CornerstoneBridge/src/cornerstone_bridge/`）：`protocol.py`、`parsers.py`、`hub.py`、`hub_helpers.py`、`hub_types.py`、`gateway.py`、`http_api.py`、`server.py`、`config.py`、`bridge_logging.py`；桌面控制台 `ui/`（`cornerstone-bridge-ui`）。
 
 **Web 包**（`CornerstoneWeb/src/cornerstone_web/`）：`web_static/`（含 `echarts.min.js` 分析页谱图）、`http_server.py`（静态 + 代理）、`server.py`、`dev_web.py`（`cornerstone-web-dev` 同进程拉起 Bridge + Web，转发 Bridge 全部配置项含 `upstream_inner_reassembly_timeout`）。
 
@@ -85,7 +86,7 @@ flowchart LR
 | 组件                     | 职责                                                                                                                   |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | **cornerstone-cli**    | 协议帧、TCP 引擎、可选 CLI；**共享库**，不单独跑网关                                                                                     |
-| **cornerstone-bridge** | 上游 TCP 网关、AddSamples 队列、`instrument_rq`、**XML→JSON 解析**、对内 REST；上游 inner 帧跨 TCP 分段拼接（`upstream_inner_reassembly_timeout`）；**北向** Modbus/MQTT（Gateway + Protocol Adapters，可同进程） |
+| **cornerstone-bridge** | 上游 TCP 网关、AddSamples 队列、`instrument_rq`、**XML→JSON 解析**、对内 REST；上游 inner 帧跨 TCP 分段拼接（`upstream_inner_reassembly_timeout`）；TCP 客户端 `Logon`/`Logoff` 合成应答；**北向** Modbus/MQTT（Gateway + Protocol Adapters，可同进程） |
 | **cornerstone-web**    | 静态资源 + 薄 BFF（或纯静态直连 Bridge API）；**不再** `import GatewayHub`                                                           |
 | **cornerstone-queue**  | 桌面悬浮窗，仅 HTTP 客户端                                                                                                     |
 | **cornerstone-agent**  | 规则/AI、监控，调 Bridge API 或 `cornerstone_cli`                                                                            |
@@ -100,7 +101,7 @@ flowchart LR
 | 阶段       | 内容                                                                                                                                   |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | **0** ✅  | 仓内逻辑分包：`cornerstone_bridge` 下 `protocol.py` / `parsers.py` / `http_api.py` / `hub.py` / `gateway.py`                                 |
-| **1** ✅  | `cornerstone-bridge` / `cornerstone-web` 独立进程；配置拆为 `cornerstone-bridge.config` + `cornerstone-web.config`；`cornerstone-web-dev` 一键启动 |
+| **1** ✅  | `cornerstone-bridge` / `cornerstone-web` 独立进程；配置拆为 `cornerstone-bridge.config.toml` + `cornerstone-web.config.toml`（兼容 `.json`）；`cornerstone-web-dev` 一键启动 |
 | **1b** ✅ | `CornerstoneQueue` 悬浮窗 M1–M3 + 仪器 UI 自动点击（WinUI 3，HTTP 调 Bridge REST）                                                                  |
 | **2**    | Bridge 增加 Modbus/MQTT（映射与 `instrument_rq` 读数共用）                                                                                      |
 | **3**    | Agent 只依赖 Bridge API；不再碰 TCP Cookie                                                                                                  |
@@ -237,7 +238,7 @@ flowchart LR
 
 **核心模块（Bridge 内）**
 
-1. **Gateway**（`gateway.py`）：多客户端 TCP、上游单连接、AddSamples 队列、Cookie 路由。
+1. **Gateway**（`gateway.py`）：多客户端 TCP、上游单连接、AddSamples 队列、Cookie 路由；`Logon`/`Logoff` 合成应答（网关已持上游会话时）。
 2. **解析与对内 REST**（`parsers.py` + `http_api.py`）：`_parse_`* → JSON；队列、status、instrument/* 等 API。
 3. **映射引擎**：配置驱动——JSON 字段 → Modbus 地址 / MQTT topic。
 4. **北向出口**：Modbus TCP Server（如 pymodbus）；MQTT：`instrument/{id}/status`、`/queue/count`、`/alarm/...`。
@@ -341,10 +342,10 @@ flowchart LR
 | 目录/包                                       | 说明                                                                                              |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `CornerstoneCLI` / `cornerstone-cli`       | 共享协议库                                                                                           |
-| `CornerstoneBridge` / `cornerstone-bridge` | 网关 + 解析 + REST（`cornerstone-bridge`）；后续 Modbus/MQTT                                             |
+| `CornerstoneBridge` / `cornerstone-bridge` | 网关 + 解析 + REST（`cornerstone-bridge`）；`cornerstone-bridge-ui` 桌面控制台；后续 Modbus/MQTT |
 | `CornerstoneWeb` / `**cornerstone-web`**   | 静态 UI + 可选 BFF；`web_static` 含 ECharts；入口 `cornerstone-web`、`cornerstone-web-dev`                                       |
 | `CornerstoneQueue`                         | WinUI 3 悬浮窗（M1–M3 + 可选 UI 自动点击 ✅）；`CornerstoneQueue.sln`；设置见 `%LocalAppData%\CornerstoneQueue\settings.json` |
-| `installer/`                               | PyInstaller + Inno Setup：Bridge 必选，Web/Queue/CLI 可选；Bridge/Web 可注册系统服务（默认全选） |
+| `installer/`                               | PyInstaller + Inno Setup：Bridge 必选，Web/Queue/CLI/Bridge 控制台可选；Bridge/Web 可注册系统服务（默认全选） |
 | `CornerstoneAgent`                         | 边缘 Agent                                                                                        |
 
 

@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cornerstone-bridge"
-version = "0.1.6"
+version = "0.1.8"
 description = "Cornerstone TCP 网关、XML 解析、对内 REST API 与可选桌面控制台（依赖 cornerstone-cli）。"
 requires-python = ">=3.14"
 license = { text = "Proprietary" }
 authors = [{ name = "LECO / Cornerstone Bridge" }]
-dependencies = ["cornerstone-cli"]
+dependencies = ["cornerstone-cli", "tomlkit>=0.13.2"]
 
 [project.optional-dependencies]
 ui = ["PySide6>=6.8"]

@@ -50,7 +50,7 @@ _UPSTREAM_READ_DISCONNECT_EXC = (
 class GatewayHub:
     """
     多客户端 -> 单上游 Cornerstone：按应答中的 Cookie 将电文路由回对应客户端。
-    - 上游曾 Logon 成功且未 Logoff 时，TCP 客户端 Logon 由网关合成应答（不占用仪器会话）；仅首启且尚无成功记录时才走上游。
+    - 上游曾 Logon 成功且未 Logoff 时，TCP 客户端 Logon/Logoff 由网关合成应答（不占用仪器会话）；仅首启且尚无成功记录时才走上游。
     - TCP ``<Logon>`` 若缺省或空的 ``<User>``/``<Password>``，在已配置 ``--web-user``/``--web-password``
       时用网关网页侧凭据补全后再转发上游；其它指令在已配置网页凭据时会先确保上游已网页 Logon，
       客户端可不自带账号即可经网关使用仪器命令。
@@ -235,6 +235,13 @@ class GatewayHub:
             s.logon_authenticated = True
         else:
             s.logon_authenticated = False
+
+    def on_client_logoff(self, writer: asyncio.StreamWriter) -> None:
+        s = self._tcp_session(writer)
+        if s is None:
+            return
+        s.logon_authenticated = False
+        s.logon_user = ""
 
     async def register_tcp_client(self, writer: asyncio.StreamWriter) -> None:
         peer = writer.get_extra_info("peername")
@@ -560,7 +567,7 @@ class GatewayHub:
                 return
             if not self._upstream_transport_usable():
                 continue
-            last = max(self._last_upstream_rx_at, self._last_upstream_heartbeat_reply_at)
+            last = self._last_upstream_activity_at()
             if last <= 0:
                 continue
             stale_s = self._upstream_activity_stale_seconds()
@@ -573,12 +580,29 @@ class GatewayHub:
             )
             self._schedule_recycle_upstream_if_needed()
 
+    def _last_upstream_activity_at(self) -> float:
+        """最近一次上游入站活动（含对网关客户端的应答、仪器自发 Heartbeat 等）。"""
+        return max(self._last_upstream_rx_at, self._last_upstream_heartbeat_reply_at)
+
+    def _upstream_needs_active_heartbeat(self) -> bool:
+        """
+        仅在上游静默达到心跳间隔时才需 Bridge 主动 Heartbeat。
+        若近期已有对客户端转发的应答或其它上行报文，视为仪器在线，不发送心跳。
+        """
+        interval = max(float(self._upstream_heartbeat_interval_s), 0.5)
+        last = self._last_upstream_activity_at()
+        if last <= 0:
+            return True
+        return (time.time() - last) >= interval
+
     async def _upstream_heartbeat_loop(self) -> None:
         interval = max(float(self._upstream_heartbeat_interval_s), 0.5)
         while True:
             await asyncio.sleep(interval)
             if not self._upstream_transport_usable():
                 return
+            if not self._upstream_needs_active_heartbeat():
+                continue
             await self._send_upstream_heartbeat_once()
 
     def _schedule_upstream_reconnect(self, *, replace: bool = False) -> None:
@@ -612,7 +636,7 @@ class GatewayHub:
             return True, "heartbeat_streak"
         if self._upstream_command_fail_streak >= self._upstream_command_fail_max:
             return True, "command_streak"
-        last = max(self._last_upstream_rx_at, self._last_upstream_heartbeat_reply_at)
+        last = self._last_upstream_activity_at()
         if last > 0 and (time.time() - last) > self._upstream_activity_stale_seconds():
             return True, "activity_stale"
         return False, ""
@@ -1265,7 +1289,7 @@ class GatewayHub:
     async def _watch_client_forward_timeout(
         self, cookie: str, client_writer: asyncio.StreamWriter, tag_name: str
     ) -> None:
-        if tag_name.lower() in ("heartbeat", "logon"):
+        if tag_name.lower() in ("heartbeat", "logon", "logoff"):
             return
         gen = self._upstream_recover_generation
         await asyncio.sleep(self._upstream_client_forward_timeout_s)
@@ -1300,6 +1324,14 @@ class GatewayHub:
                 )
                 return
             text = _logon_merge_web_credentials(text, self.web_user, self.web_password)
+        elif tag_name == "Logoff":
+            if self.should_synthesize_client_logon():
+                _log.warning(
+                    "TCP Logoff reached forward_client_frame while gateway session is up; "
+                    "caller should synthesize (cookie=%s)",
+                    (_parse_cookie_from_payload(text) or "")[:16],
+                )
+                return
         elif self.web_user and self.web_password:
             ok, err = await self._ensure_upstream_instrument_logon_for_web()
             if not ok:
@@ -1490,7 +1522,7 @@ class GatewayHub:
             return False
         if self._upstream_command_fail_streak >= self._upstream_command_fail_max:
             return False
-        last = max(self._last_upstream_rx_at, self._last_upstream_heartbeat_reply_at)
+        last = self._last_upstream_activity_at()
         if last <= 0:
             return True
         return (time.time() - last) <= self._upstream_activity_stale_seconds()

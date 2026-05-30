@@ -47,6 +47,23 @@ def test_activity_stale_seconds_auto_and_explicit() -> None:
     assert hub2._upstream_activity_stale_seconds() == 120.0
 
 
+def test_active_heartbeat_only_when_upstream_idle() -> None:
+    import time
+
+    hub = _make_hub(upstream_heartbeat_interval_s=60.0)
+    assert hub._upstream_needs_active_heartbeat()
+
+    hub._last_upstream_rx_at = time.time() - 10.0
+    assert not hub._upstream_needs_active_heartbeat()
+
+    hub._last_upstream_rx_at = time.time() - 90.0
+    assert hub._upstream_needs_active_heartbeat()
+
+    hub2 = _make_hub(upstream_heartbeat_interval_s=60.0)
+    hub2._last_upstream_heartbeat_reply_at = time.time() - 5.0
+    assert not hub2._upstream_needs_active_heartbeat()
+
+
 @pytest.mark.asyncio
 async def test_recover_increments_generation_and_resets_streaks() -> None:
     hub = _make_hub()

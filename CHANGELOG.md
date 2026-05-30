@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.1.8
+
+**定位**：Bridge 控制台日志体验、TCP 网关 Logoff 行为与说明文档同步。
+
+### Bridge
+
+- **控制台 · 日志页**：支持按 DEBUG / INFO / WARNING / ERROR 级别筛选；向上查看历史时新日志不再强制滚到底部（仅在已处于底部时自动跟随）。
+- **TCP 网关**：客户端 `<Logoff/>` 与 `<Logon>` 一致——上游会话已由网关持有时本地合成成功应答（`protocol._synthetic_logoff_success`），不再转发给仪器（避免误释放仪器会话）；合成后清除该 TCP 客户端登录状态（`on_client_logoff`）。
+- **Hub**：`forward_client_frame` 对误入的 Logoff 打警告并丢弃；Logoff 不参与 TCP 转发超时 watcher（与 Heartbeat / Logon 相同）。
+
+### 文档
+
+- **README.md**：版本 **0.1.8**；Bridge 控制台（日志筛选/智能滚动、服务启停）；`logoff` CLI 集成列改为网关合成应答；`no_synthetic_logon` 与 `upstream_heartbeat_interval` 默认 **0**；安装包文件名格式；配置优先 `.toml`。
+- **PLAN.md**：进度快照增加 Bridge 控制台；配置路径与 Gateway Logon/Logoff 合成职责；模块列表含 `ui/`、`bridge_logging.py`。
+- **installer/README.md**：Bridge 控制台组件与目录树、登录自启动任务、JSON→TOML 升级说明、控制台 UAC。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.8 |
+| cornerstone-web | 0.1.8 |
+| cornerstone-cli | 0.1.8 |
+
+---
+
+## 0.1.7
+
+**定位**：Bridge 控制台服务管理与连接状态体验改进。
+
+### Bridge
+
+- **控制台**：轮询时始终刷新左下 Bridge REST 连接状态（与当前页签无关）；停止/重启服务前检测服务状态，已停止时可「启动服务」而非盲目 restart。
+- **控制台**：服务启停通过 `sc`/`net` 隐藏子进程调用，避免 GUI 下弹出控制台窗口。
+- **配置示例**：`upstream_heartbeat_interval` 默认 **0**（与禁用主动心跳的常见现场配置一致）。
+- **上游心跳**：仅在上游静默达到 `upstream_heartbeat_interval` 秒时才主动发 Heartbeat；若仪器已对网关 TCP 客户端有应答（或其它上行报文），视为在线，跳过主动心跳。
+- **配置格式**：Bridge / Web 均推荐使用 `.config.toml`（`#` 注释）；仍兼容旧版 `.json`。安装程序会将 Roaming 下旧 JSON **自动迁移为 TOML** 并合并 example（**样品队列 JSON 不转换**）。
+- **Web**：示例与默认路径改为 `cornerstone-web.config.example.toml` / `cornerstone-web.config.toml`。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.7 |
+| cornerstone-web | 0.1.7 |
+| cornerstone-cli | 0.1.7 |
+
+---
+
 ## 0.1.6
 
 **定位**：上游僵死 TCP 回收/重连可靠性修复（建议现场升级安装包）。

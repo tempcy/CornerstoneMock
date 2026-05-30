@@ -450,6 +450,15 @@ def _synthetic_logon_success(cookie: str) -> str:
     return ET.tostring(root, encoding="unicode")
 
 
+def _synthetic_logoff_success(cookie: str) -> str:
+    root = ET.Element("Logoff")
+    if cookie:
+        root.set("Cookie", cookie)
+    root.set("ErrorCode", "0")
+    root.set("ErrorMessage", "Success")
+    return ET.tostring(root, encoding="unicode")
+
+
 def _synthetic_add_samples_held(cookie: str) -> str:
     root = ET.Element("AddSamples")
     if cookie:
