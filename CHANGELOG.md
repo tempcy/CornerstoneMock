@@ -5,6 +5,7 @@
 ### Documentation
 
 - 重规划 **CornerstoneAgent**：长/短期参数采集、规则建议、云端 LLM 协作与本地信息窗口；新增 [CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)，更新 [PLAN.md](PLAN.md) §3 与 [README.md](README.md)。
+- 新增 [CornerstoneAgent/ENTERPRISE.md](CornerstoneAgent/ENTERPRISE.md)：讯飞星火/华为盘古对接、多实验室 Agent 调度、企业微信渠道架构（E1–E5）。
 
 ---
 

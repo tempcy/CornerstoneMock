@@ -232,4 +232,16 @@ flowchart TB
 
 ---
 
-*文档版本：与仓库 PLAN §3（2026-05 重规划）同步。*
+## 10. 企业部署（星火 / 盘古 / 多实验室 / 企业微信）
+
+公司若已部署 **讯飞星火**、**华为盘古**，并存在 **多实验室、多仪器**，且希望通过 **企业微信** 问仪器状态：
+
+- **不要**让每台 Agent 直连多套大模型；应在公司机房部署 **编排服务（Orchestrator）+ AI 网关**，统一对接星火/盘古。
+- 模型通过 **工具调用**（如 `collect_instrument(lab_id, instrument_id, …)`）指挥采集；Orchestrator 按注册表把任务推到**指定 Agent**（WSS 出站 / 长轮询 / MQTT）。
+- **企业微信** 作为用户入口：回调服务 → Orchestrator → 模型 + 可选 Agent 采集 → 回复微信；Agent 不直接对接微信 API。
+
+完整架构、序列图、配置草案与阶段 **E1–E5** 见 **[ENTERPRISE.md](ENTERPRISE.md)**。
+
+---
+
+*文档版本：与仓库 PLAN §3（2026-05 重规划）同步；企业扩展见 ENTERPRISE.md。*
