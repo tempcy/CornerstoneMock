@@ -12,7 +12,7 @@
 | **Web 分析页谱图**        | —     | ✅ RepPlot 曲线改用 ECharts（`web_static/echarts.min.js`） |
 | **CornerstoneQueue** | M1–M3 + 仪器 UI 自动点击 | ✅ 见下文 §1（发送成功后可选 FlaUI 点击确认；**不**做系统通知/全局快捷键） |
 | Bridge 北向            | P2+   | ⏳ Modbus/MQTT                                                          |
-| CornerstoneAgent     | A1+   | ⏳ 未启动                                                                  |
+| CornerstoneAgent     | A0+   | ⏳ 规划已定稿（[CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)）；实现未启动 |
 
 
 **已确定架构**：**Bridge = 网关 + 协议适配（Modbus / IoT，阶段 2）**；`**cornerstone-web`** 仅静态 SPA + `/api/`* 反向代理，不持有 `GatewayHub` 或仪器会话。
@@ -89,7 +89,7 @@ flowchart LR
 | **cornerstone-bridge** | 上游 TCP 网关、AddSamples 队列、`instrument_rq`、**XML→JSON 解析**、对内 REST；上游 inner 帧跨 TCP 分段拼接（`upstream_inner_reassembly_timeout`）；TCP 客户端 `Logon`/`Logoff` 合成应答；**北向** Modbus/MQTT（Gateway + Protocol Adapters，可同进程） |
 | **cornerstone-web**    | 静态资源 + 薄 BFF（或纯静态直连 Bridge API）；**不再** `import GatewayHub`                                                           |
 | **cornerstone-queue**  | 桌面悬浮窗，仅 HTTP 客户端                                                                                                     |
-| **cornerstone-agent**  | 规则/AI、监控，调 Bridge API 或 `cornerstone_cli`                                                                            |
+| **cornerstone-agent**  | 仪器参数长/短期采集、规则建议、**云端 LLM 信息窗口**；经 Bridge REST / CLI 脚本 / 本地日志 / 窗口检查取数，不嵌套网关 |
 
 
 **开发/仿真**：保留 `**cornerstone-web-dev` = Bridge + Web 一键启动**（与现有一键体验一致）。  
@@ -126,7 +126,7 @@ Bridge 至少提供：
 | --- | ---------- | ------------------------ | ----------------------------------------------------------------- |
 | 1   | 缓存样品悬浮窗    | 轻量桌面端，专注队列查看与「发送至仪器」     | `**CornerstoneQueue/`**（WinUI 3）；消费 Bridge `GET/POST /api/queue`* |
 | 2   | 协议转换网关     | 厂家私有协议 ↔ Modbus / 通用 IoT | **即 cornerstone-bridge**（南向 TCP/XML + 北向 Modbus/MQTT）             |
-| 3   | 仪器本机 Agent | 驻场采集 + 规则/AI 审核与告警       | 连 **Bridge 对内 API** 或 `cornerstone-cli`；不嵌套网关                     |
+| 3   | 仪器本机 Agent | 长/短期参数记录 + 规则建议 + **云端 LLM 协作窗口** | 见 [CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)；只依赖 Bridge API / CLI / 日志 / 可选 UI 检查 |
 
 
 ```mermaid
@@ -145,7 +145,8 @@ flowchart LR
   end
   subgraph p3 [计划3]
     Agent[CornerstoneAgent]
-    AI[审核与监控]
+    LLM[云端大语言模型]
+    Win[LLM 信息窗口]
   end
   Bridge --> Float
   CLI --> Bridge
@@ -153,7 +154,9 @@ flowchart LR
   Bridge --> MB
   Bridge --> IoT
   Agent --> Bridge
-  Agent --> AI
+  Agent --> Win
+  Win <--> LLM
+  Agent -.->|CLI/日志/Inspect| Bridge
 ```
 
 
@@ -269,50 +272,79 @@ flowchart LR
 
 ---
 
-## 3. 仪器本机 Agent（AI 数据审核 + 状态监控）
+## 3. 仪器本机 Agent（参数采集 + 规则建议 + 云端 LLM 信息窗口）
 
-### 目标
+> **详细规格**：[CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)
 
-- 部署在**仪器工控机或边缘盒子**上的常驻 Agent：
-  - **监控**：连接状态、关键 `Status`/环境/漏气/系统检查、队列与 Sets 异常；
-  - **审核**：对 Set/Replicate 结果、QC、谱图/统计做规则 + AI 辅助判断（通过/复核/驳回建议）；
-  - **上报**：告警与审核结论推送到 IoT/企业消息（经 Bridge 的 MQTT 或独立 Webhook）。
+### 目标（重规划 2026-05）
 
-### 架构建议
+部署在**仪器工控机或实验室边缘 PC** 上的常驻 **cornerstone-agent**，承担三类能力：
 
+1. **参数采集（长周期 / 短期）**
+   - **长周期**：按间隔记录 `Status`、`system-parameters`、`counters`、诊断检查等，写入本地时序库，用于漂移对比与维护周期提醒。
+   - **短期**：分析批次或排故会话内加密采样 `set-stats` / `set-reps` / 状态字段，形成可回放「采集包」。
+2. **规则建议（始终可用）**
+   - 对分析数据（RSD、空白、n 不足等）与仪器状态（漏气、系统检查、业务离线、队列异常）输出结构化建议（通过 / 复核 / 维护 / 排故），**不依赖 LLM**。
+3. **云端大语言模型协作**
+   - **AI 能力通过云端 LLM 实现**：Agent 按 LLM 编排或用户追问，用 Bridge REST、`cornerstone-cli` 脚本、本地 `bridge.log` 尾随、可选 **UI 窗口检查**（FlaUI，与 Queue 同源能力）组装上下文，回传云端；**Agent 提供与大语言模型输出的信息窗口**（托盘/小窗），指导正确使用仪器、快速维护与排故。
+   - LLM **不直连仪器**；禁止将模型输出自动映射为仪器写操作。
+
+### 架构
+
+```mermaid
+flowchart TB
+  User[实验员/运维]
+  LLM[云端大语言模型]
+  WIN[Agent 信息窗口]
+  AG[cornerstone-agent]
+  BR[cornerstone-bridge]
+  CLI[cornerstone-cli / scripts]
+  LOG[本地日志]
+  INS[窗口检查 可选]
+  CS[Cornerstone 仪器]
+  User --> WIN
+  WIN <--> LLM
+  AG --> WIN
+  AG --> BR
+  AG --> CLI
+  AG --> LOG
+  AG -.-> INS
+  BR --> CS
 ```
-[仪器] ←→ [Bridge]
-              ↑
-         [本机 Agent]
-              ├─ 采集调度（Bridge REST / 可选 cornerstone_cli）
-              ├─ 规则引擎（阈值、连续失败、维护到期）
-              ├─ AI 模块（可选：本地小模型 / 云端 API）
-              └─ 输出 → MQTT / 日志 / 本地 SQLite 审计库
-```
+
+| 采集路径 | 用途 |
+|----------|------|
+| Bridge REST | 默认：`/api/status`、`/api/instrument/*`、`/api/diagnostic/*` |
+| CLI 脚本 | `CornerstoneAgent/scripts/` + `cornerstone-cli tcp …`，批量与排故 |
+| 本地日志 | `bridge.log` 等尾部片段，排故上下文 |
+| 窗口检查 | Windows UIA3 控件树摘要（可选，校准方式同 Queue Inspect） |
+
+持久化：SQLite 时序 + 审计表（规则建议、LLM 回合、采集包引用）。北向 MQTT/告警摘要可在 Bridge P2+ 转发，非 Agent 首版必需。
 
 ### 阶段划分
 
+| 阶段 | 内容 | 验收 |
+|------|------|------|
+| **A0** | 包骨架、Bridge 客户端、`collect once` | 单次采集 JSON 落盘 |
+| **A1** | 长/短周期调度 + SQLite | 24h 参数可查/导出 |
+| **A2** | 规则引擎 v1（分析 + 状态 + 队列） | 结构化建议 JSON，可静默 |
+| **A3** | 云端 LLM 客户端 + 脱敏；**信息窗口** v1 | 对话展示建议，可关闭 LLM |
+| **A4** | CLI 子命令、日志 tail、UI inspect；与 Queue 发送事件可选联动 | 排故会话端到端 |
+| **A5** | 心跳、离线队列、installer 可选组件 | 7×24 驻场 |
 
-| 阶段     | 内容                                                | 验收           |
-| ------ | ------------------------------------------------- | ------------ |
-| **A1** | 无 AI：定时拉 `Status` + status-check 等价数据，规则告警        | 告警可配置、可静默    |
-| **A2** | 数据审核 v1：`SetReps` / `set-stats`，规则判断（RSD、空白、n 不足） | 结构化审核报告 JSON |
-| **A3** | AI 增强：RepDetail/统计摘要送 LLM（脱敏、可关闭）                 | 人工可覆盖、全量留痕   |
-| **A4** | 与 Web/悬浮窗联动：远程录入 Sets 后自动审核流水线                    | 端到端闭环        |
-| **A5** | 运维：自更新配置、健康心跳、离线缓存                                | 适合长期驻场       |
+### 设计原则
 
-
-### AI 设计原则（建议写进规范）
-
-- **默认规则优先、AI 建议为辅**，避免自动改仪器参数。
-- 输入仅结构化字段 + 脱敏谱图统计，不上传原始客户样品标识（可配置）。
-- 所有结论带 `ruleId` / `modelVersion` / `timestamp`，便于追溯。
+- **规则优先、LLM 为辅**；LLM 失败时仅展示规则结果。
+- 输入：结构化字段 + 脱敏统计 + 日志/Inspect 摘要；样品标识可配置脱敏。
+- 追溯：每条建议带 `ruleId` 或 `model` + `timestamp` + `snapshotId`。
+- Agent 只读仪器（与现 Bridge/Queue 边界一致）；人工发样仍由 **CornerstoneQueue** / Web 完成。
 
 ### 与计划 1、2 的协同
 
-- Agent 通过 **Bridge REST** 调试审核逻辑（实验室与生产同一 API 面）。
-- 审核结果、监控指标经 **Bridge 北向** 发布到 Modbus/IoT，供 MES/大屏使用。
-- 悬浮窗负责**人工发送样品**；Agent 负责**发送后/分析后的自动盯盘**。
+- **Bridge REST** 为实验室与生产的统一数据面；Agent 不重复 XML 解析。
+- **Web** 保留分析图表；Agent 窗口负责「下一步怎么做」话术与告警。
+- **Queue** 发样成功后可选触发 Agent 短期采集；Inspect 逻辑可复用，不合并进程。
+- **Bridge 北向**（Modbus/MQTT）可订阅 Agent 告警摘要，供 MES/大屏。
 
 ---
 
@@ -323,15 +355,15 @@ flowchart LR
 | ------ | ----------------------------- | -------------------- | ------- |
 | **高**  | 1 悬浮窗 M1–M3 + UI 自动点击        | 已落地；产线校准与硬化待定     | —       |
 | **中**  | 2 Bridge P2–P3（Modbus/MQTT）   | 打通 OT/IT             | 4–6 周   |
-| **中高** | 3 Agent A1–A2                 | 规则审核不依赖 AI           | 3–4 周   |
-| **后续** | 3 A3 AI、2 P4 写 Modbus、Queue 产线硬化 | 安全与合规评审              | 各 2–4 周 |
+| **中高** | 3 Agent A0–A2                 | 采集 + 规则，不依赖 LLM      | 3–4 周   |
+| **后续** | 3 A3–A4 云端 LLM + 信息窗口、2 P4 写 Modbus | 密钥与脱敏评审              | 各 2–4 周 |
 
 
 ### 建议里程碑
 
 1. **Q1 末**：~~悬浮窗 beta~~ **悬浮窗 M1–M3 与仪器 UI 自动点击已可用**；Bridge/Web 配置拆分已完成；Web 分析页 RepPlot 已切 ECharts；后续产线反馈与安装包迭代。
 2. **Q2 中**：Modbus/MQTT 只读点表 v1 + Agent 规则监控试点。
-3. **Q2 末**：Agent 审核报告 v1 + AI 可选 POC。
+3. **Q2 末**：Agent 长/短期采集 + 规则建议 v1；云端 LLM + 信息窗口 POC（A3）。
 4. **Q3**：多厂家适配插件、生产硬化（鉴权、TLS、审计）。
 
 ---
@@ -346,7 +378,7 @@ flowchart LR
 | `CornerstoneWeb` / `**cornerstone-web`**   | 静态 UI + 可选 BFF；`web_static` 含 ECharts；入口 `cornerstone-web`、`cornerstone-web-dev`                                       |
 | `CornerstoneQueue`                         | WinUI 3 悬浮窗（M1–M3 + 可选 UI 自动点击 ✅）；`CornerstoneQueue.sln`；设置见 `%LocalAppData%\CornerstoneQueue\settings.json` |
 | `installer/`                               | PyInstaller + Inno Setup：Bridge 必选，Web/Queue/CLI/Bridge 控制台可选；Bridge/Web 可注册系统服务（默认全选） |
-| `CornerstoneAgent`                         | 边缘 Agent                                                                                        |
+| `CornerstoneAgent`                         | 边缘 Agent；规格 [AGENT.md](CornerstoneAgent/AGENT.md)                                              |
 
 
 - 新程序建议**独立目录**（或后续独立仓库），pip 依赖 `cornerstone-cli` 或 HTTP 调用 Bridge。
@@ -359,5 +391,5 @@ flowchart LR
 - 安装包：服务账户权限、升级/覆盖安装策略、Python 运行时与 WinUI 依赖的离线体积优化
 - 悬浮窗：仪器 UI 自动点击在不同 Cornerstone 版本上的控件树差异与校准文档
 - Bridge：Modbus 寄存器表初稿、MQTT 主题命名规范；REST 与现 `/api/`* 差异清单
-- Agent：审核报告 JSON Schema、告警级别与静默策略
+- Agent：[AGENT.md](CornerstoneAgent/AGENT.md) 已定义阶段与边界；待实现 `suggestion.json` / `acquisition-snapshot.json` Schema、默认 `rules/default.yaml`
 
