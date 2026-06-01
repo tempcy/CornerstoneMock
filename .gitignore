@@ -48,7 +48,8 @@ ehthumbs.db
 # Local / scratch
 /68
 
-# 本机配置（保留 *.example.json）
+# 本机配置（保留 *.example.toml / *.example.json）
+CornerstoneBridge/cornerstone-bridge.config.toml
 CornerstoneBridge/cornerstone-bridge.config.json
 CornerstoneWeb/cornerstone-web.config.json
 CornerstoneWeb/cornerstone-web.config.toml
