@@ -8,6 +8,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .config import write_bridge_config_file
 from .hub import GatewayHub
 from .hub_types import PendingAddSamples
 from .bridge_logging import get_log_verbose_gateway, set_console_log_level, set_log_verbose_gateway
@@ -54,32 +55,41 @@ def _hub_settings_public_dict(hub: GatewayHub) -> Dict[str, Any]:
 
 
 def _persist_hub_settings_to_config(hub: GatewayHub) -> Tuple[bool, str]:
-    """将当前 Hub 状态合并写入 ``-c`` 指定的 JSON（保留文件中其它键）。"""
+    """将当前 Hub 状态合并写入 ``-c`` 指定的配置文件（TOML/JSON，保留注释）。"""
     if hub._config_file_path is None:
         return False, "未使用 --config 启动，无法写回文件"
     try:
         p = Path(hub._config_file_path)
-        data: Dict[str, Any] = {}
-        if p.is_file():
-            raw = json.loads(p.read_text(encoding="utf-8"))
-            if isinstance(raw, dict):
-                data = raw
-        data["host"] = hub._tcp_listen_host
-        data["port"] = int(hub._tcp_listen_port)
-        data["web_host"] = hub._web_listen_host
-        data["web_port"] = int(hub._web_listen_port)
-        data["upstream_host"] = hub._upstream_host
-        data["upstream_port"] = int(hub._upstream_port)
-        data["web_user"] = hub.web_user
-        data["web_password"] = hub.web_password
-        data["encoding"] = hub.encoding
-        data["add_samples_queue_size"] = hub._add_samples_max
-        data["privileged_add_samples_host"] = hub._privileged_add_samples_host
-        data["log_verbose_gateway"] = get_log_verbose_gateway()
-        p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        write_bridge_config_file(
+            p,
+            {
+                "host": hub._tcp_listen_host,
+                "port": int(hub._tcp_listen_port),
+                "web_host": hub._web_listen_host,
+                "web_port": int(hub._web_listen_port),
+                "upstream_host": hub._upstream_host,
+                "upstream_port": int(hub._upstream_port),
+                "web_user": hub.web_user,
+                "web_password": hub.web_password,
+                "encoding": hub.encoding,
+                "add_samples_queue_size": hub._add_samples_max,
+                "privileged_add_samples_host": hub._privileged_add_samples_host,
+                "blocked_connect_hosts": hub.blocked_connect_hosts_snapshot(),
+                "blocked_logon_hosts": hub.blocked_logon_hosts_snapshot(),
+                "log_verbose_gateway": get_log_verbose_gateway(),
+            },
+        )
         return True, ""
     except Exception as e:
         return False, str(e)
+
+
+def _ip_policy_public_dict(hub: GatewayHub) -> Dict[str, Any]:
+    return {
+        "blockedConnectHosts": hub.blocked_connect_hosts_snapshot(),
+        "blockedLogonHosts": hub.blocked_logon_hosts_snapshot(),
+        "privilegedAddSamplesHost": hub._privileged_add_samples_host,
+    }
 
 
 def _q_int(q: Dict[str, str], key: str, default: int) -> int:
@@ -339,7 +349,9 @@ async def handle_bridge_http(
             if "webPassword" in obj and obj["webPassword"] is not None:
                 hub.web_password = str(obj["webPassword"])
             if "privilegedAddSamplesHost" in obj:
-                hub._privileged_add_samples_host = str(obj.get("privilegedAddSamplesHost") or "").strip()
+                hub.set_privileged_add_samples_host(
+                    str(obj.get("privilegedAddSamplesHost") or "").strip()
+                )
             if "queueMax" in obj:
                 try:
                     hub.set_add_samples_queue_max(int(obj["queueMax"]))
@@ -467,12 +479,101 @@ async def handle_bridge_http(
                 "encoding": hub.encoding,
                 "logVerboseGateway": get_log_verbose_gateway(),
                 "privilegedAddSamplesHost": hub._privileged_add_samples_host,
+                "blockedConnectHosts": hub.blocked_connect_hosts_snapshot(),
+                "blockedLogonHosts": hub.blocked_logon_hosts_snapshot(),
                 "configFile": str(hub._config_file_path) if hub._config_file_path else "",
             }
             await _http_send(
                 writer,
                 200,
                 json.dumps(mon, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "POST" and path == "/api/clients/ip-policy":
+            try:
+                obj = json.loads(body.decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "无效 JSON"}, ensure_ascii=False).encode(
+                        "utf-8"
+                    ),
+                    "application/json; charset=utf-8",
+                )
+                return
+            if not isinstance(obj, dict):
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps(
+                        {"ok": False, "error": "请求体须为 JSON 对象"}, ensure_ascii=False
+                    ).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+                return
+            action = str(obj.get("action") or "").strip()
+            peer_host = str(obj.get("peerHost") or "").strip()
+            if not peer_host:
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "缺少 peerHost"}, ensure_ascii=False).encode(
+                        "utf-8"
+                    ),
+                    "application/json; charset=utf-8",
+                )
+                return
+            notes: List[str] = []
+            closed = 0
+            if action == "blockConnect":
+                added = hub.add_blocked_connect_host(peer_host)
+                closed = await hub.close_tcp_clients_by_host(peer_host)
+                if added:
+                    notes.append(f"已阻止 {peer_host!r} 连接")
+                else:
+                    notes.append(f"{peer_host!r} 已在连接阻止列表中")
+                if closed:
+                    notes.append(f"已断开该 IP 的 {closed} 个现有连接")
+            elif action == "blockLogon":
+                if hub.add_blocked_logon_host(peer_host):
+                    notes.append(f"已阻止 {peer_host!r} 登录（不转发、不合成应答）")
+                else:
+                    notes.append(f"{peer_host!r} 已在登录阻止列表中")
+            elif action == "setPrivileged":
+                hub.set_privileged_add_samples_host(peer_host)
+                notes.append(f"已将 {peer_host!r} 设为 AddSamples 直通特权 IP")
+            else:
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "error": "action 须为 blockConnect、blockLogon 或 setPrivileged",
+                        },
+                        ensure_ascii=False,
+                    ).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+                return
+            persist_ok, persist_err = hub.persist_ip_policy_to_config()
+            out = {
+                "ok": True,
+                "action": action,
+                "peerHost": peer_host,
+                "closedConnections": closed,
+                "persistOk": persist_ok,
+                "persistError": persist_err,
+                "notes": notes,
+                **_ip_policy_public_dict(hub),
+            }
+            await _http_send(
+                writer,
+                200,
+                json.dumps(out, ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8",
             )
             return

@@ -51,8 +51,12 @@ add_samples_queue_size = 8
 persist_add_samples_queue = true
 # 队列 JSON 路径；支持 %APPDATA% 等环境变量
 add_samples_queue_persist_file = "%APPDATA%\\CornerstoneMock\\cornerstone-bridge.add-samples-queue.json"
-# 来自该 IP 的 AddSamples 直通上游；其它来源仍进网页队列
+# 来自该 IP 的 AddSamples 直通上游；其它来源仍进网页队列（仅一个特权 IP）
 privileged_add_samples_host = "127.0.0.1"
+# 拒绝这些 IP 建立 TCP 连接（启动时载入；变更后实时写回本文件）
+blocked_connect_hosts = []
+# 允许连接但丢弃 Logon（不转发仪器、不合成登录应答）
+blocked_logon_hosts = []
 
 # ========== 会话与转发行为 ==========
 # true = 每次客户端 Logon 都转发仪器；false = 上游曾成功后对后续客户端合成 Logon

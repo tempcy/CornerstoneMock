@@ -190,9 +190,39 @@ def _interpret_remote_control_instrument_result(r: Dict[str, Any]) -> Tuple[bool
 
 def _peer_host_matches_privileged(peer_host: str, privileged: str) -> bool:
     """比较 TCP 对端主机与配置的上位机直通地址（忽略大小写、首尾空白）。"""
-    a = (peer_host or "").strip().lower()
-    b = (privileged or "").strip().lower()
+    a = _normalize_host_for_policy(peer_host)
+    b = _normalize_host_for_policy(privileged)
     return bool(a) and bool(b) and a == b
+
+
+def _normalize_host_for_policy(host: str) -> str:
+    """IP/主机名策略比较用规范化（去首尾空白、小写）。"""
+    return (host or "").strip().lower()
+
+
+def _parse_host_list(value: object) -> List[str]:
+    """从配置值解析 IP 列表（TOML 数组或单个字符串）。"""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        h = _normalize_host_for_policy(value)
+        return [h] if h else []
+    if isinstance(value, (list, tuple)):
+        out: List[str] = []
+        seen: Set[str] = set()
+        for item in value:
+            h = _normalize_host_for_policy(str(item))
+            if h and h not in seen:
+                seen.add(h)
+                out.append(h)
+        return out
+    h = _normalize_host_for_policy(str(value))
+    return [h] if h else []
+
+
+def _host_in_blocklist(peer_host: str, blocklist: Set[str]) -> bool:
+    h = _normalize_host_for_policy(peer_host)
+    return bool(h) and h in blocklist
 
 
 __all__ = [n for n in globals() if n.startswith("_") and not n.startswith("__")]
