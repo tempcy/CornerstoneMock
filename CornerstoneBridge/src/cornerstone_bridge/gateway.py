@@ -55,6 +55,12 @@ async def _handle_client(
 
     peer = writer.get_extra_info("peername")
     peer_s = str(peer)
+    peer_host = _peer_host_from_peername(peer)
+    if hub.is_host_blocked_connect(peer_host):
+        _log.info("client rejected (connect blocked IP %r): %s", peer_host, peer_s)
+        await _async_close_stream_writer(writer)
+        return
+
     _log.info("client connected: %s", peer_s)
     await hub.register_tcp_client(writer)
 
@@ -116,6 +122,13 @@ async def _handle_client(
                 hub.on_client_logon_request(writer, text)
 
             if tag == "Logon":
+                if hub.is_host_blocked_logon(peer_host):
+                    _log.info(
+                        "Logon dropped (logon blocked IP %r): %s",
+                        peer_host,
+                        peer_s,
+                    )
+                    continue
                 if hub.should_synthesize_client_logon():
                     resp = _synthetic_logon_success(cookie)
                     _log.info("synthetic Logon for %s (gateway session)", peer_s)

@@ -242,9 +242,9 @@ class MainWindow(QMainWindow):
         layout.addLayout(grid)
 
         layout.addWidget(QLabel("TCP 远程客户端"))
-        self._tbl_clients = QTableWidget(0, 6)
+        self._tbl_clients = QTableWidget(0, 7)
         self._tbl_clients.setHorizontalHeaderLabels(
-            ["客户端地址", "连接时长", "特权 IP", "登录用户", "收到", "发出"]
+            ["客户端地址", "连接时长", "特权 IP", "登录用户", "收到", "发出", "操作"]
         )
         hdr = self._tbl_clients.horizontalHeader()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -253,6 +253,7 @@ class MainWindow(QMainWindow):
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self._tbl_clients)
 
         self._tabs.addTab(w, "连接监控")
@@ -546,6 +547,78 @@ class MainWindow(QMainWindow):
             self._tbl_clients.setItem(
                 i, 5, QTableWidgetItem(str(c.get("txFrames", 0)))
             )
+            self._tbl_clients.setCellWidget(i, 6, self._client_action_widget(c))
+
+    def _client_action_widget(self, client: Dict[str, Any]) -> QWidget:
+        peer_host = str(client.get("peerHost") or "").strip()
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(2, 2, 2, 2)
+        lay.setSpacing(4)
+
+        btn_block_conn = QPushButton("阻止连接")
+        btn_block_logon = QPushButton("阻止登录")
+        btn_priv = QPushButton("设特权")
+
+        if client.get("connectBlocked"):
+            btn_block_conn.setEnabled(False)
+            btn_block_conn.setToolTip("该 IP 已在连接阻止列表中")
+        if client.get("logonBlocked"):
+            btn_block_logon.setEnabled(False)
+            btn_block_logon.setToolTip("该 IP 已在登录阻止列表中")
+        if client.get("privileged"):
+            btn_priv.setEnabled(False)
+            btn_priv.setToolTip("当前已是 AddSamples 直通特权 IP")
+
+        if peer_host:
+            btn_block_conn.clicked.connect(
+                lambda _checked=False, h=peer_host: self._client_ip_policy("blockConnect", h)
+            )
+            btn_block_logon.clicked.connect(
+                lambda _checked=False, h=peer_host: self._client_ip_policy("blockLogon", h)
+            )
+            btn_priv.clicked.connect(
+                lambda _checked=False, h=peer_host: self._client_ip_policy("setPrivileged", h)
+            )
+        else:
+            for btn in (btn_block_conn, btn_block_logon, btn_priv):
+                btn.setEnabled(False)
+
+        lay.addWidget(btn_block_conn)
+        lay.addWidget(btn_block_logon)
+        lay.addWidget(btn_priv)
+        return w
+
+    def _client_ip_policy(self, action: str, peer_host: str) -> None:
+        labels = {
+            "blockConnect": "阻止连接",
+            "blockLogon": "阻止登录",
+            "setPrivileged": "设特权 IP",
+        }
+        title = labels.get(action, "IP 策略")
+        if action == "blockConnect":
+            msg = f"将 {peer_host} 加入连接阻止列表并断开其现有连接？"
+        elif action == "blockLogon":
+            msg = (
+                f"将 {peer_host} 加入登录阻止列表？\n"
+                "该 IP 的 Logon 将不转发仪器、也不合成登录应答。"
+            )
+        else:
+            msg = f"将 {peer_host} 设为唯一的 AddSamples 直通特权 IP？"
+        if QMessageBox.question(self, title, msg) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            out = self._api.post_client_ip_policy(action, peer_host)
+        except BridgeApiError as e:
+            QMessageBox.warning(self, title, str(e))
+            return
+        notes = out.get("notes") or []
+        persist_err = str(out.get("persistError") or "").strip()
+        if persist_err:
+            notes.append(f"写回配置失败: {persist_err}")
+        if notes:
+            QMessageBox.information(self, title, "\n".join(str(n) for n in notes))
+        self._refresh_monitor()
 
     def _apply_connections(self, *, upstream: Optional[bool] = None, tcp_gateway: Optional[bool] = None) -> None:
         body: Dict[str, Any] = {}

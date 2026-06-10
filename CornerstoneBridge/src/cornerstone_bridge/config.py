@@ -59,6 +59,8 @@ _BRIDGE_ALLOWED_KEYS = frozenset(
         "web_user",
         "web_password",
         "privileged_add_samples_host",
+        "blocked_connect_hosts",
+        "blocked_logon_hosts",
         "persist_add_samples_queue",
         "add_samples_queue_persist_file",
         "log_level",
@@ -290,6 +292,11 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
             continue
         if k == "add_samples_queue_persist_file":
             out[k] = str(v).strip() if v is not None else ""
+            continue
+        if k in ("blocked_connect_hosts", "blocked_logon_hosts"):
+            from .hub_helpers import _parse_host_list
+
+            out[k] = _parse_host_list(v)
             continue
         if v is None:
             continue

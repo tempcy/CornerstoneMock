@@ -82,6 +82,8 @@ class GatewayHub:
         web_user: str,
         web_password: str,
         privileged_add_samples_host: str = "",
+        blocked_connect_hosts: Optional[List[str]] = None,
+        blocked_logon_hosts: Optional[List[str]] = None,
         request_culture: str = "en-US",
         tcp_listen_host: str = "",
         tcp_listen_port: int = 0,
@@ -134,6 +136,8 @@ class GatewayHub:
         self.web_user = (web_user or "").strip()
         self.web_password = web_password or ""
         self._privileged_add_samples_host = (privileged_add_samples_host or "").strip()
+        self._blocked_connect_hosts: Set[str] = set(_parse_host_list(blocked_connect_hosts))
+        self._blocked_logon_hosts: Set[str] = set(_parse_host_list(blocked_logon_hosts))
         self.request_culture = (request_culture or "en-US").strip() or "en-US"
 
         self._upstream_reader: Optional[asyncio.StreamReader] = None
@@ -264,6 +268,78 @@ class GatewayHub:
             self._tcp_client_writers.discard(writer)
             self._tcp_sessions.pop(id(writer), None)
 
+    def blocked_connect_hosts_snapshot(self) -> List[str]:
+        return sorted(self._blocked_connect_hosts)
+
+    def blocked_logon_hosts_snapshot(self) -> List[str]:
+        return sorted(self._blocked_logon_hosts)
+
+    def is_host_blocked_connect(self, peer_host: str) -> bool:
+        return _host_in_blocklist(peer_host, self._blocked_connect_hosts)
+
+    def is_host_blocked_logon(self, peer_host: str) -> bool:
+        return _host_in_blocklist(peer_host, self._blocked_logon_hosts)
+
+    def add_blocked_connect_host(self, peer_host: str) -> bool:
+        h = _normalize_host_for_policy(peer_host)
+        if not h or h in self._blocked_connect_hosts:
+            return False
+        self._blocked_connect_hosts.add(h)
+        return True
+
+    def add_blocked_logon_host(self, peer_host: str) -> bool:
+        h = _normalize_host_for_policy(peer_host)
+        if not h or h in self._blocked_logon_hosts:
+            return False
+        self._blocked_logon_hosts.add(h)
+        return True
+
+    def set_privileged_add_samples_host(self, peer_host: str) -> None:
+        self._privileged_add_samples_host = (peer_host or "").strip()
+        self._refresh_tcp_sessions_privileged()
+
+    def _refresh_tcp_sessions_privileged(self) -> None:
+        for s in self._tcp_sessions.values():
+            s.privileged = _peer_host_matches_privileged(
+                s.peer_host, self._privileged_add_samples_host
+            )
+
+    def persist_ip_policy_to_config(self) -> Tuple[bool, str]:
+        if self._config_file_path is None:
+            return False, "未使用 --config 启动，无法写回文件"
+        try:
+            from .config import write_bridge_config_file
+
+            p = Path(self._config_file_path)
+            write_bridge_config_file(
+                p,
+                {
+                    "blocked_connect_hosts": self.blocked_connect_hosts_snapshot(),
+                    "blocked_logon_hosts": self.blocked_logon_hosts_snapshot(),
+                    "privileged_add_samples_host": self._privileged_add_samples_host,
+                },
+            )
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+
+    async def close_tcp_clients_by_host(self, peer_host: str) -> int:
+        target = _normalize_host_for_policy(peer_host)
+        if not target:
+            return 0
+        async with self._tcp_clients_lock:
+            writers = [
+                s.writer
+                for s in self._tcp_sessions.values()
+                if _normalize_host_for_policy(s.peer_host) == target
+                and not s.writer.is_closing()
+            ]
+        n = 0
+        for w in writers:
+            await _async_close_stream_writer(w)
+            n += 1
+        return n
+
     async def close_all_tcp_clients(self) -> int:
         async with self._tcp_clients_lock:
             writers = list(self._tcp_client_writers)
@@ -310,9 +386,12 @@ class GatewayHub:
             out.append(
                 {
                     "peer": s.peer,
+                    "peerHost": s.peer_host,
                     "connectedAt": s.connected_at,
                     "connectedSeconds": round(dur, 1),
                     "privileged": s.privileged,
+                    "connectBlocked": self.is_host_blocked_connect(s.peer_host),
+                    "logonBlocked": self.is_host_blocked_logon(s.peer_host),
                     "logonUser": user_disp,
                     "rxFrames": s.rx_frames,
                     "txFrames": s.tx_frames,

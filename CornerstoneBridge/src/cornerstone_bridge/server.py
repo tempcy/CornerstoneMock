@@ -79,6 +79,8 @@ async def run_bridge(
     web_user: str,
     web_password: str,
     privileged_add_samples_host: str,
+    blocked_connect_hosts: Optional[list] = None,
+    blocked_logon_hosts: Optional[list] = None,
     config_file_path: Optional[Path] = None,
     persist_add_samples_queue: bool = True,
     add_samples_queue_persist_file: str = "",
@@ -104,6 +106,8 @@ async def run_bridge(
         web_user=web_user,
         web_password=web_password,
         privileged_add_samples_host=privileged_add_samples_host,
+        blocked_connect_hosts=blocked_connect_hosts,
+        blocked_logon_hosts=blocked_logon_hosts,
         tcp_listen_host=listen_host,
         tcp_listen_port=listen_port,
         api_listen_host=api_host,
@@ -168,6 +172,10 @@ async def run_bridge(
             "AddSamples 直通上位机 IP: %r (其余 TCP 客户端仍截留)",
             hub._privileged_add_samples_host,
         )
+    if hub._blocked_connect_hosts:
+        log.info("连接阻止 IP: %s", ", ".join(hub.blocked_connect_hosts_snapshot()))
+    if hub._blocked_logon_hosts:
+        log.info("登录阻止 IP: %s", ", ".join(hub.blocked_logon_hosts_snapshot()))
     if hub._queue_persist_path is not None:
         log.info("AddSamples 队列持久化: %s", hub._queue_persist_path)
 
@@ -438,6 +446,8 @@ def main() -> int:
                 web_user=args.web_user,
                 web_password=args.web_password,
                 privileged_add_samples_host=args.privileged_add_samples_host,
+                blocked_connect_hosts=getattr(args, "blocked_connect_hosts", None),
+                blocked_logon_hosts=getattr(args, "blocked_logon_hosts", None),
                 config_file_path=cfg_resolved,
                 persist_add_samples_queue=(
                     False
