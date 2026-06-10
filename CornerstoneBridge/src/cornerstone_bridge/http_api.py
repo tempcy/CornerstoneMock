@@ -401,6 +401,12 @@ async def handle_bridge_http(
                 "remoteControlState": hub._remote_control_display,
                 "privilegedAddSamplesHost": hub._privileged_add_samples_host,
                 "remoteControlStateError": hub._remote_control_last_err,
+                "compac": {
+                    "enabled": hub._compac.config.enabled,
+                    "listenEnabled": hub._compac.config.listen_enabled,
+                    "portOpen": hub._compac.state_snapshot().get("portOpen", False),
+                    "queueCount": hub._compac.state_snapshot().get("queueCount", 0),
+                },
             }
             await _http_send(
                 writer,
@@ -688,6 +694,192 @@ async def handle_bridge_http(
                 )
                 return
             data = await hub.fetch_set_collection_stats_json(sk)
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "GET" and path == "/api/compac/settings":
+            data = hub.compac_settings_dict()
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "PUT" and path == "/api/compac/settings":
+            try:
+                obj = json.loads(body.decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "无效 JSON"}, ensure_ascii=False).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+                return
+            if not isinstance(obj, dict):
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "请求体须为 JSON 对象"}, ensure_ascii=False).encode(
+                        "utf-8"
+                    ),
+                    "application/json; charset=utf-8",
+                )
+                return
+            data = await hub.compac_apply_settings(obj)
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "PUT" and path == "/api/compac/listen":
+            try:
+                obj = json.loads(body.decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "无效 JSON"}, ensure_ascii=False).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+                return
+            enabled = bool(obj.get("listenEnabled")) if isinstance(obj, dict) else False
+            data = await hub.compac_set_listen(enabled)
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "GET" and path == "/api/compac/status":
+            data = await hub.compac_query_status()
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "GET" and path == "/api/compac/queue":
+            items = [
+                {
+                    "id": p.entry_id,
+                    "receivedAt": p.received_at,
+                    "receivedAtText": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(p.received_at)),
+                    "source": p.source,
+                    "sampleId": p.sample_id,
+                    "sampleType": p.sample_type,
+                }
+                for p in hub.compac_pending_snapshot()
+            ]
+            payload = json.dumps({"ok": True, "items": items}, ensure_ascii=False).encode("utf-8")
+            await _http_send(writer, 200, payload, "application/json; charset=utf-8")
+            return
+
+        if method == "POST" and path == "/api/compac/queue":
+            try:
+                obj = json.loads(body.decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "无效 JSON"}, ensure_ascii=False).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+                return
+            if not isinstance(obj, dict):
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "请求体须为 JSON 对象"}, ensure_ascii=False).encode(
+                        "utf-8"
+                    ),
+                    "application/json; charset=utf-8",
+                )
+                return
+            sid = str(obj.get("sampleId") or obj.get("sample_id") or "").strip()
+            stype = str(obj.get("sampleType") or obj.get("sample_type") or "").strip()
+            if not sid:
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "缺少 sampleId"}, ensure_ascii=False).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+                return
+            entry = hub.compac_enqueue(sid, stype, source=str(obj.get("source") or "api"))
+            out = {
+                "ok": True,
+                "item": {
+                    "id": entry.entry_id,
+                    "sampleId": entry.sample_id,
+                    "sampleType": entry.sample_type,
+                },
+            }
+            await _http_send(
+                writer,
+                200,
+                json.dumps(out, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "POST" and path == "/api/compac/queue/send":
+            try:
+                obj = json.loads(body.decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "无效 JSON"}, ensure_ascii=False).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+                return
+            ids = set(obj.get("ids") or [])
+            data = await hub.compac_send_queued(ids)
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "POST" and path == "/api/compac/send":
+            try:
+                obj = json.loads(body.decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "无效 JSON"}, ensure_ascii=False).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+                return
+            sid = str(obj.get("sampleId") or "").strip()
+            stype = str(obj.get("sampleType") or "").strip()
+            if not sid:
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "缺少 sampleId"}, ensure_ascii=False).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+                return
+            data = await hub.compac_send_sample(sid, stype)
             await _http_send(
                 writer,
                 200,

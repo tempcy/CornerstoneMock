@@ -82,6 +82,17 @@ async def run_bridge(
     config_file_path: Optional[Path] = None,
     persist_add_samples_queue: bool = True,
     add_samples_queue_persist_file: str = "",
+    compac_enabled: bool = False,
+    compac_port: str = "/dev/ttyUSB0",
+    compac_baud_rate: int = 9600,
+    compac_data_bits: int = 8,
+    compac_parity: str = "N",
+    compac_stop_bits: int = 1,
+    compac_listen_enabled: bool = False,
+    compac_timeout_seconds: float = 5.0,
+    compac_retry_count: int = 5,
+    compac_queue_max: int = 32,
+    compac_recv_idle_clear_seconds: float = 30.0,
 ) -> None:
     hub = GatewayHub(
         upstream_host=upstream_host,
@@ -113,6 +124,17 @@ async def run_bridge(
         config_file_path=config_file_path,
         persist_add_samples_queue=persist_add_samples_queue,
         add_samples_queue_persist_file=add_samples_queue_persist_file,
+        compac_enabled=compac_enabled,
+        compac_port=compac_port,
+        compac_baud_rate=compac_baud_rate,
+        compac_data_bits=compac_data_bits,
+        compac_parity=compac_parity,
+        compac_stop_bits=compac_stop_bits,
+        compac_listen_enabled=compac_listen_enabled,
+        compac_timeout_seconds=compac_timeout_seconds,
+        compac_retry_count=compac_retry_count,
+        compac_queue_max=compac_queue_max,
+        compac_recv_idle_clear_seconds=compac_recv_idle_clear_seconds,
     )
 
     async def client_cb(r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
@@ -446,6 +468,19 @@ def main() -> int:
                 ),
                 add_samples_queue_persist_file=str(
                     getattr(args, "add_samples_queue_persist_file", "") or ""
+                ),
+                compac_enabled=bool(getattr(args, "compac_enabled", False)),
+                compac_port=str(getattr(args, "compac_port", "/dev/ttyUSB0") or "/dev/ttyUSB0"),
+                compac_baud_rate=int(getattr(args, "compac_baud_rate", 9600)),
+                compac_data_bits=int(getattr(args, "compac_data_bits", 8)),
+                compac_parity=str(getattr(args, "compac_parity", "N") or "N"),
+                compac_stop_bits=int(getattr(args, "compac_stop_bits", 1)),
+                compac_listen_enabled=bool(getattr(args, "compac_listen_enabled", False)),
+                compac_timeout_seconds=float(getattr(args, "compac_timeout_seconds", 5.0)),
+                compac_retry_count=int(getattr(args, "compac_retry_count", 5)),
+                compac_queue_max=int(getattr(args, "compac_queue_max", 32)),
+                compac_recv_idle_clear_seconds=float(
+                    getattr(args, "compac_recv_idle_clear_seconds", 30.0)
                 ),
             )
         )

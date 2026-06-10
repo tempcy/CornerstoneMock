@@ -68,6 +68,17 @@ _BRIDGE_ALLOWED_KEYS = frozenset(
         "log_file_max_mb",
         "log_file_backup_count",
         "log_throttle_interval_s",
+        "compac_enabled",
+        "compac_port",
+        "compac_baud_rate",
+        "compac_data_bits",
+        "compac_parity",
+        "compac_stop_bits",
+        "compac_listen_enabled",
+        "compac_timeout_seconds",
+        "compac_retry_count",
+        "compac_queue_max",
+        "compac_recv_idle_clear_seconds",
     }
 )
 
@@ -242,8 +253,32 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
         if k == "encoding" and v is not None and str(v).strip() != "":
             out[k] = _normalize_encoding(str(v))
             continue
-        if k in ("port", "web_port", "upstream_port", "add_samples_queue_size", "bridge_api_port"):
+        if k in (
+            "port",
+            "web_port",
+            "upstream_port",
+            "add_samples_queue_size",
+            "bridge_api_port",
+            "compac_baud_rate",
+            "compac_data_bits",
+            "compac_stop_bits",
+            "compac_retry_count",
+            "compac_queue_max",
+        ):
             out[k] = int(v)
+            continue
+        if k in ("compac_timeout_seconds", "compac_recv_idle_clear_seconds"):
+            out[k] = float(v)
+            continue
+        if k in ("compac_enabled", "compac_listen_enabled"):
+            out[k] = bool(v)
+            continue
+        if k in (
+            "compac_port",
+            "compac_parity",
+        ):
+            if v is not None and str(v).strip() != "":
+                out[k] = str(v).strip()
             continue
         if k == "async_message_interval":
             out[k] = float(v)
