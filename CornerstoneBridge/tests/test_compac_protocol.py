@@ -30,8 +30,8 @@ def test_build_and_parse_roundtrip():
 
 def test_status_request_and_response():
     req = build_status_request()
-    assert req == b"\x01 A REQUEST\r\n"
-    line = b"\x01 A 1000000000 12\r\n"
+    assert req == b"\x01AREQUEST\r\n"
+    line = b"\x01A100000000012\r\n"
     msg, err = parse_status_response(line)
     assert err is None
     assert msg is not None
@@ -131,7 +131,7 @@ def test_recv_buffer_control_byte():
 
 
 def test_recv_buffer_status_line():
-    line = b"\x01 A 0100000000 5\r\n"
+    line = b"\x01A01000000005\r\n"
     buf = CompacRecvBuffer(idle_clear_sec=0)
     buf.append(line)
     dr = buf.drain()

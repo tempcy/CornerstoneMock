@@ -66,7 +66,7 @@ async def test_query_status():
 
     async def reply_status():
         await asyncio.sleep(0.05)
-        client_port.inject_rx(b"\x01 A 1000000000 3\r\n")
+        client_port.inject_rx(b"\x01A10000000003\r\n")
 
     task = asyncio.create_task(reply_status())
     r = await svc.query_status()
@@ -129,6 +129,5 @@ async def test_reply_a_request():
     await svc.bind_memory_peer(port)
     peer.write(build_status_request())
     await asyncio.sleep(0.15)
-    assert b"0100000000" in bytes(peer.rx_buffer)
-    assert b" 5\r\n" in bytes(peer.rx_buffer)
+    assert b"A01000000005\r\n" in bytes(peer.rx_buffer)
     await svc.shutdown()

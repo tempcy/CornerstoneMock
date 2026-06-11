@@ -20,9 +20,9 @@ LF = 0x0A
 TELEGRAM_DATA_LEN = 37
 TELEGRAM_FRAME_LEN = 1 + 4 + TELEGRAM_DATA_LEN + 3 + 1  # STX+BCT+DATA+CKS+ETX
 
-_STATUS_REQUEST_RE = re.compile(rb"\x01 A REQUEST\r\n", re.ASCII)
+_STATUS_REQUEST_RE = re.compile(rb"\x01AREQUEST\r\n", re.ASCII)
 _STATUS_LINE_RE = re.compile(
-    rb"\x01 A ([\x20-\x7E]{10}) (\d{1,2})\r\n",
+    rb"\x01A([\x20-\x7E]{10})(\d{1,2})\r\n",
     re.ASCII,
 )
 
@@ -289,8 +289,8 @@ def validate_telegram(
 
 
 def build_status_request(*, ctrl: CompacControlChars = CompacControlChars()) -> bytes:
-    """SOH A REQUEST CR LF。"""
-    return bytes([ctrl.soh]) + b" A REQUEST\r\n"
+    """SOH + AREQUEST + CR + LF（A 与 REQUEST 之间无空格）。"""
+    return bytes([ctrl.soh]) + b"AREQUEST\r\n"
 
 
 def build_status_response(
@@ -299,10 +299,10 @@ def build_status_response(
     *,
     ctrl: CompacControlChars = CompacControlChars(),
 ) -> bytes:
-    """SOH A StatusMessage(10) Error# CR LF。"""
+    """SOH + A + StatusMessage(10) + Error# + CR + LF（字段间无空格）。"""
     chars = (status_chars or "")[:10].ljust(10)
     err = max(0, min(99, int(error_code)))
-    return bytes([ctrl.soh]) + f" A {chars} {err}\r\n".encode("ascii")
+    return bytes([ctrl.soh]) + f"A{chars}{err}\r\n".encode("ascii")
 
 
 def is_status_request(line: bytes) -> bool:

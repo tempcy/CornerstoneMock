@@ -97,7 +97,7 @@ compac_queue_max = 32
 compac_recv_idle_clear_seconds = 30.0
 # 接收试样电文时是否校验 BCT 与 CKS（关闭后仅检查帧结构）
 compac_verify_bct_cks = true
-# 收到 SOH A REQUEST 时是否自动答复 STATUS（Bridge 作为仪器侧 Server）
+# 收到 SOH+AREQUEST 时是否自动答复 AStatus（Bridge 作为仪器侧 Server；指令内无空格）
 compac_reply_a_request = false
 # 答复 STATUS 时使用的默认 10 位状态字符（无缓存状态时）
 compac_reply_status_chars = "1000000000"
