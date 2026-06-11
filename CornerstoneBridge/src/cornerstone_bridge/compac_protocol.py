@@ -20,6 +20,7 @@ LF = 0x0A
 TELEGRAM_DATA_LEN = 37
 TELEGRAM_FRAME_LEN = 1 + 4 + TELEGRAM_DATA_LEN + 3 + 1  # STX+BCT+DATA+CKS+ETX
 
+_STATUS_REQUEST_RE = re.compile(rb"\x01 A REQUEST\r\n", re.ASCII)
 _STATUS_LINE_RE = re.compile(
     rb"\x01 A ([\x20-\x7E]{10}) (\d{1,2})\r\n",
     re.ASCII,
@@ -84,6 +85,7 @@ class CompacRecvAnomaly:
 class CompacDrainResult:
     telegrams: List[bytes] = field(default_factory=list)
     status_lines: List[bytes] = field(default_factory=list)
+    status_requests: List[bytes] = field(default_factory=list)
     control_bytes: List[int] = field(default_factory=list)
     anomalies: List[CompacRecvAnomaly] = field(default_factory=list)
     bytes_discarded: int = 0
@@ -99,6 +101,7 @@ class CompacRecvBuffer:
 
     buf: bytes = b""
     ctrl: CompacControlChars = field(default_factory=CompacControlChars)
+    verify_bct_cks: bool = True
     idle_clear_sec: float = 30.0
     last_append_at: float = 0.0
 
@@ -145,7 +148,9 @@ class CompacRecvBuffer:
                 if len(self.buf) < TELEGRAM_FRAME_LEN:
                     break
                 frame = self.buf[:TELEGRAM_FRAME_LEN]
-                ok, err = validate_telegram(frame, ctrl=self.ctrl)
+                ok, err = validate_telegram(
+                    frame, ctrl=self.ctrl, verify_bct_cks=self.verify_bct_cks
+                )
                 if ok:
                     out.telegrams.append(frame)
                     self.buf = self.buf[TELEGRAM_FRAME_LEN:]
@@ -158,6 +163,12 @@ class CompacRecvBuffer:
                 continue
 
             if b0 == self.ctrl.soh:
+                req = _STATUS_REQUEST_RE.match(self.buf)
+                if req is not None:
+                    line = req.group(0)
+                    out.status_requests.append(line)
+                    self.buf = self.buf[len(line) :]
+                    continue
                 m = _STATUS_LINE_RE.search(self.buf)
                 if m is None:
                     if CR in self.buf[:64] and LF in self.buf[:64]:
@@ -236,8 +247,9 @@ def parse_sample_telegram(
     frame: bytes,
     *,
     ctrl: CompacControlChars = CompacControlChars(),
+    verify_bct_cks: bool = True,
 ) -> Tuple[Optional[CompacSampleFields], Optional[str]]:
-    ok, err = validate_telegram(frame, ctrl=ctrl)
+    ok, err = validate_telegram(frame, ctrl=ctrl, verify_bct_cks=verify_bct_cks)
     if not ok:
         return None, err
     data = frame[5 : 5 + TELEGRAM_DATA_LEN].decode("ascii")
@@ -250,6 +262,7 @@ def validate_telegram(
     frame: bytes,
     *,
     ctrl: CompacControlChars = CompacControlChars(),
+    verify_bct_cks: bool = True,
 ) -> Tuple[bool, Optional[str]]:
     if len(frame) != TELEGRAM_FRAME_LEN:
         return False, f"length:{len(frame)}"
@@ -263,8 +276,10 @@ def validate_telegram(
     )
     if not cks_str.isdigit():
         return False, "cks_not_digit"
+    if not verify_bct_cks:
+        return True, None
     stx_bct_data = frame[: 5 + TELEGRAM_DATA_LEN]
-    expect_bct = _compute_bct(frame[5 : 5 + TELEGRAM_DATA_LEN], ctrl.stx)  # DATA only
+    expect_bct = _compute_bct(frame[5 : 5 + TELEGRAM_DATA_LEN], ctrl.stx)
     if bct_str != expect_bct:
         return False, f"bct_mismatch:{bct_str}!={expect_bct}"
     expect_cks = _compute_cks(stx_bct_data)
@@ -276,6 +291,22 @@ def validate_telegram(
 def build_status_request(*, ctrl: CompacControlChars = CompacControlChars()) -> bytes:
     """SOH A REQUEST CR LF。"""
     return bytes([ctrl.soh]) + b" A REQUEST\r\n"
+
+
+def build_status_response(
+    status_chars: str,
+    error_code: int,
+    *,
+    ctrl: CompacControlChars = CompacControlChars(),
+) -> bytes:
+    """SOH A StatusMessage(10) Error# CR LF。"""
+    chars = (status_chars or "")[:10].ljust(10)
+    err = max(0, min(99, int(error_code)))
+    return bytes([ctrl.soh]) + f" A {chars} {err}\r\n".encode("ascii")
+
+
+def is_status_request(line: bytes) -> bool:
+    return _STATUS_REQUEST_RE.fullmatch(line) is not None
 
 
 def parse_status_response(line: bytes) -> Tuple[Optional[CompacStatusMessage], Optional[str]]:

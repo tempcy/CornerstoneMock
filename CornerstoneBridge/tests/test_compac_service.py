@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from cornerstone_bridge.compac_protocol import ACK, ENQ
+from cornerstone_bridge.compac_protocol import ACK, ENQ, build_status_request
 from cornerstone_bridge.compac_serial_port import MemorySerialPort, link_memory_ports
 from cornerstone_bridge.compac_service import CompacSerialConfig, CompacSerialService
 
@@ -107,3 +107,28 @@ async def test_queue_enqueue_and_send():
         with pytest.raises(asyncio.CancelledError):
             await task
         await svc.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_reply_a_request():
+    port = MemorySerialPort("memory://reply")
+    peer = MemorySerialPort("memory://peer")
+    link_memory_ports(port, peer)
+    peer.open()
+
+    svc = CompacSerialService(
+        CompacSerialConfig(
+            enabled=True,
+            port="memory://reply",
+            force_memory_port=True,
+            reply_a_request=True,
+            reply_status_chars="0100000000",
+            reply_status_error=5,
+        )
+    )
+    await svc.bind_memory_peer(port)
+    peer.write(build_status_request())
+    await asyncio.sleep(0.15)
+    assert b"0100000000" in bytes(peer.rx_buffer)
+    assert b" 5\r\n" in bytes(peer.rx_buffer)
+    await svc.shutdown()

@@ -104,6 +104,10 @@ class GatewayHub:
         compac_retry_count: int = 5,
         compac_queue_max: int = 32,
         compac_recv_idle_clear_seconds: float = 30.0,
+        compac_verify_bct_cks: bool = True,
+        compac_reply_a_request: bool = False,
+        compac_reply_status_chars: str = "1000000000",
+        compac_reply_status_error: int = 0,
     ) -> None:
         self._upstream_host = upstream_host
         self._upstream_port = upstream_port
@@ -224,6 +228,10 @@ class GatewayHub:
                 queue_max=max(1, int(compac_queue_max)),
                 recv_idle_clear_seconds=float(compac_recv_idle_clear_seconds),
                 force_memory_port=str(compac_port or "").startswith("memory://"),
+                verify_bct_cks=bool(compac_verify_bct_cks),
+                reply_a_request=bool(compac_reply_a_request),
+                reply_status_chars=str(compac_reply_status_chars or "1000000000"),
+                reply_status_error=int(compac_reply_status_error),
             )
         )
 
@@ -2282,6 +2290,14 @@ class GatewayHub:
             if new_listen != cfg.listen_enabled:
                 listen_changed = True
             cfg.listen_enabled = new_listen
+        if "verifyBctCks" in body:
+            cfg.verify_bct_cks = bool(body.get("verifyBctCks"))
+        if "replyARequest" in body:
+            cfg.reply_a_request = bool(body.get("replyARequest"))
+        if "replyStatusChars" in body:
+            cfg.reply_status_chars = str(body.get("replyStatusChars") or cfg.reply_status_chars)[:10]
+        if "replyStatusError" in body:
+            cfg.reply_status_error = max(0, min(99, int(body.get("replyStatusError") or 0)))
         self._compac.apply_config(cfg)
         port_reopen = any(
             k in body for k in ("port", "baudRate", "dataBits", "parity", "stopBits")

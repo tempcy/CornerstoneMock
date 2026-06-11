@@ -19,6 +19,7 @@ from .compac_protocol import (
     CompacStatusMessage,
     build_sample_telegram,
     build_status_request,
+    build_status_response,
     bytes_name,
     parse_sample_telegram,
     parse_status_response,
@@ -51,6 +52,10 @@ class CompacSerialConfig:
     queue_max: int = 32
     recv_idle_clear_seconds: float = 30.0
     force_memory_port: bool = False
+    verify_bct_cks: bool = True
+    reply_a_request: bool = False
+    reply_status_chars: str = "1000000000"
+    reply_status_error: int = 0
 
     def to_public_dict(self) -> Dict[str, Any]:
         return {
@@ -65,6 +70,10 @@ class CompacSerialConfig:
             "retryCount": self.retry_count,
             "queueMax": self.queue_max,
             "recvIdleClearSeconds": self.recv_idle_clear_seconds,
+            "verifyBctCks": self.verify_bct_cks,
+            "replyARequest": self.reply_a_request,
+            "replyStatusChars": self.reply_status_chars,
+            "replyStatusError": self.reply_status_error,
         }
 
 
@@ -89,7 +98,10 @@ class CompacSerialService:
     def __init__(self, config: Optional[CompacSerialConfig] = None) -> None:
         self.config = config or CompacSerialConfig()
         self.ctrl = CompacControlChars()
-        self._recv = CompacRecvBuffer(idle_clear_sec=self.config.recv_idle_clear_seconds)
+        self._recv = CompacRecvBuffer(
+            idle_clear_sec=self.config.recv_idle_clear_seconds,
+            verify_bct_cks=self.config.verify_bct_cks,
+        )
         self._queue: Deque[PendingCompacSample] = deque(maxlen=max(1, self.config.queue_max))
         self._state = CompacServiceState()
         self._port: Optional[SerialPortBase] = None
@@ -158,6 +170,7 @@ class CompacSerialService:
     def apply_config(self, cfg: CompacSerialConfig) -> None:
         self.config = cfg
         self._recv.idle_clear_sec = max(0.0, float(cfg.recv_idle_clear_seconds))
+        self._recv.verify_bct_cks = bool(cfg.verify_bct_cks)
         while self._queue.maxlen and len(self._queue) > cfg.queue_max:
             self._queue.popleft()
         new_deque: Deque[PendingCompacSample] = deque(self._queue, maxlen=max(1, cfg.queue_max))
@@ -259,8 +272,16 @@ class CompacSerialService:
                 continue
             await self._pending_ctrl.put(ctrl)
 
+        for req_line in dr.status_requests:
+            if self.config.reply_a_request:
+                await self._reply_status_request()
+            else:
+                _log.debug("COMPAC A REQUEST ignored (reply_a_request=false)")
+
         for frame in dr.telegrams:
-            fields, perr = parse_sample_telegram(frame, ctrl=self.ctrl)
+            fields, perr = parse_sample_telegram(
+                frame, ctrl=self.ctrl, verify_bct_cks=self.config.verify_bct_cks
+            )
             if fields is None:
                 _log.warning("COMPAC bad telegram rx: %s", perr)
                 if self.config.listen_enabled:
@@ -289,6 +310,18 @@ class CompacSerialService:
 
         for an in dr.anomalies:
             _log.debug("COMPAC recv anomaly %s: %s", an.kind, an.message)
+
+    def _status_reply_payload(self) -> tuple[str, int]:
+        if self._state.last_status is not None:
+            return self._state.last_status.status_chars, self._state.last_status.error_code
+        chars = (self.config.reply_status_chars or "1000000000")[:10].ljust(10)
+        return chars, int(self.config.reply_status_error)
+
+    async def _reply_status_request(self) -> None:
+        chars, err = self._status_reply_payload()
+        resp = build_status_response(chars, err, ctrl=self.ctrl)
+        await self._write(resp)
+        _log.info("COMPAC A REQUEST replied status=%r error=%s", chars, err)
 
     async def _write(self, data: bytes) -> None:
         if self._port is None or not self._port.is_open():

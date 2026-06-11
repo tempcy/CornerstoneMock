@@ -79,6 +79,10 @@ _BRIDGE_ALLOWED_KEYS = frozenset(
         "compac_retry_count",
         "compac_queue_max",
         "compac_recv_idle_clear_seconds",
+        "compac_verify_bct_cks",
+        "compac_reply_a_request",
+        "compac_reply_status_chars",
+        "compac_reply_status_error",
     }
 )
 
@@ -264,18 +268,20 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
             "compac_stop_bits",
             "compac_retry_count",
             "compac_queue_max",
+            "compac_reply_status_error",
         ):
             out[k] = int(v)
             continue
         if k in ("compac_timeout_seconds", "compac_recv_idle_clear_seconds"):
             out[k] = float(v)
             continue
-        if k in ("compac_enabled", "compac_listen_enabled"):
+        if k in ("compac_enabled", "compac_listen_enabled", "compac_verify_bct_cks", "compac_reply_a_request"):
             out[k] = bool(v)
             continue
         if k in (
             "compac_port",
             "compac_parity",
+            "compac_reply_status_chars",
         ):
             if v is not None and str(v).strip() != "":
                 out[k] = str(v).strip()

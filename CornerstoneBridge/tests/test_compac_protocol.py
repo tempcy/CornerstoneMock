@@ -8,6 +8,7 @@ from cornerstone_bridge.compac_protocol import (
     CompacRecvBuffer,
     build_sample_telegram,
     build_status_request,
+    build_status_response,
     parse_sample_telegram,
     parse_status_response,
     validate_telegram,
@@ -85,6 +86,41 @@ def test_recv_buffer_bad_checksum_discarded():
     dr = buf.drain()
     assert dr.telegrams == []
     assert dr.anomalies
+
+
+def test_validate_skip_bct_cks():
+    frame = bytearray(build_sample_telegram("BAD", "CKS"))
+    frame[-4] = ord("0") ^ 0x01
+    ok, err = validate_telegram(bytes(frame), verify_bct_cks=False)
+    assert ok, err
+    fields, perr = parse_sample_telegram(bytes(frame), verify_bct_cks=False)
+    assert perr is None
+    assert fields is not None
+
+
+def test_recv_buffer_skip_bct_cks_accepts_bad_frame():
+    frame = bytearray(build_sample_telegram("OK", "Skip"))
+    frame[2] = ord("9")
+    buf = CompacRecvBuffer(idle_clear_sec=0, verify_bct_cks=False)
+    buf.append(bytes(frame))
+    dr = buf.drain()
+    assert len(dr.telegrams) == 1
+
+
+def test_recv_buffer_status_request():
+    buf = CompacRecvBuffer(idle_clear_sec=0)
+    buf.append(build_status_request())
+    dr = buf.drain()
+    assert len(dr.status_requests) == 1
+    assert dr.status_lines == []
+
+
+def test_build_status_response_roundtrip():
+    resp = build_status_response("1000000000", 7)
+    msg, err = parse_status_response(resp)
+    assert err is None
+    assert msg.error_code == 7
+    assert msg.automatic_mode is True
 
 
 def test_recv_buffer_control_byte():

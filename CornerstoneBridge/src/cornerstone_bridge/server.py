@@ -93,6 +93,10 @@ async def run_bridge(
     compac_retry_count: int = 5,
     compac_queue_max: int = 32,
     compac_recv_idle_clear_seconds: float = 30.0,
+    compac_verify_bct_cks: bool = True,
+    compac_reply_a_request: bool = False,
+    compac_reply_status_chars: str = "1000000000",
+    compac_reply_status_error: int = 0,
 ) -> None:
     hub = GatewayHub(
         upstream_host=upstream_host,
@@ -135,6 +139,10 @@ async def run_bridge(
         compac_retry_count=compac_retry_count,
         compac_queue_max=compac_queue_max,
         compac_recv_idle_clear_seconds=compac_recv_idle_clear_seconds,
+        compac_verify_bct_cks=compac_verify_bct_cks,
+        compac_reply_a_request=compac_reply_a_request,
+        compac_reply_status_chars=compac_reply_status_chars,
+        compac_reply_status_error=compac_reply_status_error,
     )
 
     async def client_cb(r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
@@ -482,6 +490,12 @@ def main() -> int:
                 compac_recv_idle_clear_seconds=float(
                     getattr(args, "compac_recv_idle_clear_seconds", 30.0)
                 ),
+                compac_verify_bct_cks=bool(getattr(args, "compac_verify_bct_cks", True)),
+                compac_reply_a_request=bool(getattr(args, "compac_reply_a_request", False)),
+                compac_reply_status_chars=str(
+                    getattr(args, "compac_reply_status_chars", "1000000000") or "1000000000"
+                ),
+                compac_reply_status_error=int(getattr(args, "compac_reply_status_error", 0)),
             )
         )
     except KeyboardInterrupt:
