@@ -11,6 +11,7 @@ hidden_ui = hidden_bridge + collect_submodules("cornerstone_bridge.ui")
 datas_cli, binaries_cli, hidden_cli = collect_all("cornerstone_cli")
 datas_br, binaries_br, hidden_br = collect_all("cornerstone_bridge")
 datas_pyside, binaries_pyside, hidden_pyside = collect_all("PySide6")
+datas_serial, binaries_serial, hidden_serial = collect_all("serial")
 
 a_bridge = Analysis(
     [os.path.join(SPECPATH, "..", "entrypoints", "run_bridge.py")],
@@ -18,9 +19,9 @@ a_bridge = Analysis(
         os.path.join(SPECPATH, "..", "..", "CornerstoneBridge", "src"),
         os.path.join(SPECPATH, "..", "..", "CornerstoneCLI", "src"),
     ],
-    binaries=binaries_cli + binaries_br,
-    datas=datas_cli + datas_br,
-    hiddenimports=hidden_bridge + hidden_cli + hidden_br,
+    binaries=binaries_cli + binaries_br + binaries_serial,
+    datas=datas_cli + datas_br + datas_serial,
+    hiddenimports=hidden_bridge + hidden_cli + hidden_br + hidden_serial,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -37,9 +38,9 @@ a_ui = Analysis(
         os.path.join(SPECPATH, "..", "..", "CornerstoneBridge", "src"),
         os.path.join(SPECPATH, "..", "..", "CornerstoneCLI", "src"),
     ],
-    binaries=binaries_cli + binaries_br + binaries_pyside,
-    datas=datas_cli + datas_br + datas_pyside,
-    hiddenimports=hidden_ui + hidden_cli + hidden_br + hidden_pyside,
+    binaries=binaries_cli + binaries_br + binaries_pyside + binaries_serial,
+    datas=datas_cli + datas_br + datas_pyside + datas_serial,
+    hiddenimports=hidden_ui + hidden_cli + hidden_br + hidden_pyside + hidden_serial,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

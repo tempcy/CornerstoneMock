@@ -68,6 +68,13 @@ class BridgeApiClient:
     def put_connections(self, body: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("PUT", "/api/connections", body=body)
 
+    def post_client_ip_policy(self, action: str, peer_host: str) -> Dict[str, Any]:
+        return self._request(
+            "POST",
+            "/api/clients/ip-policy",
+            body={"action": action, "peerHost": peer_host},
+        )
+
     def ping(self) -> Tuple[bool, str]:
         try:
             st = self.get_status()

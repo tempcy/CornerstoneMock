@@ -1,6 +1,6 @@
 # Cornerstone Mock 安装程序
 
-**发布版本**由仓库根目录 [`VERSION`](../VERSION) 决定（当前 **0.1.8**）；`build-release.ps1` 与 Inno Setup 均读取该文件。每次打包还会自动生成**构建标识码**（UTC 时间戳 + Git 短哈希，例如 `20250525143000-a1b2c3d`），输出 `CornerstoneMock-Setup-<版本>-<标识码>.exe`。
+**发布版本**由仓库根目录 [`VERSION`](../VERSION) 决定（当前 **0.1.9**）；`build-release.ps1` 与 Inno Setup 均读取该文件。每次打包还会自动生成**构建标识码**（UTC 时间戳 + Git 短哈希，例如 `20250525143000-a1b2c3d`），输出 `CornerstoneMock-Setup-<版本>-<标识码>.exe`。
 
 生成 **Bridge（必选）**、**Web / Queue / CLI（可选）** 的 Windows 安装包；支持将 **Bridge**、**Web** 注册为 Windows 服务（默认勾选）。
 
@@ -60,7 +60,7 @@ Stop-Service CornerstoneBridge, CornerstoneWeb -Force -ErrorAction SilentlyConti
 | **Bridge**      | 必选（不可取消） | TCP 网关 + REST `:8081`                                                   |
 | **Bridge 控制台** | 选中       | `Bridge\cornerstone-bridge-ui.exe`（托盘：配置、日志筛选、连接/队列监控、服务启停）              |
 | **Web**         | 选中       | 静态页 `:8080`，代理 `/api/`*                                                 |
-| **Queue**       | 选中       | WinUI 悬浮窗（自包含 .NET 8 + WASDK；语言资源仅 **en-us** / **zh-CN** / **zh-Hans**） |
+| **Queue**       | 选中       | WinUI 悬浮窗（自包含 .NET 8 + WASDK；**需 Windows 10 1809 / 内部版本 17763 及以上**；语言资源仅 **en-us** / **zh-CN** / **zh-Hans**） |
 | **CLI**         | 选中       | `cornerstone-cli` 命令行                                                   |
 | **Bridge 系统服务** | 选中       | 服务名 `CornerstoneBridge`（以 **LocalSystem** 运行，满足管理员权限要求）                 |
 | **Web 系统服务**    | 选中       | 服务名 `CornerstoneWeb`                                                    |

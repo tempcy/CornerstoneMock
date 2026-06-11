@@ -79,9 +79,26 @@ async def run_bridge(
     web_user: str,
     web_password: str,
     privileged_add_samples_host: str,
+    blocked_connect_hosts: Optional[list] = None,
+    blocked_logon_hosts: Optional[list] = None,
     config_file_path: Optional[Path] = None,
     persist_add_samples_queue: bool = True,
     add_samples_queue_persist_file: str = "",
+    compac_enabled: bool = False,
+    compac_port: str = "/dev/ttyUSB0",
+    compac_baud_rate: int = 9600,
+    compac_data_bits: int = 8,
+    compac_parity: str = "N",
+    compac_stop_bits: int = 1,
+    compac_listen_enabled: bool = False,
+    compac_timeout_seconds: float = 5.0,
+    compac_retry_count: int = 5,
+    compac_queue_max: int = 32,
+    compac_recv_idle_clear_seconds: float = 30.0,
+    compac_verify_bct_cks: bool = True,
+    compac_reply_a_request: bool = False,
+    compac_reply_status_chars: str = "1000000000",
+    compac_reply_status_error: int = 0,
 ) -> None:
     hub = GatewayHub(
         upstream_host=upstream_host,
@@ -104,6 +121,8 @@ async def run_bridge(
         web_user=web_user,
         web_password=web_password,
         privileged_add_samples_host=privileged_add_samples_host,
+        blocked_connect_hosts=blocked_connect_hosts,
+        blocked_logon_hosts=blocked_logon_hosts,
         tcp_listen_host=listen_host,
         tcp_listen_port=listen_port,
         api_listen_host=api_host,
@@ -113,6 +132,21 @@ async def run_bridge(
         config_file_path=config_file_path,
         persist_add_samples_queue=persist_add_samples_queue,
         add_samples_queue_persist_file=add_samples_queue_persist_file,
+        compac_enabled=compac_enabled,
+        compac_port=compac_port,
+        compac_baud_rate=compac_baud_rate,
+        compac_data_bits=compac_data_bits,
+        compac_parity=compac_parity,
+        compac_stop_bits=compac_stop_bits,
+        compac_listen_enabled=compac_listen_enabled,
+        compac_timeout_seconds=compac_timeout_seconds,
+        compac_retry_count=compac_retry_count,
+        compac_queue_max=compac_queue_max,
+        compac_recv_idle_clear_seconds=compac_recv_idle_clear_seconds,
+        compac_verify_bct_cks=compac_verify_bct_cks,
+        compac_reply_a_request=compac_reply_a_request,
+        compac_reply_status_chars=compac_reply_status_chars,
+        compac_reply_status_error=compac_reply_status_error,
     )
 
     async def client_cb(r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
@@ -168,6 +202,10 @@ async def run_bridge(
             "AddSamples 直通上位机 IP: %r (其余 TCP 客户端仍截留)",
             hub._privileged_add_samples_host,
         )
+    if hub._blocked_connect_hosts:
+        log.info("连接阻止 IP: %s", ", ".join(hub.blocked_connect_hosts_snapshot()))
+    if hub._blocked_logon_hosts:
+        log.info("登录阻止 IP: %s", ", ".join(hub.blocked_logon_hosts_snapshot()))
     if hub._queue_persist_path is not None:
         log.info("AddSamples 队列持久化: %s", hub._queue_persist_path)
 
@@ -438,6 +476,8 @@ def main() -> int:
                 web_user=args.web_user,
                 web_password=args.web_password,
                 privileged_add_samples_host=args.privileged_add_samples_host,
+                blocked_connect_hosts=getattr(args, "blocked_connect_hosts", None),
+                blocked_logon_hosts=getattr(args, "blocked_logon_hosts", None),
                 config_file_path=cfg_resolved,
                 persist_add_samples_queue=(
                     False
@@ -447,6 +487,25 @@ def main() -> int:
                 add_samples_queue_persist_file=str(
                     getattr(args, "add_samples_queue_persist_file", "") or ""
                 ),
+                compac_enabled=bool(getattr(args, "compac_enabled", False)),
+                compac_port=str(getattr(args, "compac_port", "/dev/ttyUSB0") or "/dev/ttyUSB0"),
+                compac_baud_rate=int(getattr(args, "compac_baud_rate", 9600)),
+                compac_data_bits=int(getattr(args, "compac_data_bits", 8)),
+                compac_parity=str(getattr(args, "compac_parity", "N") or "N"),
+                compac_stop_bits=int(getattr(args, "compac_stop_bits", 1)),
+                compac_listen_enabled=bool(getattr(args, "compac_listen_enabled", False)),
+                compac_timeout_seconds=float(getattr(args, "compac_timeout_seconds", 5.0)),
+                compac_retry_count=int(getattr(args, "compac_retry_count", 5)),
+                compac_queue_max=int(getattr(args, "compac_queue_max", 32)),
+                compac_recv_idle_clear_seconds=float(
+                    getattr(args, "compac_recv_idle_clear_seconds", 30.0)
+                ),
+                compac_verify_bct_cks=bool(getattr(args, "compac_verify_bct_cks", True)),
+                compac_reply_a_request=bool(getattr(args, "compac_reply_a_request", False)),
+                compac_reply_status_chars=str(
+                    getattr(args, "compac_reply_status_chars", "1000000000") or "1000000000"
+                ),
+                compac_reply_status_error=int(getattr(args, "compac_reply_status_error", 0)),
             )
         )
     except KeyboardInterrupt:

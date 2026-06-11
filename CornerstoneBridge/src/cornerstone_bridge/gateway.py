@@ -20,7 +20,7 @@ from xml.sax.saxutils import escape as _xml_escape
 
 from cornerstone_cli.communications.tcp_engine import HEARTBEAT_XML
 
-from .bridge_logging import get_logger, log_gateway_xml
+from .bridge_logging import get_logger, log_gateway_xml, log_policy_drop
 from .hub import GatewayHub, PendingAddSamples
 from .hub_helpers import _peer_host_from_peername, _peer_host_matches_privileged
 from .parsers import _xml_local_tag
@@ -49,12 +49,18 @@ async def _handle_client(
     async_message_interval: float,
 ) -> None:
     if not hub.is_tcp_gateway_enabled():
-        _log.info("client rejected (TCP gateway disabled): %s", writer.get_extra_info("peername"))
+        log_policy_drop(_log, "client rejected (TCP gateway disabled): %s", writer.get_extra_info("peername"))
         await _async_close_stream_writer(writer)
         return
 
     peer = writer.get_extra_info("peername")
     peer_s = str(peer)
+    peer_host = _peer_host_from_peername(peer)
+    if hub.is_host_blocked_connect(peer_host):
+        log_policy_drop(_log, "client rejected (connect blocked IP %r): %s", peer_host, peer_s)
+        await _async_close_stream_writer(writer)
+        return
+
     _log.info("client connected: %s", peer_s)
     await hub.register_tcp_client(writer)
 
@@ -116,6 +122,14 @@ async def _handle_client(
                 hub.on_client_logon_request(writer, text)
 
             if tag == "Logon":
+                if hub.is_host_blocked_logon(peer_host):
+                    log_policy_drop(
+                        _log,
+                        "Logon dropped (logon blocked IP %r): %s",
+                        peer_host,
+                        peer_s,
+                    )
+                    continue
                 if hub.should_synthesize_client_logon():
                     resp = _synthetic_logon_success(cookie)
                     _log.info("synthetic Logon for %s (gateway session)", peer_s)

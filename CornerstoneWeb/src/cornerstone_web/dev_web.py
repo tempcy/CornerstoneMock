@@ -133,6 +133,8 @@ def main() -> int:
                 web_user=str(m.get("web_user") or ""),
                 web_password=str(m.get("web_password") or ""),
                 privileged_add_samples_host=str(m.get("privileged_add_samples_host") or ""),
+                blocked_connect_hosts=m.get("blocked_connect_hosts"),
+                blocked_logon_hosts=m.get("blocked_logon_hosts"),
                 config_file_path=cfg_path,
             ),
             name="dev_bridge",

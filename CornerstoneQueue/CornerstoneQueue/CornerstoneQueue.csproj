@@ -18,7 +18,8 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <GenerateAppxPackageOnBuild>false</GenerateAppxPackageOnBuild>
     <AppxGeneratePriEnabled>true</AppxGeneratePriEnabled>
-    <!-- 自包含：输出目录携带 WASDK；由 SDK 自动 bootstrap（勿在 App 静态构造里手动 Initialize） -->
+    <!-- 自包含：输出目录携带 WASDK + .NET；仪器机无需另装运行时 -->
+    <SelfContained>true</SelfContained>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <!-- 语言裁剪仅在 installer publish 时通过 -p:SatelliteResourceLanguages 传入，避免 VS Release 构建缺 MUI -->
     <PublishTrimmed>false</PublishTrimmed>

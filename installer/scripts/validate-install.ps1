@@ -4,6 +4,7 @@ param(
     [string]$ConfigDir,
     [string]$InstallBridge = "1",
     [string]$InstallWeb = "1",
+    [string]$InstallQueue = "0",
     [switch]$NonInteractive
 )
 
@@ -116,12 +117,27 @@ function Test-PrivilegedHost([string]$Value) {
     return $true, ""
 }
 
+function Test-QueueOsSupported {
+    $build = [System.Environment]::OSVersion.Version.Build
+    if ($build -ge 17763) {
+        return $true, ""
+    }
+    return $false, "当前 Windows 内部版本 $build；Cornerstone Queue（WinUI）需要 Windows 10 1809（17763）或更高。请升级系统，或取消 Queue 组件仅使用 Bridge/Web。"
+}
+
 function Collect-Issues {
     param($BridgeCfg, $WebCfg)
 
     $issues = New-Object System.Collections.Generic.List[string]
     $bridgePath = Resolve-BridgeConfigPath
     $webPath = Resolve-WebConfigPath
+
+    if ($InstallQueue -eq "1") {
+        $okOs, $whyOs = Test-QueueOsSupported
+        if (-not $okOs) {
+            $issues.Add($whyOs)
+        }
+    }
 
     if ($InstallBridge -eq "1" -and $BridgeCfg) {
         $ok, $why = Test-PortFree -Port ([int]$BridgeCfg.port)

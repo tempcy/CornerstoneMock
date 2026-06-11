@@ -33,6 +33,7 @@ from .queue_persistence import (
 from .hub_helpers import *
 from .bridge_logging import get_logger, log_gateway_xml, log_throttled_warning
 from .upstream_framing import DrainAnomaly, DrainResult, UpstreamRecvBuffer
+from .compac_service import CompacSerialConfig, CompacSerialService, PendingCompacSample
 
 _log = get_logger("gateway")
 
@@ -82,6 +83,8 @@ class GatewayHub:
         web_user: str,
         web_password: str,
         privileged_add_samples_host: str = "",
+        blocked_connect_hosts: Optional[List[str]] = None,
+        blocked_logon_hosts: Optional[List[str]] = None,
         request_culture: str = "en-US",
         tcp_listen_host: str = "",
         tcp_listen_port: int = 0,
@@ -92,6 +95,21 @@ class GatewayHub:
         config_file_path: Optional[Union[Path, str]] = None,
         persist_add_samples_queue: bool = True,
         add_samples_queue_persist_file: str = "",
+        compac_enabled: bool = False,
+        compac_port: str = "/dev/ttyUSB0",
+        compac_baud_rate: int = 9600,
+        compac_data_bits: int = 8,
+        compac_parity: str = "N",
+        compac_stop_bits: int = 1,
+        compac_listen_enabled: bool = False,
+        compac_timeout_seconds: float = 5.0,
+        compac_retry_count: int = 5,
+        compac_queue_max: int = 32,
+        compac_recv_idle_clear_seconds: float = 30.0,
+        compac_verify_bct_cks: bool = True,
+        compac_reply_a_request: bool = False,
+        compac_reply_status_chars: str = "1000000000",
+        compac_reply_status_error: int = 0,
     ) -> None:
         self._upstream_host = upstream_host
         self._upstream_port = upstream_port
@@ -134,6 +152,8 @@ class GatewayHub:
         self.web_user = (web_user or "").strip()
         self.web_password = web_password or ""
         self._privileged_add_samples_host = (privileged_add_samples_host or "").strip()
+        self._blocked_connect_hosts: Set[str] = set(_parse_host_list(blocked_connect_hosts))
+        self._blocked_logon_hosts: Set[str] = set(_parse_host_list(blocked_logon_hosts))
         self.request_culture = (request_culture or "en-US").strip() or "en-US"
 
         self._upstream_reader: Optional[asyncio.StreamReader] = None
@@ -197,6 +217,27 @@ class GatewayHub:
         self._remote_control_display: str = "—"
         self._remote_control_active: bool = False
         self._remote_control_last_err: str = ""
+
+        self._compac = CompacSerialService(
+            CompacSerialConfig(
+                enabled=bool(compac_enabled),
+                port=str(compac_port or "/dev/ttyUSB0"),
+                baud_rate=int(compac_baud_rate),
+                data_bits=int(compac_data_bits),
+                parity=str(compac_parity or "N"),
+                stop_bits=int(compac_stop_bits),
+                listen_enabled=bool(compac_listen_enabled),
+                timeout_seconds=float(compac_timeout_seconds),
+                retry_count=int(compac_retry_count),
+                queue_max=max(1, int(compac_queue_max)),
+                recv_idle_clear_seconds=float(compac_recv_idle_clear_seconds),
+                force_memory_port=str(compac_port or "").startswith("memory://"),
+                verify_bct_cks=bool(compac_verify_bct_cks),
+                reply_a_request=bool(compac_reply_a_request),
+                reply_status_chars=str(compac_reply_status_chars or "1000000000"),
+                reply_status_error=int(compac_reply_status_error),
+            )
+        )
 
     def pending_snapshot(self) -> List[PendingAddSamples]:
         return sorted(self._pending_add_samples, key=lambda p: p.received_at, reverse=True)
@@ -264,6 +305,92 @@ class GatewayHub:
             self._tcp_client_writers.discard(writer)
             self._tcp_sessions.pop(id(writer), None)
 
+    def blocked_connect_hosts_snapshot(self) -> List[str]:
+        return sorted(self._blocked_connect_hosts)
+
+    def blocked_logon_hosts_snapshot(self) -> List[str]:
+        return sorted(self._blocked_logon_hosts)
+
+    def is_host_blocked_connect(self, peer_host: str) -> bool:
+        return _host_in_blocklist(peer_host, self._blocked_connect_hosts)
+
+    def is_host_blocked_logon(self, peer_host: str) -> bool:
+        return _host_in_blocklist(peer_host, self._blocked_logon_hosts)
+
+    def add_blocked_connect_host(self, peer_host: str) -> bool:
+        h = _normalize_host_for_policy(peer_host)
+        if not _is_valid_policy_host(h) or h in self._blocked_connect_hosts:
+            return False
+        self._blocked_connect_hosts.add(h)
+        return True
+
+    def add_blocked_logon_host(self, peer_host: str) -> bool:
+        h = _normalize_host_for_policy(peer_host)
+        if not _is_valid_policy_host(h) or h in self._blocked_logon_hosts:
+            return False
+        self._blocked_logon_hosts.add(h)
+        return True
+
+    def remove_blocked_connect_host(self, peer_host: str) -> bool:
+        h = _normalize_host_for_policy(peer_host)
+        if not h or h not in self._blocked_connect_hosts:
+            return False
+        self._blocked_connect_hosts.discard(h)
+        return True
+
+    def remove_blocked_logon_host(self, peer_host: str) -> bool:
+        h = _normalize_host_for_policy(peer_host)
+        if not h or h not in self._blocked_logon_hosts:
+            return False
+        self._blocked_logon_hosts.discard(h)
+        return True
+
+    def set_privileged_add_samples_host(self, peer_host: str) -> None:
+        self._privileged_add_samples_host = (peer_host or "").strip()
+        self._refresh_tcp_sessions_privileged()
+
+    def _refresh_tcp_sessions_privileged(self) -> None:
+        for s in self._tcp_sessions.values():
+            s.privileged = _peer_host_matches_privileged(
+                s.peer_host, self._privileged_add_samples_host
+            )
+
+    def persist_ip_policy_to_config(self) -> Tuple[bool, str]:
+        if self._config_file_path is None:
+            return False, "未使用 --config 启动，无法写回文件"
+        try:
+            from .config import write_bridge_config_file
+
+            p = Path(self._config_file_path)
+            write_bridge_config_file(
+                p,
+                {
+                    "blocked_connect_hosts": self.blocked_connect_hosts_snapshot(),
+                    "blocked_logon_hosts": self.blocked_logon_hosts_snapshot(),
+                    "privileged_add_samples_host": self._privileged_add_samples_host,
+                },
+            )
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+
+    async def close_tcp_clients_by_host(self, peer_host: str) -> int:
+        target = _normalize_host_for_policy(peer_host)
+        if not target:
+            return 0
+        async with self._tcp_clients_lock:
+            writers = [
+                s.writer
+                for s in self._tcp_sessions.values()
+                if _normalize_host_for_policy(s.peer_host) == target
+                and not s.writer.is_closing()
+            ]
+        n = 0
+        for w in writers:
+            await _async_close_stream_writer(w)
+            n += 1
+        return n
+
     async def close_all_tcp_clients(self) -> int:
         async with self._tcp_clients_lock:
             writers = list(self._tcp_client_writers)
@@ -293,15 +420,47 @@ class GatewayHub:
             with contextlib.suppress(Exception):
                 await self._ensure_upstream()
 
+    def _policy_only_tcp_client_entries(self, active_hosts: Set[str]) -> List[Dict[str, Any]]:
+        """阻止列表中的 IP 若无活跃连接，仍出现在客户端列表以便 GUI 解除阻止。"""
+        policy_hosts: Set[str] = set()
+        policy_hosts.update(self._blocked_connect_hosts)
+        policy_hosts.update(self._blocked_logon_hosts)
+        out: List[Dict[str, Any]] = []
+        for host in sorted(policy_hosts):
+            if not host or host in active_hosts:
+                continue
+            out.append(
+                {
+                    "peer": host,
+                    "peerHost": host,
+                    "connectedAt": None,
+                    "connectedSeconds": None,
+                    "privileged": _peer_host_matches_privileged(
+                        host, self._privileged_add_samples_host
+                    ),
+                    "connectBlocked": self.is_host_blocked_connect(host),
+                    "logonBlocked": self.is_host_blocked_logon(host),
+                    "logonUser": "—",
+                    "rxFrames": 0,
+                    "txFrames": 0,
+                    "policyOnly": True,
+                }
+            )
+        return out
+
     async def tcp_clients_snapshot(self) -> List[Dict[str, Any]]:
-        """当前已连接的 TCP 远程客户端（供管理界面 /api/monitor）。"""
+        """当前 TCP 远程客户端 + 无连接但仍在阻止列表中的 IP（供管理界面 /api/monitor）。"""
         now = time.time()
         async with self._tcp_clients_lock:
             sessions = list(self._tcp_sessions.values())
         out: List[Dict[str, Any]] = []
+        active_hosts: Set[str] = set()
         for s in sessions:
             if s.writer.is_closing():
                 continue
+            host = _normalize_host_for_policy(s.peer_host)
+            if host:
+                active_hosts.add(host)
             dur = max(0.0, now - s.connected_at)
             if s.logon_authenticated:
                 user_disp = s.logon_user or "(已登录)"
@@ -310,14 +469,19 @@ class GatewayHub:
             out.append(
                 {
                     "peer": s.peer,
+                    "peerHost": s.peer_host,
                     "connectedAt": s.connected_at,
                     "connectedSeconds": round(dur, 1),
                     "privileged": s.privileged,
+                    "connectBlocked": self.is_host_blocked_connect(s.peer_host),
+                    "logonBlocked": self.is_host_blocked_logon(s.peer_host),
                     "logonUser": user_disp,
                     "rxFrames": s.rx_frames,
                     "txFrames": s.tx_frames,
+                    "policyOnly": False,
                 }
             )
+        out.extend(self._policy_only_tcp_client_entries(active_hosts))
         return out
 
     async def _broadcast_upstream_async_to_tcp_clients(self, text: str) -> int:
@@ -449,6 +613,7 @@ class GatewayHub:
     async def shutdown_gracefully(self) -> None:
         """主动退出：停止上游心跳/重连，Logoff 仪器会话，断开上游 TCP。"""
         self._persist_add_samples_queue()
+        await self._compac.shutdown()
         self._shutting_down = True
         self._upstream_auto_reconnect = False
         await self._stop_upstream_heartbeat()
@@ -548,16 +713,30 @@ class GatewayHub:
     def start_background_maintenance(self) -> None:
         """启动上游活性巡检（activity_stale）；须在运行中的 event loop 内调用。"""
         if self._upstream_stale_check_interval_s <= 0:
-            return
-        if self._upstream_stale_check_task is not None and not self._upstream_stale_check_task.done():
-            return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        self._upstream_stale_check_task = loop.create_task(
-            self._upstream_stale_check_loop(), name="gateway_upstream_stale_check"
-        )
+            pass
+        elif self._upstream_stale_check_task is None or self._upstream_stale_check_task.done():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None:
+                self._upstream_stale_check_task = loop.create_task(
+                    self._upstream_stale_check_loop(), name="gateway_upstream_stale_check"
+                )
+        if self._compac.config.enabled and self._compac.config.listen_enabled:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None:
+                async def _compac_boot() -> None:
+                    ok, err = await self._compac.open_port()
+                    if ok:
+                        self._compac._state.listen_active = True
+                    elif err:
+                        _log.warning("COMPAC startup listen: %s", err)
+
+                loop.create_task(_compac_boot(), name="compac_startup_listen")
 
     async def _upstream_stale_check_loop(self) -> None:
         interval = max(float(self._upstream_stale_check_interval_s), 5.0)
@@ -571,6 +750,8 @@ class GatewayHub:
             if last <= 0:
                 continue
             stale_s = self._upstream_activity_stale_seconds()
+            if stale_s <= 0:
+                continue
             if (time.time() - last) <= stale_s:
                 continue
             _log.warning(
@@ -627,6 +808,9 @@ class GatewayHub:
     def _upstream_activity_stale_seconds(self) -> float:
         if self._upstream_activity_stale_seconds_cfg > 0:
             return self._upstream_activity_stale_seconds_cfg
+        if self._upstream_heartbeat_interval_s <= 0:
+            # 主动心跳已关闭时，仪器长期静默属正常；勿按 90s 自动回收（须显式配置 stale 秒数）
+            return 0.0
         interval = max(float(self._upstream_heartbeat_interval_s), 0.5)
         return max(3.0 * interval, 90.0)
 
@@ -636,8 +820,9 @@ class GatewayHub:
             return True, "heartbeat_streak"
         if self._upstream_command_fail_streak >= self._upstream_command_fail_max:
             return True, "command_streak"
+        stale_limit = self._upstream_activity_stale_seconds()
         last = self._last_upstream_activity_at()
-        if last > 0 and (time.time() - last) > self._upstream_activity_stale_seconds():
+        if stale_limit > 0 and last > 0 and (time.time() - last) > stale_limit:
             return True, "activity_stale"
         return False, ""
 
@@ -1525,7 +1710,10 @@ class GatewayHub:
         last = self._last_upstream_activity_at()
         if last <= 0:
             return True
-        return (time.time() - last) <= self._upstream_activity_stale_seconds()
+        stale_limit = self._upstream_activity_stale_seconds()
+        if stale_limit <= 0:
+            return True
+        return (time.time() - last) <= stale_limit
 
     def business_online(self) -> bool:
         """网关业务在线：TCP 网关启用且上游仪器在线。"""
@@ -2193,3 +2381,91 @@ class GatewayHub:
             "tags": [str(x.get("tag", "")) for x in reps],
             "fetchedAt": time.time(),
         }
+
+    # --- COMPAC 串口 ---
+
+    def compac_pending_snapshot(self) -> List[PendingCompacSample]:
+        return sorted(self._compac.pending_snapshot(), key=lambda p: p.received_at, reverse=True)
+
+    def compac_settings_dict(self) -> Dict[str, Any]:
+        return {
+            "ok": True,
+            **self._compac.config.to_public_dict(),
+            **self._compac.state_snapshot(),
+        }
+
+    async def compac_apply_settings(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        cfg = self._compac.config
+        notes: List[str] = []
+        listen_changed = False
+        if "enabled" in body:
+            cfg.enabled = bool(body.get("enabled"))
+        if "port" in body:
+            cfg.port = str(body.get("port") or cfg.port)
+            cfg.force_memory_port = cfg.port.startswith("memory://")
+        if "baudRate" in body:
+            cfg.baud_rate = int(body.get("baudRate") or cfg.baud_rate)
+        if "dataBits" in body:
+            cfg.data_bits = int(body.get("dataBits") or cfg.data_bits)
+        if "parity" in body:
+            cfg.parity = str(body.get("parity") or cfg.parity)
+        if "stopBits" in body:
+            cfg.stop_bits = int(body.get("stopBits") or cfg.stop_bits)
+        if "timeoutSeconds" in body:
+            cfg.timeout_seconds = float(body.get("timeoutSeconds") or cfg.timeout_seconds)
+        if "retryCount" in body:
+            cfg.retry_count = int(body.get("retryCount") or cfg.retry_count)
+        if "queueMax" in body:
+            cfg.queue_max = max(1, int(body.get("queueMax") or cfg.queue_max))
+        if "recvIdleClearSeconds" in body:
+            cfg.recv_idle_clear_seconds = float(
+                body.get("recvIdleClearSeconds") or cfg.recv_idle_clear_seconds
+            )
+        if "listenEnabled" in body:
+            new_listen = bool(body.get("listenEnabled"))
+            if new_listen != cfg.listen_enabled:
+                listen_changed = True
+            cfg.listen_enabled = new_listen
+        if "verifyBctCks" in body:
+            cfg.verify_bct_cks = bool(body.get("verifyBctCks"))
+        if "replyARequest" in body:
+            cfg.reply_a_request = bool(body.get("replyARequest"))
+        if "replyStatusChars" in body:
+            cfg.reply_status_chars = str(body.get("replyStatusChars") or cfg.reply_status_chars)[:10]
+        if "replyStatusError" in body:
+            cfg.reply_status_error = max(0, min(99, int(body.get("replyStatusError") or 0)))
+        self._compac.apply_config(cfg)
+        port_reopen = any(
+            k in body for k in ("port", "baudRate", "dataBits", "parity", "stopBits")
+        )
+        if port_reopen:
+            await self._compac.close_port()
+            notes.append("串口参数已更新，已关闭端口；下次发送或监听时将重新打开。")
+        if listen_changed:
+            ok, err = await self._compac.set_listen_enabled(cfg.listen_enabled)
+            if not ok:
+                return {"ok": False, "error": err, "notes": notes}
+            notes.append("串口监听已" + ("启动" if cfg.listen_enabled else "停止") + "。")
+            if cfg.listen_enabled:
+                await self._compac.open_port()
+        return {"ok": True, "notes": notes, "settings": self.compac_settings_dict()}
+
+    async def compac_set_listen(self, enabled: bool) -> Dict[str, Any]:
+        ok, err = await self._compac.set_listen_enabled(bool(enabled))
+        if not ok:
+            return {"ok": False, "error": err}
+        if enabled:
+            await self._compac.open_port()
+        return {"ok": True, "listenEnabled": bool(enabled)}
+
+    def compac_enqueue(self, sample_id: str, sample_type: str, *, source: str = "api") -> PendingCompacSample:
+        return self._compac.enqueue_sample(sample_id, sample_type, source=source)
+
+    async def compac_query_status(self) -> Dict[str, Any]:
+        return await self._compac.query_status()
+
+    async def compac_send_sample(self, sample_id: str, sample_type: str) -> Dict[str, Any]:
+        return await self._compac.send_sample(sample_id, sample_type)
+
+    async def compac_send_queued(self, ids: set[str]) -> Dict[str, Any]:
+        return await self._compac.send_queued(ids)

@@ -26,8 +26,21 @@ function Read-FlatTomlHashtable {
             }
             if ($val -eq "true") { $data[$key] = $true }
             elseif ($val -eq "false") { $data[$key] = $false }
+            elseif ($val -eq "[]") { $data[$key] = @() }
             elseif ($val -match '^\d+$') { $data[$key] = [long]$val }
             elseif ($val -match '^\d+(\.\d+)?$') { $data[$key] = [double]$val }
+            elseif ($val.StartsWith("[") -and $val.EndsWith("]")) {
+                try {
+                    $parsed = $val | ConvertFrom-Json
+                    if ($parsed -is [System.Collections.IEnumerable]) {
+                        $data[$key] = @($parsed)
+                    } else {
+                        $data[$key] = $val
+                    }
+                } catch {
+                    $data[$key] = $val
+                }
+            }
             else { $data[$key] = $val }
         }
     }
@@ -38,6 +51,14 @@ function Read-FlatTomlHashtable {
 function Format-TomlScalar {
     param($Value)
     if ($null -eq $Value) { return '""' }
+    if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
+        $items = @()
+        foreach ($item in @($Value)) {
+            if ($null -eq $item) { continue }
+            $items += (Format-TomlScalar $item)
+        }
+        return '[' + ($items -join ', ') + ']'
+    }
     if ($Value -is [bool]) {
         if ($Value) { return "true" }
         return "false"

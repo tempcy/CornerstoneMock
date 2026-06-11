@@ -2,10 +2,28 @@
 
 ## [Unreleased]
 
-### Documentation
+---
 
-- 重规划 **CornerstoneAgent**：长/短期参数采集、规则建议、云端 LLM 协作与本地信息窗口；新增 [CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)，更新 [PLAN.md](PLAN.md) §3 与 [README.md](README.md)。
-- 新增 [CornerstoneAgent/ENTERPRISE.md](CornerstoneAgent/ENTERPRISE.md)：讯飞星火/华为盘古对接、多实验室 Agent 调度、企业微信渠道架构（E1–E5）。
+## 0.1.9
+
+**定位**：Bridge COMPAC 串口协议（试样指令 / 状态查询）与 REST API。
+
+### Bridge
+
+- **COMPAC 串口**：协议解析（BCT/CKS、ENQ/ACK 握手）、试样发送、状态查询、仪器上行监听与待发队列；配置项见 `cornerstone-bridge.config.example.toml` `[compac_*]`。
+- **REST**：`/api/compac/settings`、`/api/compac/listen`、`/api/compac/status`、`/api/compac/queue`、`/api/compac/send` 等。
+- **串口驱动**：Linux 使用 termios；Windows/macOS 使用 **pyserial**（`COM3` 等）；测试可用 `memory://compac`。
+- **控制台**：连接页展示 COMPAC 串口状态摘要。
+
+### 依赖
+
+- `cornerstone-bridge` 新增 `pyserial>=3.5`（COMPAC 串口）。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.9 |
+| cornerstone-web | 0.1.9 |
+| cornerstone-cli | 0.1.9 |
 
 ---
 

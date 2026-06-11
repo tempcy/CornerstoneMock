@@ -43,8 +43,14 @@ def test_activity_stale_seconds_auto_and_explicit() -> None:
     hub = _make_hub(upstream_heartbeat_interval_s=60.0, upstream_activity_stale_seconds=0.0)
     assert hub._upstream_activity_stale_seconds() == 180.0
 
+    hub_hb_off = _make_hub(upstream_heartbeat_interval_s=0.0, upstream_activity_stale_seconds=0.0)
+    assert hub_hb_off._upstream_activity_stale_seconds() == 0.0
+
     hub2 = _make_hub(upstream_activity_stale_seconds=120.0)
     assert hub2._upstream_activity_stale_seconds() == 120.0
+
+    hub3 = _make_hub(upstream_heartbeat_interval_s=0.0, upstream_activity_stale_seconds=90.0)
+    assert hub3._upstream_activity_stale_seconds() == 90.0
 
 
 def test_active_heartbeat_only_when_upstream_idle() -> None:

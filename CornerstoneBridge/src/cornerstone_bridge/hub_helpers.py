@@ -190,9 +190,66 @@ def _interpret_remote_control_instrument_result(r: Dict[str, Any]) -> Tuple[bool
 
 def _peer_host_matches_privileged(peer_host: str, privileged: str) -> bool:
     """比较 TCP 对端主机与配置的上位机直通地址（忽略大小写、首尾空白）。"""
-    a = (peer_host or "").strip().lower()
-    b = (privileged or "").strip().lower()
+    a = _normalize_host_for_policy(peer_host)
+    b = _normalize_host_for_policy(privileged)
     return bool(a) and bool(b) and a == b
+
+
+def _normalize_host_for_policy(host: str) -> str:
+    """IP/主机名策略比较用规范化（去首尾空白、小写）。"""
+    return (host or "").strip().lower()
+
+
+def _is_valid_policy_host(h: str) -> bool:
+    """拒绝 merge-config 等误写的 ``[]`` / JSON 片段等非 IP 主机名。"""
+    if not h:
+        return False
+    if h in ("[]", "{}", "null"):
+        return False
+    if h.startswith("[") or h.startswith("{"):
+        return False
+    return bool(re.match(r"^[\w.\-:]+$", h))
+
+
+def _parse_host_list(value: object) -> List[str]:
+    """从配置值解析 IP 列表（TOML 数组、JSON 字符串或单个字符串）。"""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        s = value.strip()
+        if not s or s.lower() in ("[]", "{}", "null"):
+            return []
+        if s.startswith("["):
+            try:
+                parsed = json.loads(s)
+            except json.JSONDecodeError:
+                return []
+            if isinstance(parsed, list):
+                return _parse_host_list(parsed)
+            return []
+        h = _normalize_host_for_policy(s)
+        return [h] if _is_valid_policy_host(h) else []
+    if isinstance(value, (list, tuple)):
+        out: List[str] = []
+        seen: Set[str] = set()
+        for item in value:
+            if isinstance(item, (list, tuple)):
+                for sub in _parse_host_list(item):
+                    if sub not in seen:
+                        seen.add(sub)
+                        out.append(sub)
+                continue
+            for sub in _parse_host_list(str(item)):
+                if sub not in seen:
+                    seen.add(sub)
+                    out.append(sub)
+        return out
+    return _parse_host_list(str(value))
+
+
+def _host_in_blocklist(peer_host: str, blocklist: Set[str]) -> bool:
+    h = _normalize_host_for_policy(peer_host)
+    return bool(h) and h in blocklist
 
 
 __all__ = [n for n in globals() if n.startswith("_") and not n.startswith("__")]

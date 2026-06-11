@@ -69,20 +69,22 @@ _runtime_verbose_gateway = False
 
 
 class _RQInfoFileFilter(logging.Filter):
-    """RQ 类 INFO 默认不写文件；开启 verbose_gateway 时写入（供控制台日志页查看）。"""
+    """RQ / 策略丢弃类 INFO 默认不写文件；开启 verbose_gateway 时写入（供控制台日志页查看）。"""
 
     def __init__(self, verbose: bool = False) -> None:
         super().__init__()
         self._verbose = verbose
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if getattr(record, "rq", False) and record.levelno == logging.INFO:
+        if record.levelno == logging.INFO and (
+            getattr(record, "rq", False) or getattr(record, "policy_drop", False)
+        ):
             return self._verbose
         return True
 
 
 class _RQInfoConsoleFilter(logging.Filter):
-    """未开启 verbose 时，控制台也不显示 RQ INFO。"""
+    """未开启 verbose 时，控制台也不显示 RQ / 策略丢弃 INFO。"""
 
     def __init__(self, verbose: bool) -> None:
         super().__init__()
@@ -91,7 +93,9 @@ class _RQInfoConsoleFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if self._verbose:
             return True
-        if getattr(record, "rq", False) and record.levelno == logging.INFO:
+        if record.levelno == logging.INFO and (
+            getattr(record, "rq", False) or getattr(record, "policy_drop", False)
+        ):
             return False
         return True
 
@@ -248,6 +252,11 @@ def get_logger(name: str) -> logging.Logger:
 
 def log_rq(logger: logging.Logger, tag: str, msg: str, *args: object) -> None:
     logger.info(msg, *args, extra={"rq": True, "rq_tag": tag or ""})
+
+
+def log_policy_drop(logger: logging.Logger, msg: str, *args: object) -> None:
+    """TCP 策略丢弃（阻止列表、网关暂停等）：受 log_verbose_gateway 约束。"""
+    logger.info(msg, *args, extra={"policy_drop": True})
 
 
 def log_gateway_xml(

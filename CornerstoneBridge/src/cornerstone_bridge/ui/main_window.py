@@ -8,24 +8,20 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QObject, Qt, QTimer
 from PySide6.QtGui import QAction, QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
-    QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
-    QSpinBox,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -43,40 +39,33 @@ class _MenuToolButtonSync(QObject):
     """MenuButtonPopup：窄箭头区；主区文字居中；下拉菜单与整钮同宽。"""
 
     _MENU_ARROW_WIDTH = 28
+    _STYLE_TEMPLATE = (
+        "QToolButton {{ text-align: center; }}"
+        "QToolButton::menu-button {{"
+        " width: {aw}px;"
+        " subcontrol-origin: border;"
+        " subcontrol-position: right center;"
+        " border-left: 1px solid palette(mid);"
+        " }}"
+    )
 
     def __init__(self, btn: QToolButton, menu: QMenu) -> None:
         super().__init__(btn)
         self._btn = btn
         self._menu = menu
+        self._style_text = self._STYLE_TEMPLATE.format(aw=self._MENU_ARROW_WIDTH)
         menu.aboutToShow.connect(self._sync_menu_width)
-        btn.installEventFilter(self)
-        self._apply_style()
+        self._apply_style_once()
 
     def _sync_menu_width(self) -> None:
         w = self._btn.width()
         if w > 0:
             self._menu.setFixedWidth(w)
 
-    def _apply_style(self) -> None:
-        aw = self._MENU_ARROW_WIDTH
-        self._btn.setStyleSheet(
-            "QToolButton { text-align: center; }"
-            "QToolButton::menu-button {"
-            f" width: {aw}px;"
-            " subcontrol-origin: border;"
-            " subcontrol-position: right center;"
-            " border-left: 1px solid palette(mid);"
-            " }"
-        )
-
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        if watched is self._btn and event.type() in (
-            QEvent.Type.Resize,
-            QEvent.Type.Show,
-            QEvent.Type.StyleChange,
-        ):
-            self._apply_style()
-        return False
+    def _apply_style_once(self) -> None:
+        if self._btn.styleSheet() != self._style_text:
+            self._btn.setStyleSheet(self._style_text)
+from .config_form_panel import ConfigFormPanel
 from .config_io import (
     api_base_url,
     load_config_dict,
@@ -108,6 +97,7 @@ class MainWindow(QMainWindow):
         self._api = BridgeApiClient(api_base_url(self._cfg))
         self._log_offset = 0
         self._connections_syncing = False
+        self._api_connected = False
 
         self._tabs = QTabWidget()
         self.setCentralWidget(self._tabs)
@@ -195,7 +185,7 @@ class MainWindow(QMainWindow):
 
         top = QHBoxLayout()
         self._btn_refresh_mon = QPushButton("立即刷新")
-        self._btn_refresh_mon.clicked.connect(self._refresh_monitor)
+        self._btn_refresh_mon.clicked.connect(lambda: self._refresh_monitor(notify=True))
         self._chk_auto = QCheckBox("自动刷新 (2s)")
         self._chk_auto.setChecked(True)
         top.addWidget(self._btn_refresh_mon)
@@ -228,13 +218,10 @@ class MainWindow(QMainWindow):
 
         grid = QGridLayout()
         self._lbl_api_listen = QLabel("—")
-        self._lbl_queue = QLabel("—")
         self._lbl_rcs = QLabel("—")
         self._lbl_encoding = QLabel("—")
         grid.addWidget(QLabel("REST API"), 0, 0)
         grid.addWidget(self._lbl_api_listen, 0, 1)
-        grid.addWidget(QLabel("通讯队列"), 0, 2)
-        grid.addWidget(self._lbl_queue, 0, 3)
         grid.addWidget(QLabel("远程控制状态"), 1, 0)
         grid.addWidget(self._lbl_rcs, 1, 1, 1, 3)
         grid.addWidget(QLabel("编码"), 2, 0)
@@ -242,9 +229,9 @@ class MainWindow(QMainWindow):
         layout.addLayout(grid)
 
         layout.addWidget(QLabel("TCP 远程客户端"))
-        self._tbl_clients = QTableWidget(0, 6)
+        self._tbl_clients = QTableWidget(0, 7)
         self._tbl_clients.setHorizontalHeaderLabels(
-            ["客户端地址", "连接时长", "特权 IP", "登录用户", "收到", "发出"]
+            ["客户端地址", "连接时长", "特权 IP", "登录用户", "收到", "发出", "操作"]
         )
         hdr = self._tbl_clients.horizontalHeader()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -253,6 +240,7 @@ class MainWindow(QMainWindow):
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self._tbl_clients)
 
         self._tabs.addTab(w, "连接监控")
@@ -263,8 +251,10 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(w)
         row = QHBoxLayout()
         self._btn_refresh_q = QPushButton("刷新队列")
-        self._btn_refresh_q.clicked.connect(self._refresh_queue)
+        self._btn_refresh_q.clicked.connect(lambda: self._refresh_queue(notify=True))
+        self._lbl_queue = QLabel("队列: —")
         row.addWidget(self._btn_refresh_q)
+        row.addWidget(self._lbl_queue)
         row.addStretch()
         layout.addLayout(row)
 
@@ -272,10 +262,12 @@ class MainWindow(QMainWindow):
         self._tbl_queue.setHorizontalHeaderLabels(
             ["ID", "收到时间", "来源", "样品名", "描述"]
         )
-        self._tbl_queue.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.ResizeToContents
-        )
-        self._tbl_queue.horizontalHeader().setStretchLastSection(True)
+        hdr = self._tbl_queue.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self._tbl_queue)
         self._tabs.addTab(w, "通讯队列")
 
@@ -284,85 +276,8 @@ class MainWindow(QMainWindow):
         w = QWidget()
         outer = QVBoxLayout(w)
 
-        form_box = QGroupBox("网关与上游")
-        form = QFormLayout(form_box)
-        self._ed_host = QLineEdit()
-        self._sp_port = QSpinBox()
-        self._sp_port.setRange(1, 65535)
-        self._ed_api_host = QLineEdit()
-        self._sp_api_port = QSpinBox()
-        self._sp_api_port.setRange(1, 65535)
-        self._ed_upstream_host = QLineEdit()
-        self._sp_upstream_port = QSpinBox()
-        self._sp_upstream_port.setRange(1, 65535)
-        self._ed_priv_host = QLineEdit()
-        form.addRow("TCP 监听 host", self._ed_host)
-        form.addRow("TCP 监听 port", self._sp_port)
-        form.addRow("REST host", self._ed_api_host)
-        form.addRow("REST port", self._sp_api_port)
-        form.addRow("上游 host", self._ed_upstream_host)
-        form.addRow("上游 port", self._sp_upstream_port)
-        form.addRow("特权 AddSamples IP", self._ed_priv_host)
-        outer.addWidget(form_box)
-
-        toggles = QGroupBox("功能开关")
-        tlay = QFormLayout(toggles)
-        self._chk_long_conn = QCheckBox("仪器长连接 (instrument_long_connection)")
-        self._chk_auto_reco = QCheckBox("上游自动重连 (upstream_auto_reconnect)")
-        self._sp_recv_idle_clear = QSpinBox()
-        self._sp_recv_idle_clear.setRange(0, 3600)
-        self._sp_recv_idle_clear.setSuffix(" s")
-        self._sp_hb_fail_max = QSpinBox()
-        self._sp_hb_fail_max.setRange(1, 20)
-        self._sp_cmd_fail_max = QSpinBox()
-        self._sp_cmd_fail_max.setRange(1, 20)
-        self._sp_client_fwd_timeout = QSpinBox()
-        self._sp_client_fwd_timeout.setRange(5, 600)
-        self._sp_client_fwd_timeout.setSuffix(" s")
-        self._sp_hb_wait_timeout = QSpinBox()
-        self._sp_hb_wait_timeout.setRange(0, 600)
-        self._sp_hb_wait_timeout.setSuffix(" s")
-        self._sp_hb_wait_timeout.setSpecialValueText("自动")
-        self._sp_activity_stale = QSpinBox()
-        self._sp_activity_stale.setRange(0, 3600)
-        self._sp_activity_stale.setSuffix(" s")
-        self._sp_activity_stale.setSpecialValueText("自动")
-        self._sp_read_cancel_timeout = QSpinBox()
-        self._sp_read_cancel_timeout.setRange(1, 60)
-        self._sp_read_cancel_timeout.setSuffix(" s")
-        self._sp_stale_check_interval = QSpinBox()
-        self._sp_stale_check_interval.setRange(0, 600)
-        self._sp_stale_check_interval.setSuffix(" s")
-        self._sp_stale_check_interval.setSpecialValueText("关闭")
-        self._chk_no_syn_logon = QCheckBox("禁用合成 Logon (no_synthetic_logon)")
-        self._chk_verbose_gw = QCheckBox("网关 XML 详细日志 (log_verbose_gateway，应用后立即生效)")
-        self._chk_persist_q = QCheckBox("持久化队列 (persist_add_samples_queue)")
-        self._sp_queue_max = QSpinBox()
-        self._sp_queue_max.setRange(1, 256)
-        tlay.addRow(self._chk_long_conn)
-        tlay.addRow(self._chk_auto_reco)
-        tlay.addRow("recv 空闲清缓冲", self._sp_recv_idle_clear)
-        tlay.addRow("心跳失败上限", self._sp_hb_fail_max)
-        tlay.addRow("指令失败上限", self._sp_cmd_fail_max)
-        tlay.addRow("TCP转发超时", self._sp_client_fwd_timeout)
-        tlay.addRow("Heartbeat等待", self._sp_hb_wait_timeout)
-        tlay.addRow("无活动回收", self._sp_activity_stale)
-        tlay.addRow("读循环cancel", self._sp_read_cancel_timeout)
-        tlay.addRow("活性巡检间隔", self._sp_stale_check_interval)
-        tlay.addRow(self._chk_no_syn_logon)
-        tlay.addRow(self._chk_verbose_gw)
-        tlay.addRow(self._chk_persist_q)
-        tlay.addRow("队列容量", self._sp_queue_max)
-        outer.addWidget(toggles)
-
-        log_box = QGroupBox("日志")
-        lform = QFormLayout(log_box)
-        self._cmb_log_level = QComboBox()
-        self._cmb_log_level.addItems(["debug", "info", "warning", "error"])
-        self._ed_log_file = QLineEdit()
-        lform.addRow("log_level", self._cmb_log_level)
-        lform.addRow("log_file", self._ed_log_file)
-        outer.addWidget(log_box)
+        self._config_panel = ConfigFormPanel()
+        outer.addWidget(self._config_panel, 1)
 
         act_box = QGroupBox("配置与服务")
         btn_grid = QGridLayout(act_box)
@@ -391,7 +306,6 @@ class MainWindow(QMainWindow):
         btn_grid.addWidget(self._btn_open_cfg_dir, 1, 0)
         btn_grid.addWidget(self._btn_restart_svc, 1, 1)
         outer.addWidget(act_box)
-        outer.addStretch()
 
         self._btn_reload_cfg.clicked.connect(self._load_config_form)
         self._btn_open_cfg_dir.clicked.connect(self._open_config_dir)
@@ -406,7 +320,10 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         self._btn_clear_log_view = QPushButton("清空视图")
         self._btn_clear_log_view.clicked.connect(lambda: self._log_view.clear())
+        self._btn_log_scroll_bottom = QPushButton("滚到底部")
+        self._btn_log_scroll_bottom.clicked.connect(self._scroll_log_to_bottom)
         row.addWidget(self._btn_clear_log_view)
+        row.addWidget(self._btn_log_scroll_bottom)
         row.addWidget(QLabel("级别:"))
         self._chk_log_debug = QCheckBox("DEBUG")
         self._chk_log_info = QCheckBox("INFO")
@@ -453,27 +370,66 @@ class MainWindow(QMainWindow):
         self._refresh_queue()
         self._refresh_logs()
 
+    def _refresh_current_tab(self) -> None:
+        idx = self._tabs.currentIndex()
+        if idx == 0:
+            self._refresh_monitor()
+        elif idx == 1:
+            self._refresh_queue()
+        elif idx == 3:
+            self._refresh_logs(force_full=True)
+
+    def _apply_offline_placeholders(self) -> None:
+        """Bridge 未连接时在页面上显示占位，后台轮询不弹窗。"""
+        self._lbl_upstream.setText("Bridge 未连接 — 等待重连…")
+        self._lbl_tcp_listen.setText("—")
+        self._lbl_api_listen.setText("—")
+        self._lbl_rcs.setText("—")
+        self._lbl_encoding.setText("—")
+        self._tbl_clients.setRowCount(0)
+        self._lbl_queue.setText("队列: Bridge 未连接")
+        self._tbl_queue.setRowCount(0)
+
     def _update_bridge_connection_status(self) -> None:
         """左下状态栏：探测 REST API 是否可达（与当前页签无关，随轮询刷新）。"""
+        was_connected = self._api_connected
         ok, err = self._api.ping()
+        self._api_connected = ok
         base = api_base_url(self._cfg)
         if ok:
             self._status_bridge.setText(f"Bridge: 已连接 {base}")
             self._status_bridge.setStyleSheet("")
+            if not was_connected:
+                self._refresh_current_tab()
         else:
             self._status_bridge.setText(f"Bridge: 未连接 — {err}")
             self._status_bridge.setStyleSheet("color: #c0392b;")
+            if was_connected:
+                self._apply_offline_placeholders()
 
     def _reload_api_client(self) -> None:
         self._cfg = load_config_dict(self._config_path)
         self._api = BridgeApiClient(api_base_url(self._cfg))
         self._update_bridge_connection_status()
 
-    def _refresh_monitor(self) -> None:
+    def _refresh_monitor(self, *, notify: bool = False) -> None:
+        if notify:
+            self._update_bridge_connection_status()
+        if not self._api_connected:
+            self._apply_offline_placeholders()
+            if notify:
+                QMessageBox.warning(
+                    self,
+                    "连接监控",
+                    f"无法连接 Bridge API ({api_base_url(self._cfg)})",
+                )
+            return
         try:
             mon = self._api.get_monitor()
         except BridgeApiError as e:
             self._lbl_upstream.setText(f"错误: {e}")
+            if notify:
+                QMessageBox.warning(self, "连接监控", str(e))
             return
         up = mon.get("upstream") or {}
         host = up.get("host", "")
@@ -516,8 +472,6 @@ class MainWindow(QMainWindow):
         self._connections_syncing = False
 
         self._lbl_api_listen.setText(str(mon.get("apiListen") or "—"))
-        q = mon.get("queue") or {}
-        self._lbl_queue.setText(f"{q.get('current', 0)} / {q.get('max', 0)}")
         rc = mon.get("remoteControl") or {}
         rcs = rc.get("state", "—")
         rerr = rc.get("error") or ""
@@ -527,13 +481,16 @@ class MainWindow(QMainWindow):
         clients: List[Dict[str, Any]] = list(mon.get("tcpClients") or [])
         self._tbl_clients.setRowCount(len(clients))
         for i, c in enumerate(clients):
-            self._tbl_clients.setItem(i, 0, QTableWidgetItem(str(c.get("peer") or "—")))
+            peer_txt = str(c.get("peer") or "—")
+            if c.get("policyOnly"):
+                peer_txt = f"{peer_txt}（阻止列表）"
+            self._tbl_clients.setItem(i, 0, QTableWidgetItem(peer_txt))
             dur = c.get("connectedSeconds")
-            if dur is None:
-                dur = 0.0
-            self._tbl_clients.setItem(
-                i, 1, QTableWidgetItem(self._format_duration(float(dur)))
-            )
+            if c.get("policyOnly") or dur is None:
+                dur_txt = "—"
+            else:
+                dur_txt = self._format_duration(float(dur))
+            self._tbl_clients.setItem(i, 1, QTableWidgetItem(dur_txt))
             self._tbl_clients.setItem(
                 i, 2, QTableWidgetItem("是" if c.get("privileged") else "否")
             )
@@ -546,6 +503,103 @@ class MainWindow(QMainWindow):
             self._tbl_clients.setItem(
                 i, 5, QTableWidgetItem(str(c.get("txFrames", 0)))
             )
+            self._tbl_clients.setCellWidget(i, 6, self._client_action_widget(c))
+
+    def _client_action_widget(self, client: Dict[str, Any]) -> QWidget:
+        peer_host = str(client.get("peerHost") or "").strip()
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(2, 2, 2, 2)
+        lay.setSpacing(4)
+
+        btn_block_conn = QPushButton("阻止连接")
+        btn_block_logon = QPushButton("阻止登录")
+        btn_unblock_conn = QPushButton("解除阻止连接")
+        btn_unblock_logon = QPushButton("解除阻止登录")
+        btn_priv = QPushButton("设特权")
+
+        connect_blocked = bool(client.get("connectBlocked"))
+        logon_blocked = bool(client.get("logonBlocked"))
+
+        if connect_blocked:
+            btn_block_conn.setVisible(False)
+            btn_unblock_conn.setToolTip("从连接阻止列表移除此 IP")
+        else:
+            btn_unblock_conn.setVisible(False)
+
+        if logon_blocked:
+            btn_block_logon.setVisible(False)
+            btn_unblock_logon.setToolTip("从登录阻止列表移除此 IP")
+        else:
+            btn_unblock_logon.setVisible(False)
+
+        if client.get("privileged"):
+            btn_priv.setEnabled(False)
+            btn_priv.setToolTip("当前已是 AddSamples 直通特权 IP")
+
+        if peer_host:
+            btn_block_conn.clicked.connect(
+                lambda _checked=False, h=peer_host: self._client_ip_policy("blockConnect", h)
+            )
+            btn_block_logon.clicked.connect(
+                lambda _checked=False, h=peer_host: self._client_ip_policy("blockLogon", h)
+            )
+            btn_unblock_conn.clicked.connect(
+                lambda _checked=False, h=peer_host: self._client_ip_policy("unblockConnect", h)
+            )
+            btn_unblock_logon.clicked.connect(
+                lambda _checked=False, h=peer_host: self._client_ip_policy("unblockLogon", h)
+            )
+            btn_priv.clicked.connect(
+                lambda _checked=False, h=peer_host: self._client_ip_policy("setPrivileged", h)
+            )
+        else:
+            for btn in (btn_block_conn, btn_block_logon, btn_unblock_conn, btn_unblock_logon, btn_priv):
+                btn.setEnabled(False)
+
+        lay.addWidget(btn_block_conn)
+        lay.addWidget(btn_unblock_conn)
+        lay.addWidget(btn_block_logon)
+        lay.addWidget(btn_unblock_logon)
+        lay.addWidget(btn_priv)
+        return w
+
+    def _client_ip_policy(self, action: str, peer_host: str) -> None:
+        labels = {
+            "blockConnect": "阻止连接",
+            "blockLogon": "阻止登录",
+            "unblockConnect": "解除阻止连接",
+            "unblockLogon": "解除阻止登录",
+            "setPrivileged": "设特权 IP",
+        }
+        title = labels.get(action, "IP 策略")
+        if action == "blockConnect":
+            msg = f"将 {peer_host} 加入连接阻止列表并断开其现有连接？"
+        elif action == "blockLogon":
+            msg = (
+                f"将 {peer_host} 加入登录阻止列表？\n"
+                "该 IP 的 Logon 将不转发仪器、也不合成登录应答。"
+            )
+        elif action == "unblockConnect":
+            msg = f"将 {peer_host} 从连接阻止列表移除？移除后该 IP 可重新连接 TCP 网关。"
+        elif action == "unblockLogon":
+            msg = f"将 {peer_host} 从登录阻止列表移除？移除后该 IP 的 Logon 将恢复正常处理。"
+        else:
+            msg = f"将 {peer_host} 设为唯一的 AddSamples 直通特权 IP？"
+        if QMessageBox.question(self, title, msg) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            out = self._api.post_client_ip_policy(action, peer_host)
+        except BridgeApiError as e:
+            QMessageBox.warning(self, title, str(e))
+            return
+        notes = out.get("notes") or []
+        persist_err = str(out.get("persistError") or "").strip()
+        if persist_err:
+            notes.append(f"写回配置失败: {persist_err}")
+        if notes:
+            QMessageBox.information(self, title, "\n".join(str(n) for n in notes))
+        self._refresh_monitor()
 
     def _apply_connections(self, *, upstream: Optional[bool] = None, tcp_gateway: Optional[bool] = None) -> None:
         body: Dict[str, Any] = {}
@@ -587,13 +641,39 @@ class MainWindow(QMainWindow):
                 return
         self._apply_connections(tcp_gateway=checked)
 
-    def _refresh_queue(self) -> None:
+    def _refresh_queue(self, *, notify: bool = False) -> None:
+        if notify:
+            self._update_bridge_connection_status()
+        if not self._api_connected:
+            self._lbl_queue.setText("队列: Bridge 未连接")
+            self._tbl_queue.setRowCount(0)
+            if notify:
+                QMessageBox.warning(
+                    self,
+                    "队列",
+                    f"无法连接 Bridge API ({api_base_url(self._cfg)})",
+                )
+            return
         try:
             data = self._api.get_queue()
         except BridgeApiError as e:
-            QMessageBox.warning(self, "队列", str(e))
+            self._lbl_queue.setText("队列: 获取失败")
+            self._tbl_queue.setRowCount(0)
+            if notify:
+                QMessageBox.warning(self, "队列", str(e))
             return
         items: List[Dict[str, Any]] = list(data.get("items") or [])
+        current = len(items)
+        try:
+            mon = self._api.get_monitor()
+            q = mon.get("queue") or {}
+            q_max = q.get("max")
+            if q_max is not None:
+                self._lbl_queue.setText(f"队列: {q.get('current', current)} / {q_max}")
+            else:
+                self._lbl_queue.setText(f"队列: {current}")
+        except BridgeApiError:
+            self._lbl_queue.setText(f"队列: {current}")
         self._tbl_queue.setRowCount(len(items))
         for i, it in enumerate(items):
             self._tbl_queue.setItem(i, 0, QTableWidgetItem(str(it.get("id") or "")))
@@ -612,70 +692,12 @@ class MainWindow(QMainWindow):
         self._config_path = resolve_config_path()
         self._cfg = load_config_dict(self._config_path)
         self._status_config.setText(f"配置: {self._config_path}")
-        self._ed_host.setText(str(self._cfg.get("host") or "0.0.0.0"))
-        self._sp_port.setValue(int(self._cfg.get("port") or 54321))
-        self._ed_api_host.setText(str(self._cfg.get("bridge_api_host") or "127.0.0.1"))
-        self._sp_api_port.setValue(int(self._cfg.get("bridge_api_port") or 8081))
-        self._ed_upstream_host.setText(str(self._cfg.get("upstream_host") or ""))
-        self._sp_upstream_port.setValue(int(self._cfg.get("upstream_port") or 12345))
-        self._ed_priv_host.setText(str(self._cfg.get("privileged_add_samples_host") or ""))
-        self._chk_long_conn.setChecked(bool(self._cfg.get("instrument_long_connection", True)))
-        self._chk_auto_reco.setChecked(bool(self._cfg.get("upstream_auto_reconnect", True)))
-        self._sp_recv_idle_clear.setValue(int(self._cfg.get("upstream_recv_idle_clear") or 5))
-        self._sp_hb_fail_max.setValue(int(self._cfg.get("upstream_heartbeat_fail_max") or 2))
-        self._sp_cmd_fail_max.setValue(int(self._cfg.get("upstream_command_fail_max") or 3))
-        self._sp_client_fwd_timeout.setValue(
-            int(self._cfg.get("upstream_client_forward_timeout") or 10)
-        )
-        self._sp_hb_wait_timeout.setValue(
-            int(self._cfg.get("upstream_heartbeat_wait_timeout") or 0)
-        )
-        self._sp_activity_stale.setValue(
-            int(self._cfg.get("upstream_activity_stale_seconds") or 0)
-        )
-        self._sp_read_cancel_timeout.setValue(
-            int(self._cfg.get("upstream_read_cancel_timeout") or 5)
-        )
-        self._sp_stale_check_interval.setValue(
-            int(self._cfg.get("upstream_stale_check_interval") or 30)
-        )
-        self._chk_no_syn_logon.setChecked(bool(self._cfg.get("no_synthetic_logon", False)))
-        self._chk_verbose_gw.setChecked(bool(self._cfg.get("log_verbose_gateway", False)))
-        self._chk_persist_q.setChecked(bool(self._cfg.get("persist_add_samples_queue", True)))
-        self._sp_queue_max.setValue(int(self._cfg.get("add_samples_queue_size") or 8))
-        lvl = str(self._cfg.get("log_level") or "info").lower()
-        idx = self._cmb_log_level.findText(lvl)
-        self._cmb_log_level.setCurrentIndex(idx if idx >= 0 else 1)
-        self._ed_log_file.setText(str(self._cfg.get("log_file") or ""))
+        self._config_panel.load_from_dict(self._cfg)
         if reload_api:
             self._reload_api_client()
 
     def _form_to_updates(self) -> Dict[str, Any]:
-        return {
-            "host": self._ed_host.text().strip(),
-            "port": self._sp_port.value(),
-            "bridge_api_host": self._ed_api_host.text().strip(),
-            "bridge_api_port": self._sp_api_port.value(),
-            "upstream_host": self._ed_upstream_host.text().strip(),
-            "upstream_port": self._sp_upstream_port.value(),
-            "privileged_add_samples_host": self._ed_priv_host.text().strip(),
-            "instrument_long_connection": self._chk_long_conn.isChecked(),
-            "upstream_auto_reconnect": self._chk_auto_reco.isChecked(),
-            "upstream_recv_idle_clear": self._sp_recv_idle_clear.value(),
-            "upstream_heartbeat_fail_max": self._sp_hb_fail_max.value(),
-            "upstream_command_fail_max": self._sp_cmd_fail_max.value(),
-            "upstream_client_forward_timeout": self._sp_client_fwd_timeout.value(),
-            "upstream_heartbeat_wait_timeout": self._sp_hb_wait_timeout.value(),
-            "upstream_activity_stale_seconds": self._sp_activity_stale.value(),
-            "upstream_read_cancel_timeout": self._sp_read_cancel_timeout.value(),
-            "upstream_stale_check_interval": self._sp_stale_check_interval.value(),
-            "no_synthetic_logon": self._chk_no_syn_logon.isChecked(),
-            "log_verbose_gateway": self._chk_verbose_gw.isChecked(),
-            "persist_add_samples_queue": self._chk_persist_q.isChecked(),
-            "add_samples_queue_size": self._sp_queue_max.value(),
-            "log_level": self._cmb_log_level.currentText(),
-            "log_file": self._ed_log_file.text().strip(),
-        }
+        return self._config_panel.to_updates()
 
     def _save_config_file(self) -> None:
         updates = self._form_to_updates()
@@ -706,14 +728,16 @@ class MainWindow(QMainWindow):
         self._reload_api_client()
 
         body = {
-            "tcpListenHost": self._ed_host.text().strip(),
-            "tcpListenPort": self._sp_port.value(),
-            "upstreamHost": self._ed_upstream_host.text().strip(),
-            "upstreamPort": self._sp_upstream_port.value(),
-            "privilegedAddSamplesHost": self._ed_priv_host.text().strip(),
-            "queueMax": self._sp_queue_max.value(),
-            "logVerboseGateway": self._chk_verbose_gw.isChecked(),
-            "logLevel": self._cmb_log_level.currentText(),
+            "tcpListenHost": str(self._config_panel.get("host", "")).strip(),
+            "tcpListenPort": int(self._config_panel.get("port", 54321)),
+            "upstreamHost": str(self._config_panel.get("upstream_host", "")).strip(),
+            "upstreamPort": int(self._config_panel.get("upstream_port", 12345)),
+            "privilegedAddSamplesHost": str(
+                self._config_panel.get("privileged_add_samples_host", "")
+            ).strip(),
+            "queueMax": int(self._config_panel.get("add_samples_queue_size", 8)),
+            "logVerboseGateway": bool(self._config_panel.get("log_verbose_gateway", False)),
+            "logLevel": str(self._config_panel.get("log_level", "info")),
             "persistToConfigFile": True,
         }
         try:
@@ -839,6 +863,13 @@ class MainWindow(QMainWindow):
     def _log_scroll_at_bottom(self) -> bool:
         sb = self._log_view.verticalScrollBar()
         return sb.maximum() <= 0 or sb.value() >= sb.maximum() - 2
+
+    def _scroll_log_to_bottom(self) -> None:
+        sb = self._log_view.verticalScrollBar()
+        sb.setValue(sb.maximum())
+        cursor = self._log_view.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self._log_view.setTextCursor(cursor)
 
     def _append_log_text(self, text: str) -> None:
         if not text:

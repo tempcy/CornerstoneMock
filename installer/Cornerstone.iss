@@ -58,7 +58,7 @@ Name: "custom"; Description: "自定义安装"; Flags: iscustom
 Name: "bridge"; Description: "Cornerstone Bridge（TCP 网关 + REST API）— 必选"; Types: full custom; Flags: fixed
 Name: "bridgeui"; Description: "Cornerstone Bridge 控制台（托盘 + 配置/日志/监控）"; Types: full
 Name: "web"; Description: "Cornerstone Web（浏览器管理界面）"; Types: full; Flags: checkablealone
-Name: "queue"; Description: "Cornerstone Queue（样品队列悬浮窗）"; Types: full
+Name: "queue"; Description: "Cornerstone Queue（样品队列悬浮窗；需 Windows 10 1809 / 17763 及以上）"; Types: full; Check: QueueOsSupported
 Name: "cli"; Description: "Cornerstone CLI（命令行工具）"; Types: full
 
 [Tasks]
@@ -110,6 +110,15 @@ begin
     Result := '1'
   else
     Result := '0';
+end;
+
+{ Cornerstone Queue（WinUI 3 / Windows App SDK 1.6）最低 Windows 10 1809（17763） }
+function QueueOsSupported: Boolean;
+var
+  Version: TWindowsVersion;
+begin
+  GetWindowsVersionEx(Version);
+  Result := Version.Build >= 17763;
 end;
 
 function GetUninstallExePath(): String;
@@ -195,5 +204,6 @@ begin
     '-InstallBridgeSvc ' + BoolToStr(WizardIsComponentSelected('bridge') and WizardIsTaskSelected('svcbridge')) + ' ' +
     '-InstallWebSvc ' + BoolToStr(WizardIsComponentSelected('web') and WizardIsTaskSelected('svcweb')) + ' ' +
     '-InstallBridge ' + BoolToStr(WizardIsComponentSelected('bridge')) + ' ' +
-    '-InstallWeb ' + BoolToStr(WizardIsComponentSelected('web'));
+    '-InstallWeb ' + BoolToStr(WizardIsComponentSelected('web')) + ' ' +
+    '-InstallQueue ' + BoolToStr(WizardIsComponentSelected('queue'));
 end;
