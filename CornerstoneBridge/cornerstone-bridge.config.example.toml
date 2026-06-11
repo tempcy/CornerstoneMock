@@ -75,3 +75,31 @@ log_file_level = "info"
 log_file_max_mb = 2
 log_file_backup_count = 3
 log_throttle_interval_s = 300
+
+# ========== COMPAC 串口（试样指令 / 状态查询） ==========
+# 是否启用 COMPAC 串口功能
+compac_enabled = false
+# 串口设备（Linux: /dev/ttyUSB0；Windows: COM3；测试可用 memory://compac）
+compac_port = "/dev/ttyUSB0"
+compac_baud_rate = 9600
+compac_data_bits = 8
+compac_parity = "N"
+compac_stop_bits = 1
+# 启动后是否自动监听串口（仪器作为 Server 上行试样时）
+compac_listen_enabled = false
+# 握手与状态查询超时（秒）
+compac_timeout_seconds = 5.0
+# ENQ/ACK 握手重试次数
+compac_retry_count = 5
+# COMPAC 试样待发队列上限
+compac_queue_max = 32
+# 接收缓冲空闲超过该秒数则下次收包前清空
+compac_recv_idle_clear_seconds = 30.0
+# 接收试样电文时是否校验 BCT 与 CKS（关闭后仅检查帧结构）
+compac_verify_bct_cks = true
+# 收到 SOH A REQUEST 时是否自动答复 STATUS（Bridge 作为仪器侧 Server）
+compac_reply_a_request = false
+# 答复 STATUS 时使用的默认 10 位状态字符（无缓存状态时）
+compac_reply_status_chars = "1000000000"
+# 答复 STATUS 时使用的默认错误码 0–99
+compac_reply_status_error = 0

@@ -33,6 +33,7 @@ from .queue_persistence import (
 from .hub_helpers import *
 from .bridge_logging import get_logger, log_gateway_xml, log_throttled_warning
 from .upstream_framing import DrainAnomaly, DrainResult, UpstreamRecvBuffer
+from .compac_service import CompacSerialConfig, CompacSerialService, PendingCompacSample
 
 _log = get_logger("gateway")
 
@@ -92,6 +93,21 @@ class GatewayHub:
         config_file_path: Optional[Union[Path, str]] = None,
         persist_add_samples_queue: bool = True,
         add_samples_queue_persist_file: str = "",
+        compac_enabled: bool = False,
+        compac_port: str = "/dev/ttyUSB0",
+        compac_baud_rate: int = 9600,
+        compac_data_bits: int = 8,
+        compac_parity: str = "N",
+        compac_stop_bits: int = 1,
+        compac_listen_enabled: bool = False,
+        compac_timeout_seconds: float = 5.0,
+        compac_retry_count: int = 5,
+        compac_queue_max: int = 32,
+        compac_recv_idle_clear_seconds: float = 30.0,
+        compac_verify_bct_cks: bool = True,
+        compac_reply_a_request: bool = False,
+        compac_reply_status_chars: str = "1000000000",
+        compac_reply_status_error: int = 0,
     ) -> None:
         self._upstream_host = upstream_host
         self._upstream_port = upstream_port
@@ -197,6 +213,27 @@ class GatewayHub:
         self._remote_control_display: str = "—"
         self._remote_control_active: bool = False
         self._remote_control_last_err: str = ""
+
+        self._compac = CompacSerialService(
+            CompacSerialConfig(
+                enabled=bool(compac_enabled),
+                port=str(compac_port or "/dev/ttyUSB0"),
+                baud_rate=int(compac_baud_rate),
+                data_bits=int(compac_data_bits),
+                parity=str(compac_parity or "N"),
+                stop_bits=int(compac_stop_bits),
+                listen_enabled=bool(compac_listen_enabled),
+                timeout_seconds=float(compac_timeout_seconds),
+                retry_count=int(compac_retry_count),
+                queue_max=max(1, int(compac_queue_max)),
+                recv_idle_clear_seconds=float(compac_recv_idle_clear_seconds),
+                force_memory_port=str(compac_port or "").startswith("memory://"),
+                verify_bct_cks=bool(compac_verify_bct_cks),
+                reply_a_request=bool(compac_reply_a_request),
+                reply_status_chars=str(compac_reply_status_chars or "1000000000"),
+                reply_status_error=int(compac_reply_status_error),
+            )
+        )
 
     def pending_snapshot(self) -> List[PendingAddSamples]:
         return sorted(self._pending_add_samples, key=lambda p: p.received_at, reverse=True)
@@ -449,6 +486,7 @@ class GatewayHub:
     async def shutdown_gracefully(self) -> None:
         """主动退出：停止上游心跳/重连，Logoff 仪器会话，断开上游 TCP。"""
         self._persist_add_samples_queue()
+        await self._compac.shutdown()
         self._shutting_down = True
         self._upstream_auto_reconnect = False
         await self._stop_upstream_heartbeat()
@@ -548,16 +586,30 @@ class GatewayHub:
     def start_background_maintenance(self) -> None:
         """启动上游活性巡检（activity_stale）；须在运行中的 event loop 内调用。"""
         if self._upstream_stale_check_interval_s <= 0:
-            return
-        if self._upstream_stale_check_task is not None and not self._upstream_stale_check_task.done():
-            return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        self._upstream_stale_check_task = loop.create_task(
-            self._upstream_stale_check_loop(), name="gateway_upstream_stale_check"
-        )
+            pass
+        elif self._upstream_stale_check_task is None or self._upstream_stale_check_task.done():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None:
+                self._upstream_stale_check_task = loop.create_task(
+                    self._upstream_stale_check_loop(), name="gateway_upstream_stale_check"
+                )
+        if self._compac.config.enabled and self._compac.config.listen_enabled:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None:
+                async def _compac_boot() -> None:
+                    ok, err = await self._compac.open_port()
+                    if ok:
+                        self._compac._state.listen_active = True
+                    elif err:
+                        _log.warning("COMPAC startup listen: %s", err)
+
+                loop.create_task(_compac_boot(), name="compac_startup_listen")
 
     async def _upstream_stale_check_loop(self) -> None:
         interval = max(float(self._upstream_stale_check_interval_s), 5.0)
@@ -2193,3 +2245,91 @@ class GatewayHub:
             "tags": [str(x.get("tag", "")) for x in reps],
             "fetchedAt": time.time(),
         }
+
+    # --- COMPAC 串口 ---
+
+    def compac_pending_snapshot(self) -> List[PendingCompacSample]:
+        return sorted(self._compac.pending_snapshot(), key=lambda p: p.received_at, reverse=True)
+
+    def compac_settings_dict(self) -> Dict[str, Any]:
+        return {
+            "ok": True,
+            **self._compac.config.to_public_dict(),
+            **self._compac.state_snapshot(),
+        }
+
+    async def compac_apply_settings(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        cfg = self._compac.config
+        notes: List[str] = []
+        listen_changed = False
+        if "enabled" in body:
+            cfg.enabled = bool(body.get("enabled"))
+        if "port" in body:
+            cfg.port = str(body.get("port") or cfg.port)
+            cfg.force_memory_port = cfg.port.startswith("memory://")
+        if "baudRate" in body:
+            cfg.baud_rate = int(body.get("baudRate") or cfg.baud_rate)
+        if "dataBits" in body:
+            cfg.data_bits = int(body.get("dataBits") or cfg.data_bits)
+        if "parity" in body:
+            cfg.parity = str(body.get("parity") or cfg.parity)
+        if "stopBits" in body:
+            cfg.stop_bits = int(body.get("stopBits") or cfg.stop_bits)
+        if "timeoutSeconds" in body:
+            cfg.timeout_seconds = float(body.get("timeoutSeconds") or cfg.timeout_seconds)
+        if "retryCount" in body:
+            cfg.retry_count = int(body.get("retryCount") or cfg.retry_count)
+        if "queueMax" in body:
+            cfg.queue_max = max(1, int(body.get("queueMax") or cfg.queue_max))
+        if "recvIdleClearSeconds" in body:
+            cfg.recv_idle_clear_seconds = float(
+                body.get("recvIdleClearSeconds") or cfg.recv_idle_clear_seconds
+            )
+        if "listenEnabled" in body:
+            new_listen = bool(body.get("listenEnabled"))
+            if new_listen != cfg.listen_enabled:
+                listen_changed = True
+            cfg.listen_enabled = new_listen
+        if "verifyBctCks" in body:
+            cfg.verify_bct_cks = bool(body.get("verifyBctCks"))
+        if "replyARequest" in body:
+            cfg.reply_a_request = bool(body.get("replyARequest"))
+        if "replyStatusChars" in body:
+            cfg.reply_status_chars = str(body.get("replyStatusChars") or cfg.reply_status_chars)[:10]
+        if "replyStatusError" in body:
+            cfg.reply_status_error = max(0, min(99, int(body.get("replyStatusError") or 0)))
+        self._compac.apply_config(cfg)
+        port_reopen = any(
+            k in body for k in ("port", "baudRate", "dataBits", "parity", "stopBits")
+        )
+        if port_reopen:
+            await self._compac.close_port()
+            notes.append("串口参数已更新，已关闭端口；下次发送或监听时将重新打开。")
+        if listen_changed:
+            ok, err = await self._compac.set_listen_enabled(cfg.listen_enabled)
+            if not ok:
+                return {"ok": False, "error": err, "notes": notes}
+            notes.append("串口监听已" + ("启动" if cfg.listen_enabled else "停止") + "。")
+            if cfg.listen_enabled:
+                await self._compac.open_port()
+        return {"ok": True, "notes": notes, "settings": self.compac_settings_dict()}
+
+    async def compac_set_listen(self, enabled: bool) -> Dict[str, Any]:
+        ok, err = await self._compac.set_listen_enabled(bool(enabled))
+        if not ok:
+            return {"ok": False, "error": err}
+        if enabled:
+            await self._compac.open_port()
+        return {"ok": True, "listenEnabled": bool(enabled)}
+
+    def compac_enqueue(self, sample_id: str, sample_type: str, *, source: str = "api") -> PendingCompacSample:
+        return self._compac.enqueue_sample(sample_id, sample_type, source=source)
+
+    async def compac_query_status(self) -> Dict[str, Any]:
+        return await self._compac.query_status()
+
+    async def compac_send_sample(self, sample_id: str, sample_type: str) -> Dict[str, Any]:
+        return await self._compac.send_sample(sample_id, sample_type)
+
+    async def compac_send_queued(self, ids: set[str]) -> Dict[str, Any]:
+        return await self._compac.send_queued(ids)
