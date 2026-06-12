@@ -90,16 +90,40 @@ def _logon_user_from_client_xml(xml_text: str) -> str:
     return ""
 
 
-def _upstream_xml_error_code(resp: Optional[str]) -> Optional[str]:
-    """解析 XML 根 ``ErrorCode``；无属性或非法 XML 时返回 None。"""
-    if not resp or not (resp or "").strip().startswith("<"):
-        return None
+def _upstream_xml_field_from_root(root: ET.Element, name: str) -> str:
+    """从根节点属性或同名子元素读取 ``ErrorCode`` / ``ErrorMessage`` 等字段。"""
+    v = (root.attrib.get(name) or "").strip()
+    if v:
+        return v
+    for el in root:
+        if _xml_local_tag(el.tag) == name:
+            return (el.text or "").strip()
+    return ""
+
+
+def _upstream_xml_error_fields(resp: Optional[str]) -> Tuple[Optional[str], str]:
+    """解析 XML 根 ``ErrorCode`` / ``ErrorMessage``（属性或子元素）。"""
+    if not resp or not resp.strip().startswith("<"):
+        return None, ""
     try:
         root = ET.fromstring(resp.strip())
     except ET.ParseError:
-        return None
-    ec = (root.attrib.get("ErrorCode") or "").strip()
-    return ec if ec else None
+        return None, ""
+    ec_raw = _upstream_xml_field_from_root(root, "ErrorCode")
+    em = _upstream_xml_field_from_root(root, "ErrorMessage")
+    return (ec_raw if ec_raw else None), em
+
+
+def _upstream_xml_error_code(resp: Optional[str]) -> Optional[str]:
+    """解析 XML 根 ``ErrorCode``；无字段或非法 XML 时返回 None。"""
+    ec, _ = _upstream_xml_error_fields(resp)
+    return ec
+
+
+def _upstream_success_message_ok(em: str) -> bool:
+    if not em:
+        return True
+    return em.strip().rstrip(".").lower() == "success"
 
 
 def _upstream_heartbeat_response_ok(resp: Optional[str]) -> bool:
@@ -111,7 +135,7 @@ def _upstream_heartbeat_response_ok(resp: Optional[str]) -> bool:
         return False
     if _xml_local_tag(root.tag).lower() != "heartbeat":
         return False
-    ec = (root.attrib.get("ErrorCode") or "").strip()
+    ec = _upstream_xml_field_from_root(root, "ErrorCode")
     return ec == "" or ec == "0"
 
 
@@ -122,13 +146,31 @@ def _upstream_logon_response_ok(resp: Optional[str]) -> bool:
         root = ET.fromstring(resp.strip())
     except ET.ParseError:
         return False
-    if root.tag != "Logon":
+    if _xml_local_tag(root.tag) != "Logon":
         return False
-    ec = (root.attrib.get("ErrorCode") or "").strip()
-    if ec != "0":
+    if _upstream_xml_field_from_root(root, "ErrorCode") != "0":
         return False
-    em = (root.attrib.get("ErrorMessage") or "").strip()
-    return em == "" or em.lower() == "success"
+    em = _upstream_xml_field_from_root(root, "ErrorMessage")
+    return _upstream_success_message_ok(em)
+
+
+def _upstream_logon_establishes_session(resp: Optional[str]) -> bool:
+    """
+    Logon 应答是否表示当前上游 TCP 会话已可发令。
+
+    ``ErrorCode=0``：本次登录成功；``ErrorCode=2``：仪器认为该连接已登录（重复 Logon）。
+    """
+    if _upstream_logon_response_ok(resp):
+        return True
+    if not resp or not resp.strip().startswith("<"):
+        return False
+    try:
+        root = ET.fromstring(resp.strip())
+    except ET.ParseError:
+        return False
+    if _xml_local_tag(root.tag) != "Logon":
+        return False
+    return _upstream_xml_field_from_root(root, "ErrorCode") == "2"
 
 
 def _peer_host_from_peername(peer: object) -> str:

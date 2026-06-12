@@ -54,3 +54,15 @@ def test_remove_blocked_hosts():
     assert hub.blocked_connect_hosts_snapshot() == []
     assert hub.remove_blocked_logon_host("5.6.7.8") is True
     assert hub.blocked_logon_hosts_snapshot() == []
+
+
+def test_synthesize_client_logon_when_web_creds_manage_upstream():
+    hub = _hub(web_user="remote", web_password="secret", instrument_short_connection=False)
+    assert hub.should_synthesize_client_logon() is True
+
+
+def test_synthesize_client_logon_without_web_creds_needs_upstream_success():
+    hub = _hub(web_user="", web_password="", instrument_short_connection=False)
+    assert hub.should_synthesize_client_logon() is False
+    hub._logon_seen_upstream_success = True
+    assert hub.should_synthesize_client_logon() is True

@@ -264,13 +264,17 @@ def log_gateway_xml(
     direction: str,
     text: str,
     *,
-    cookie: str = "",
     web_rq: bool = False,
 ) -> None:
     """网关 XML 帧：RQ 类为 INFO+rq（不写文件）；其它为 INFO 可写文件。"""
+    from .protocol import _gateway_xml_log_detail
+
     tag = _xml_local_tag(_root_tag_safe(text))
-    ck = cookie or _cookie_safe(text)
-    summary = f"{direction} tag={tag or '?'} cookie={ck!r} bytes={len(text)}"
+    detail = _gateway_xml_log_detail(text)
+    if detail:
+        summary = f"{direction} tag={tag or '?'} {detail} bytes={len(text)}"
+    else:
+        summary = f"{direction} tag={tag or '?'} bytes={len(text)}"
     if web_rq or is_rq_xml_tag(tag):
         log_rq(logger, tag, summary)
     else:
@@ -295,9 +299,3 @@ def _root_tag_safe(text: str) -> str:
     from .protocol import _root_tag
 
     return _root_tag(text)
-
-
-def _cookie_safe(text: str) -> str:
-    from .protocol import _parse_cookie_from_payload
-
-    return _parse_cookie_from_payload(text)

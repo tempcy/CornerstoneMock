@@ -518,10 +518,11 @@ class GatewayHub:
             return
         if local.lower() in _UPSTREAM_ASYNC_FANOUT_TAGS:
             n = await self._broadcast_upstream_async_to_tcp_clients(text)
+            detail = _gateway_xml_log_detail(text)
             _log.info(
-                "upstream async tag=%r cookie=%r bytes=%d -> %d TCP client(s)",
+                "upstream async tag=%r %s bytes=%d -> %d TCP client(s)",
                 local,
-                cookie,
+                detail or "",
                 len(text),
                 n,
             )
@@ -529,10 +530,11 @@ class GatewayHub:
         preview = (text or "").strip()
         if len(preview) > 800:
             preview = preview[:800] + "…"
+        detail = _gateway_xml_log_detail(text)
         _log.warning(
-            "orphan upstream response cookie=%r tag=%r bytes=%d payload=%r",
-            cookie,
+            "orphan upstream response tag=%r %s bytes=%d payload=%r",
             tag or local or "?",
+            detail or "",
             len(text),
             preview,
         )
@@ -594,7 +596,7 @@ class GatewayHub:
                 uw = self._upstream_writer
                 if uw is None or uw.is_closing():
                     return
-                _log.info("upstream Logoff cookie=%r", logoff_cookie)
+                _log.info("upstream Logoff")
                 uw.write(_frame(payload, self.encoding))
                 await uw.drain()
             await asyncio.wait_for(fut, timeout=15.0)
@@ -658,6 +660,13 @@ class GatewayHub:
         """仪器长连接 + 曾成功 Logon 时，TCP 客户端 Logon 由网关本地应答。"""
         if not self._synthetic_logon_after_first:
             return False
+        # 网关以 --web-user 管理上游长连接时，TCP 客户端 Logon 不再转发仪器（避免重复 Logon）。
+        if (
+            self.web_user
+            and self.web_password
+            and not self._instrument_short_connection
+        ):
+            return True
         return self._logon_seen_upstream_success or self._upstream_session_authenticated
 
     async def _force_close_upstream(self) -> None:
@@ -1130,16 +1139,13 @@ class GatewayHub:
         if local.lower() == "heartbeat":
             self._note_upstream_heartbeat_reply(text)
             await self._try_satisfy_pending_heartbeat(text, cookie=cookie)
-        if tag == "Logon":
-            ec = ""
-            with contextlib.suppress(ET.ParseError):
-                root = ET.fromstring(_strip_xml_prefix(text))
-                ec = (root.attrib.get("ErrorCode") or "").strip()
-            if ec == "0":
+        if local.lower() == "logon":
+            ec = _upstream_xml_error_code(text)
+            if ec in ("0", "2"):
                 self._logon_seen_upstream_success = True
                 self._upstream_session_authenticated = True
 
-        log_gateway_xml(_log, "upstream IN", text, cookie=cookie)
+        log_gateway_xml(_log, "upstream IN", text)
         async with self._cookie_lock:
             target = self._cookie_to_target.pop(cookie, None) if cookie else None
         if target is None:
@@ -1438,7 +1444,7 @@ class GatewayHub:
                 uw = self._upstream_writer
                 assert uw is not None
                 async with self._write_upstream_lock:
-                    _log.info("web upstream Logon cookie=%r", logon_cookie)
+                    log_gateway_xml(_log, "web upstream OUT", payload)
                     uw.write(_frame(payload, self.encoding))
                     await uw.drain()
                 resp = await asyncio.wait_for(fut, timeout=60.0)
@@ -1457,7 +1463,11 @@ class GatewayHub:
                     self._cookie_to_target.pop(logon_cookie, None)
                 self._record_upstream_command_failure(f"web_logon:{e}")
                 return False, str(e)
-            if _upstream_logon_response_ok(resp):
+            if _upstream_logon_establishes_session(resp):
+                if _upstream_xml_error_code(resp) == "2":
+                    _log.info(
+                        "web upstream Logon: instrument already authenticated (ErrorCode=2); reusing session"
+                    )
                 self._upstream_session_authenticated = True
                 self._logon_seen_upstream_success = True
                 self._record_upstream_command_success()
@@ -1487,7 +1497,7 @@ class GatewayHub:
         if gen != self._upstream_recover_generation:
             return
         self._record_upstream_command_failure(
-            f"tcp_forward_timeout tag={tag_name} cookie={cookie[:16]}"
+            f"tcp_forward_timeout tag={tag_name}"
         )
 
     async def forward_client_frame(self, text: str, client_writer: asyncio.StreamWriter) -> None:
@@ -1504,8 +1514,7 @@ class GatewayHub:
             if self.should_synthesize_client_logon():
                 _log.warning(
                     "TCP Logon reached forward_client_frame while gateway session is up; "
-                    "caller should synthesize (cookie=%s)",
-                    (_parse_cookie_from_payload(text) or "")[:16],
+                    "caller should synthesize (tag=Logon)"
                 )
                 return
             text = _logon_merge_web_credentials(text, self.web_user, self.web_password)
@@ -1513,8 +1522,7 @@ class GatewayHub:
             if self.should_synthesize_client_logon():
                 _log.warning(
                     "TCP Logoff reached forward_client_frame while gateway session is up; "
-                    "caller should synthesize (cookie=%s)",
-                    (_parse_cookie_from_payload(text) or "")[:16],
+                    "caller should synthesize (tag=Logoff)"
                 )
                 return
         elif self.web_user and self.web_password:
@@ -1534,7 +1542,7 @@ class GatewayHub:
         uw = self._upstream_writer
         assert uw is not None
         async with self._write_upstream_lock:
-            log_gateway_xml(_log, "upstream OUT", text, cookie=cookie)
+            log_gateway_xml(_log, "upstream OUT", text)
             uw.write(_frame(text, self.encoding))
             await uw.drain()
 
@@ -1579,7 +1587,7 @@ class GatewayHub:
             uw = self._upstream_writer
             assert uw is not None
             async with self._write_upstream_lock:
-                log_gateway_xml(_log, "web instrument_rq OUT", text, cookie=web_cookie, web_rq=True)
+                log_gateway_xml(_log, "web instrument_rq OUT", text, web_rq=True)
                 uw.write(_frame(text, self.encoding))
                 await uw.drain()
             resp = await asyncio.wait_for(fut, timeout=timeout_s)
@@ -1658,7 +1666,7 @@ class GatewayHub:
             uw = self._upstream_writer
             assert uw is not None
             async with self._write_upstream_lock:
-                _log.info("web OUT AddSamples cookie=%r", web_cookie)
+                log_gateway_xml(_log, "web OUT", text)
                 uw.write(_frame(text, self.encoding))
                 await uw.drain()
             resp = await asyncio.wait_for(fut, timeout=120.0)

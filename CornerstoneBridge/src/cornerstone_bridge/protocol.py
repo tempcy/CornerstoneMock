@@ -505,6 +505,80 @@ def _add_samples_name_description(payload_xml: str) -> Tuple[str, str]:
     return name, desc
 
 
+def _log_clip(s: str, n: int = 64) -> str:
+    s = (s or "").strip()
+    if len(s) <= n:
+        return s
+    return s[: n - 3] + "..."
+
+
+def _xml_field_from_root(root: ET.Element, name: str) -> str:
+    """从根节点属性或同名子元素读取字段（用于日志摘要，不含 Cookie）。"""
+    v = (root.attrib.get(name) or "").strip()
+    if v:
+        return v
+    from .parsers import _xml_local_tag
+
+    for el in root:
+        if _xml_local_tag(el.tag) == name:
+            return (el.text or "").strip()
+    return ""
+
+
+def _gateway_xml_log_detail(text: str) -> str:
+    """
+    从网关 XML 帧提取可辨识摘要（用于日志，不输出 Cookie）。
+
+    示例：``user=remote``、``name=Sample1 ec=0 msg=Success.``、``active=false``。
+    """
+    stripped = _strip_xml_prefix(text or "")
+    if not stripped.startswith("<"):
+        return ""
+    try:
+        root = ET.fromstring(stripped)
+    except ET.ParseError:
+        return ""
+    from .parsers import _xml_local_tag
+
+    tag = _xml_local_tag(root.tag).lower()
+    parts: List[str] = []
+
+    if tag == "logon":
+        user = _xml_field_from_root(root, "User")
+        if user:
+            parts.append(f"user={_log_clip(user, 32)}")
+    elif tag == "addsamples":
+        name = ""
+        set_el = root.find("Set")
+        if set_el is not None:
+            for field in set_el.findall("Field"):
+                if (field.attrib.get("Id") or "").strip() == "Name":
+                    name = (field.text or "").strip()
+                    break
+        if name:
+            parts.append(f"name={_log_clip(name, 48)}")
+    elif tag == "remotecontrolstate":
+        body = (root.text or "").strip()
+        if body:
+            parts.append(f"active={_log_clip(body, 16)}")
+    elif tag not in ("heartbeat", "logoff"):
+        for attr in ("Name", "RegistryId", "Label"):
+            v = (root.attrib.get(attr) or "").strip()
+            if v:
+                parts.append(f"{attr.lower()}={_log_clip(v, 48)}")
+                break
+
+    if tag != "heartbeat":
+        ec = _xml_field_from_root(root, "ErrorCode")
+        em = _xml_field_from_root(root, "ErrorMessage")
+        if ec:
+            parts.append(f"ec={ec}")
+            if em:
+                parts.append(f"msg={_log_clip(em, 48)}")
+
+    return " ".join(parts)
+
+
 # ``from .protocol import *``：hub / gateway 使用的 _ 前缀辅助函数 + 少量公开常量
 __all__ = [n for n in globals() if n.startswith("_") and not n.startswith("__")] + [
     "MAX_FRAME_PAYLOAD_BYTES",

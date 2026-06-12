@@ -116,7 +116,7 @@ async def _handle_client(
 
             tag = _xml_local_tag(_root_tag(text))
             cookie = _parse_cookie_from_payload(text)
-            log_gateway_xml(_log, "client IN", text, cookie=cookie)
+            log_gateway_xml(_log, "client IN", text)
             hub.on_client_rx(writer)
             if tag == "Logon":
                 hub.on_client_logon_request(writer, text)
