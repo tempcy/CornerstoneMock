@@ -4,6 +4,24 @@
 
 ---
 
+## 0.1.10
+
+**定位**：Bridge 上游 Logon 与网关日志修复；控制台配置页与 API 重连体验。
+
+### Bridge
+
+- **上游 Logon**：支持子元素 `ErrorCode`/`ErrorMessage`（含 `Success.`）；`ErrorCode=2` 视为已登录；配置 `--web-user` 时长连接模式下 TCP 客户端 Logon 合成，避免重复登录。
+- **网关日志**：不再输出 Cookie；按指令显示 `user`、`name` 等可读摘要（不含 SetKey/Description/Comments）。
+- **控制台**：配置页四等分网格与 ToolTip；Bridge 未启动时轮询静默失败；修复 `_MenuToolButtonSync` 样式递归。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.10 |
+| cornerstone-web | 0.1.10 |
+| cornerstone-cli | 0.1.10 |
+
+---
+
 ## 0.1.9
 
 **定位**：Bridge COMPAC 串口协议（试样指令 / 状态查询）与 REST API。

@@ -1,6 +1,6 @@
 # Cornerstone 远程控制（Python CLI + Bridge + Web）
 
-**当前版本：0.1.9**（变更见 [CHANGELOG.md](CHANGELOG.md)）
+**当前版本：0.1.10**（变更见 [CHANGELOG.md](CHANGELOG.md)）
 
 后续开发路线图见 [PLAN.md](PLAN.md)。
 
