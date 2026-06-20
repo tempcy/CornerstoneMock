@@ -210,3 +210,7 @@ text=<Logon ErrorCode="0" ErrorMessage="Success" Cookie="614008437b3146320368675
 2026-06-20 17:30:10 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
 2026-06-20 17:31:12 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
 2026-06-20 17:32:14 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:33:16 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:33:18 WARNING  [cornerstone.bridge.gateway] upstream reconnect attempt failed: [WinError 1225] 远程计算机拒绝网络连接。 (next in 60s) (另有 4 条同类已抑制)
+2026-06-20 17:34:18 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:35:20 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
