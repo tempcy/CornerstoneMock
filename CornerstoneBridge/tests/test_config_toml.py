@@ -59,13 +59,15 @@ def test_flatten_toml_section() -> None:
     assert raw["upstream_port"] == 12345
 
 
-def test_load_blocked_host_lists(tmp_path: Path) -> None:
+def test_load_allowed_host_lists(tmp_path: Path) -> None:
     cfg = tmp_path / "bridge.toml"
     cfg.write_text(
         'blocked_connect_hosts = ["192.168.1.10", "10.0.0.2"]\n'
-        'blocked_logon_hosts = ["192.168.1.20"]\n',
+        'allowed_logon_hosts = ["192.168.1.20"]\n'
+        'allowed_query_hosts = ["10.0.0.3"]\n',
         encoding="utf-8",
     )
     d = load_bridge_config_defaults(cfg)
     assert d["blocked_connect_hosts"] == ["192.168.1.10", "10.0.0.2"]
-    assert d["blocked_logon_hosts"] == ["192.168.1.20"]
+    assert d["allowed_logon_hosts"] == ["192.168.1.20"]
+    assert d["allowed_query_hosts"] == ["10.0.0.3"]

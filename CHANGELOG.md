@@ -4,6 +4,72 @@
 
 ---
 
+## 0.1.13
+
+**定位**：Bridge TCP 登录/查询 IP 策略改为白名单；Queue 取消默认 UAC 提权。
+
+### Bridge
+
+- **TCP 策略（破坏性变更）**：`blocked_logon_hosts` / `blocked_query_hosts` 弃用，改为 `allowed_logon_hosts` / `allowed_query_hosts`（白名单，默认为空 = 全部拒绝 Logon/Logoff 与 RQ 类查询）；`blocked_connect_hosts` 仍为连接黑名单。
+- **REST / 控制台**：客户端策略操作改为 `allowLogon` / `disallowLogon` / `allowQuery` / `disallowQuery`；连接页与配置表单同步新字段。
+- **配置**：载入旧版黑名单键时 stderr 提示迁移；`dev_web` 传参同步。
+
+### Queue
+
+- **UAC**：安装版 manifest 由 `requireAdministrator` 改为 `asInvoker`，日常启动不再强制弹 UAC（FlaUI 自动点击仍可在需要时以管理员运行）。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.13 |
+| cornerstone-web | 0.1.13 |
+| cornerstone-cli | 0.1.13 |
+
+---
+
+## 0.1.12
+
+**定位**：Queue 列表字号与列宽体验细化；Bridge 客户端 IP 策略测试补充。
+
+### Queue
+
+- **列表字号**：设置改为绝对磅值（8–72，默认 24），自动迁移旧版 `FontScalePercent` / `UiScalePercent`。
+- **列宽**：名称列与描述列均按内容测量自适应；移除「窗体缩放」选项（窗口尺寸由位置/大小记忆承担）。
+- **设置页**：「列表字号」NumberBox + 「界面字号」百分比下拉，与运行时分离。
+
+### Bridge
+
+- **测试**：补充 gateway 客户端 Logon/RQ 标签策略单元测试（`test_gateway_client_policy.py`）。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.12 |
+| cornerstone-web | 0.1.12 |
+| cornerstone-cli | 0.1.12 |
+
+---
+
+## 0.1.11
+
+**定位**：Bridge TCP 查询 IP 策略；Queue 窗口位置记忆与列表自适应宽度。
+
+### Bridge
+
+- **TCP 策略**：新增 `blocked_query_hosts`；来自列表内 IP 的 RQ 类指令（Status / Sets / Heartbeat 等）不转发、不应答；REST `/api/tcp/clients` 与控制台支持「阻止/解除阻止查询」。
+- **登录阻止**：`blocked_logon_hosts` 同时拦截 `Logoff`（与 Logon 一致）。
+
+### Queue
+
+- **窗口**：记住上次位置与尺寸；启动时恢复；移动/缩放后自动持久化。
+- **显示**：队列列表与状态/按钮字号分离缩放（`FontScalePercent` / `UiFontScalePercent`）；按内容自动扩展窗口宽度与名称列宽；列表项悬停/选中视觉状态。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.11 |
+| cornerstone-web | 0.1.11 |
+| cornerstone-cli | 0.1.11 |
+
+---
+
 ## 0.1.10
 
 **定位**：Bridge 上游 Logon 与网关日志修复；控制台配置页与 API 重连体验。

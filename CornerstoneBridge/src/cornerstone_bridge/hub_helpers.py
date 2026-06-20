@@ -294,4 +294,9 @@ def _host_in_blocklist(peer_host: str, blocklist: Set[str]) -> bool:
     return bool(h) and h in blocklist
 
 
+def _host_in_allowlist(peer_host: str, allowlist: Set[str]) -> bool:
+    h = _normalize_host_for_policy(peer_host)
+    return bool(h) and h in allowlist
+
+
 __all__ = [n for n in globals() if n.startswith("_") and not n.startswith("__")]

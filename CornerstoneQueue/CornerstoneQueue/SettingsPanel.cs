@@ -6,7 +6,7 @@ namespace CornerstoneQueue;
 
 public sealed class SettingsPanel : UserControl
 {
-    private static readonly int[] ScaleChoices = [80, 90, 100, 110, 125, 150];
+    private static readonly int[] UiScaleChoices = [80, 90, 100, 110, 125];
 
     private readonly TextBox _txtBridgeUrl;
     private readonly NumberBox _numStatusPoll;
@@ -14,8 +14,9 @@ public sealed class SettingsPanel : UserControl
     private readonly ToggleSwitch _swAlwaysOnTop;
     private readonly Slider _sliderOpacity;
     private readonly TextBlock _txtOpacityValue;
-    private readonly ComboBox _cmbFontScale;
-    private readonly ComboBox _cmbWindowScale;
+    private readonly NumberBox _numQueueListFontSize;
+    private readonly ComboBox _cmbUiFontScale;
+    private readonly ToggleSwitch _swShowQueueColumnHeader;
     private readonly ToggleSwitch _swAutoReconnect;
     private readonly NumberBox _numReconnect;
     private readonly ToggleSwitch _swAutoClickUi;
@@ -45,8 +46,22 @@ public sealed class SettingsPanel : UserControl
         _swAlwaysOnTop = new ToggleSwitch { Header = "悬浮窗置顶", OnContent = "开", OffContent = "关" };
         _sliderOpacity = new Slider { Header = "悬浮窗透明度", Minimum = 50, Maximum = 100, StepFrequency = 5 };
         _txtOpacityValue = new TextBlock { FontSize = 11 };
-        _cmbFontScale = CreateScaleCombo("文字大小");
-        _cmbWindowScale = CreateScaleCombo("窗体缩放");
+        _numQueueListFontSize = new NumberBox
+        {
+            Header = "列表字号",
+            Minimum = AppSettings.MinQueueListFontSize,
+            Maximum = AppSettings.MaxQueueListFontSize,
+            SmallChange = 1,
+            LargeChange = 4,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+        };
+        _cmbUiFontScale = CreateScaleCombo("界面字号", UiScaleChoices);
+        _swShowQueueColumnHeader = new ToggleSwitch
+        {
+            Header = "显示列表列标题栏",
+            OnContent = "开",
+            OffContent = "关",
+        };
         _swAutoReconnect = new ToggleSwitch { Header = "断线自动重试", OnContent = "开", OffContent = "关" };
         _numReconnect = new NumberBox
         {
@@ -125,8 +140,9 @@ public sealed class SettingsPanel : UserControl
                 _swAlwaysOnTop,
                 _sliderOpacity,
                 _txtOpacityValue,
-                _cmbFontScale,
-                _cmbWindowScale,
+                _numQueueListFontSize,
+                _cmbUiFontScale,
+                _swShowQueueColumnHeader,
                 _swAutoReconnect,
                 _numReconnect,
                 new TextBlock
@@ -160,8 +176,9 @@ public sealed class SettingsPanel : UserControl
         _swAlwaysOnTop.IsOn = settings.AlwaysOnTop;
         _sliderOpacity.Value = settings.WindowOpacity * 100;
         UpdateOpacityLabel();
-        SelectScale(_cmbFontScale, settings.FontScalePercent);
-        SelectScale(_cmbWindowScale, settings.WindowScalePercent);
+        _numQueueListFontSize.Value = settings.QueueListFontSize;
+        SelectScale(_cmbUiFontScale, settings.UiFontScalePercent, UiScaleChoices);
+        _swShowQueueColumnHeader.IsOn = settings.ShowQueueColumnHeader;
         _swAutoReconnect.IsOn = settings.AutoReconnect;
         _numReconnect.Value = settings.ReconnectIntervalSeconds;
         UpdateReconnectEnabled();
@@ -184,8 +201,9 @@ public sealed class SettingsPanel : UserControl
             QueuePollSeconds = (int)_numQueuePoll.Value,
             AlwaysOnTop = _swAlwaysOnTop.IsOn,
             WindowOpacity = _sliderOpacity.Value / 100.0,
-            FontScalePercent = ReadScale(_cmbFontScale),
-            WindowScalePercent = ReadScale(_cmbWindowScale),
+            QueueListFontSize = _numQueueListFontSize.Value,
+            UiFontScalePercent = ReadScale(_cmbUiFontScale),
+            ShowQueueColumnHeader = _swShowQueueColumnHeader.IsOn,
             AutoReconnect = _swAutoReconnect.IsOn,
             ReconnectIntervalSeconds = (int)_numReconnect.Value,
             AutoClickInstrumentUi = _swAutoClickUi.IsOn,
@@ -197,10 +215,10 @@ public sealed class SettingsPanel : UserControl
         };
     }
 
-    private static ComboBox CreateScaleCombo(string header)
+    private static ComboBox CreateScaleCombo(string header, int[] choices)
     {
         var box = new ComboBox { Header = header, HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var p in ScaleChoices)
+        foreach (var p in choices)
         {
             box.Items.Add(new ComboBoxItem { Content = $"{p}%", Tag = p });
         }
@@ -211,13 +229,13 @@ public sealed class SettingsPanel : UserControl
     private static int ReadScale(ComboBox box) =>
         box.SelectedItem is ComboBoxItem item && item.Tag is int v ? v : 100;
 
-    private static void SelectScale(ComboBox box, int percent)
+    private static void SelectScale(ComboBox box, int percent, int[] choices)
     {
         var best = 0;
         var bestDiff = int.MaxValue;
-        for (var i = 0; i < ScaleChoices.Length; i++)
+        for (var i = 0; i < choices.Length; i++)
         {
-            var diff = Math.Abs(ScaleChoices[i] - percent);
+            var diff = Math.Abs(choices[i] - percent);
             if (diff < bestDiff)
             {
                 bestDiff = diff;

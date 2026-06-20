@@ -15,6 +15,14 @@ _LOG_ROOT = "cornerstone.bridge"
 _LOG_FMT = "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
 _DATE_FMT = "%Y-%m-%d %H:%M:%S"
 
+# 登录阻止策略拦截的 XML 根标签（AddSamples / LastRemoteAddedSets 由特权 IP 控制）
+LOGON_BLOCK_XML_TAGS = frozenset(
+    {
+        "Logon",
+        "Logoff",
+    }
+)
+
 # Remote Query / 轮询类 XML 根标签（INFO 默认不写文件）
 RQ_XML_TAGS = frozenset(
     {
@@ -115,6 +123,11 @@ class LogThrottle:
             return True, suppressed
         self._suppressed[key] = self._suppressed.get(key, 0) + 1
         return False, 0
+
+
+def is_logon_block_xml_tag(tag: str) -> bool:
+    local = _xml_local_tag(tag or "")
+    return bool(local) and local in LOGON_BLOCK_XML_TAGS
 
 
 def is_rq_xml_tag(tag: str) -> bool:

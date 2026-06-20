@@ -84,7 +84,8 @@ class GatewayHub:
         web_password: str,
         privileged_add_samples_host: str = "",
         blocked_connect_hosts: Optional[List[str]] = None,
-        blocked_logon_hosts: Optional[List[str]] = None,
+        allowed_logon_hosts: Optional[List[str]] = None,
+        allowed_query_hosts: Optional[List[str]] = None,
         request_culture: str = "en-US",
         tcp_listen_host: str = "",
         tcp_listen_port: int = 0,
@@ -153,7 +154,8 @@ class GatewayHub:
         self.web_password = web_password or ""
         self._privileged_add_samples_host = (privileged_add_samples_host or "").strip()
         self._blocked_connect_hosts: Set[str] = set(_parse_host_list(blocked_connect_hosts))
-        self._blocked_logon_hosts: Set[str] = set(_parse_host_list(blocked_logon_hosts))
+        self._allowed_logon_hosts: Set[str] = set(_parse_host_list(allowed_logon_hosts))
+        self._allowed_query_hosts: Set[str] = set(_parse_host_list(allowed_query_hosts))
         self.request_culture = (request_culture or "en-US").strip() or "en-US"
 
         self._upstream_reader: Optional[asyncio.StreamReader] = None
@@ -308,27 +310,26 @@ class GatewayHub:
     def blocked_connect_hosts_snapshot(self) -> List[str]:
         return sorted(self._blocked_connect_hosts)
 
-    def blocked_logon_hosts_snapshot(self) -> List[str]:
-        return sorted(self._blocked_logon_hosts)
+    def allowed_logon_hosts_snapshot(self) -> List[str]:
+        return sorted(self._allowed_logon_hosts)
+
+    def allowed_query_hosts_snapshot(self) -> List[str]:
+        return sorted(self._allowed_query_hosts)
 
     def is_host_blocked_connect(self, peer_host: str) -> bool:
         return _host_in_blocklist(peer_host, self._blocked_connect_hosts)
 
-    def is_host_blocked_logon(self, peer_host: str) -> bool:
-        return _host_in_blocklist(peer_host, self._blocked_logon_hosts)
+    def is_host_allowed_logon(self, peer_host: str) -> bool:
+        return _host_in_allowlist(peer_host, self._allowed_logon_hosts)
+
+    def is_host_allowed_query(self, peer_host: str) -> bool:
+        return _host_in_allowlist(peer_host, self._allowed_query_hosts)
 
     def add_blocked_connect_host(self, peer_host: str) -> bool:
         h = _normalize_host_for_policy(peer_host)
         if not _is_valid_policy_host(h) or h in self._blocked_connect_hosts:
             return False
         self._blocked_connect_hosts.add(h)
-        return True
-
-    def add_blocked_logon_host(self, peer_host: str) -> bool:
-        h = _normalize_host_for_policy(peer_host)
-        if not _is_valid_policy_host(h) or h in self._blocked_logon_hosts:
-            return False
-        self._blocked_logon_hosts.add(h)
         return True
 
     def remove_blocked_connect_host(self, peer_host: str) -> bool:
@@ -338,11 +339,32 @@ class GatewayHub:
         self._blocked_connect_hosts.discard(h)
         return True
 
-    def remove_blocked_logon_host(self, peer_host: str) -> bool:
+    def add_allowed_logon_host(self, peer_host: str) -> bool:
         h = _normalize_host_for_policy(peer_host)
-        if not h or h not in self._blocked_logon_hosts:
+        if not _is_valid_policy_host(h) or h in self._allowed_logon_hosts:
             return False
-        self._blocked_logon_hosts.discard(h)
+        self._allowed_logon_hosts.add(h)
+        return True
+
+    def remove_allowed_logon_host(self, peer_host: str) -> bool:
+        h = _normalize_host_for_policy(peer_host)
+        if not h or h not in self._allowed_logon_hosts:
+            return False
+        self._allowed_logon_hosts.discard(h)
+        return True
+
+    def add_allowed_query_host(self, peer_host: str) -> bool:
+        h = _normalize_host_for_policy(peer_host)
+        if not _is_valid_policy_host(h) or h in self._allowed_query_hosts:
+            return False
+        self._allowed_query_hosts.add(h)
+        return True
+
+    def remove_allowed_query_host(self, peer_host: str) -> bool:
+        h = _normalize_host_for_policy(peer_host)
+        if not h or h not in self._allowed_query_hosts:
+            return False
+        self._allowed_query_hosts.discard(h)
         return True
 
     def set_privileged_add_samples_host(self, peer_host: str) -> None:
@@ -366,7 +388,8 @@ class GatewayHub:
                 p,
                 {
                     "blocked_connect_hosts": self.blocked_connect_hosts_snapshot(),
-                    "blocked_logon_hosts": self.blocked_logon_hosts_snapshot(),
+                    "allowed_logon_hosts": self.allowed_logon_hosts_snapshot(),
+                    "allowed_query_hosts": self.allowed_query_hosts_snapshot(),
                     "privileged_add_samples_host": self._privileged_add_samples_host,
                 },
             )
@@ -421,10 +444,11 @@ class GatewayHub:
                 await self._ensure_upstream()
 
     def _policy_only_tcp_client_entries(self, active_hosts: Set[str]) -> List[Dict[str, Any]]:
-        """阻止列表中的 IP 若无活跃连接，仍出现在客户端列表以便 GUI 解除阻止。"""
+        """策略列表中的 IP 若无活跃连接，仍出现在客户端列表以便 GUI 管理。"""
         policy_hosts: Set[str] = set()
         policy_hosts.update(self._blocked_connect_hosts)
-        policy_hosts.update(self._blocked_logon_hosts)
+        policy_hosts.update(self._allowed_logon_hosts)
+        policy_hosts.update(self._allowed_query_hosts)
         out: List[Dict[str, Any]] = []
         for host in sorted(policy_hosts):
             if not host or host in active_hosts:
@@ -439,7 +463,8 @@ class GatewayHub:
                         host, self._privileged_add_samples_host
                     ),
                     "connectBlocked": self.is_host_blocked_connect(host),
-                    "logonBlocked": self.is_host_blocked_logon(host),
+                    "logonAllowed": self.is_host_allowed_logon(host),
+                    "queryAllowed": self.is_host_allowed_query(host),
                     "logonUser": "—",
                     "rxFrames": 0,
                     "txFrames": 0,
@@ -449,7 +474,7 @@ class GatewayHub:
         return out
 
     async def tcp_clients_snapshot(self) -> List[Dict[str, Any]]:
-        """当前 TCP 远程客户端 + 无连接但仍在阻止列表中的 IP（供管理界面 /api/monitor）。"""
+        """当前 TCP 远程客户端 + 无连接但仍在策略列表中的 IP（供管理界面 /api/monitor）。"""
         now = time.time()
         async with self._tcp_clients_lock:
             sessions = list(self._tcp_sessions.values())
@@ -474,7 +499,8 @@ class GatewayHub:
                     "connectedSeconds": round(dur, 1),
                     "privileged": s.privileged,
                     "connectBlocked": self.is_host_blocked_connect(s.peer_host),
-                    "logonBlocked": self.is_host_blocked_logon(s.peer_host),
+                    "logonAllowed": self.is_host_allowed_logon(s.peer_host),
+                    "queryAllowed": self.is_host_allowed_query(s.peer_host),
                     "logonUser": user_disp,
                     "rxFrames": s.rx_frames,
                     "txFrames": s.tx_frames,

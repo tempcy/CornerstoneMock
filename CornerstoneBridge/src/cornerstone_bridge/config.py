@@ -60,7 +60,8 @@ _BRIDGE_ALLOWED_KEYS = frozenset(
         "web_password",
         "privileged_add_samples_host",
         "blocked_connect_hosts",
-        "blocked_logon_hosts",
+        "allowed_logon_hosts",
+        "allowed_query_hosts",
         "persist_add_samples_queue",
         "add_samples_queue_persist_file",
         "log_level",
@@ -251,6 +252,13 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
     """读取 Bridge 配置（网关、上游、REST、仪器账号等；不含浏览器 ``web_*`` 专配）。"""
     text = config_path.read_text(encoding="utf-8")
     raw = parse_bridge_config_text(text, path=config_path)
+    for deprecated in ("blocked_logon_hosts", "blocked_query_hosts"):
+        if deprecated in raw:
+            print(
+                f"[cornerstone-bridge] 配置键 {deprecated!r} 已弃用（黑名单已改为白名单），"
+                f"请改用 {deprecated.replace('blocked_', 'allowed_')!r}",
+                file=sys.stderr,
+            )
     out: Dict[str, Any] = {}
     for k, v in raw.items():
         if k not in _BRIDGE_ALLOWED_KEYS:
@@ -334,7 +342,7 @@ def load_bridge_config_defaults(config_path: Path) -> Dict[str, Any]:
         if k == "add_samples_queue_persist_file":
             out[k] = str(v).strip() if v is not None else ""
             continue
-        if k in ("blocked_connect_hosts", "blocked_logon_hosts"):
+        if k in ("blocked_connect_hosts", "allowed_logon_hosts", "allowed_query_hosts"):
             from .hub_helpers import _parse_host_list
 
             out[k] = _parse_host_list(v)

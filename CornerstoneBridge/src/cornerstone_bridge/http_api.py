@@ -75,7 +75,8 @@ def _persist_hub_settings_to_config(hub: GatewayHub) -> Tuple[bool, str]:
                 "add_samples_queue_size": hub._add_samples_max,
                 "privileged_add_samples_host": hub._privileged_add_samples_host,
                 "blocked_connect_hosts": hub.blocked_connect_hosts_snapshot(),
-                "blocked_logon_hosts": hub.blocked_logon_hosts_snapshot(),
+                "allowed_logon_hosts": hub.allowed_logon_hosts_snapshot(),
+                "allowed_query_hosts": hub.allowed_query_hosts_snapshot(),
                 "log_verbose_gateway": get_log_verbose_gateway(),
             },
         )
@@ -87,7 +88,8 @@ def _persist_hub_settings_to_config(hub: GatewayHub) -> Tuple[bool, str]:
 def _ip_policy_public_dict(hub: GatewayHub) -> Dict[str, Any]:
     return {
         "blockedConnectHosts": hub.blocked_connect_hosts_snapshot(),
-        "blockedLogonHosts": hub.blocked_logon_hosts_snapshot(),
+        "allowedLogonHosts": hub.allowed_logon_hosts_snapshot(),
+        "allowedQueryHosts": hub.allowed_query_hosts_snapshot(),
         "privilegedAddSamplesHost": hub._privileged_add_samples_host,
     }
 
@@ -486,7 +488,8 @@ async def handle_bridge_http(
                 "logVerboseGateway": get_log_verbose_gateway(),
                 "privilegedAddSamplesHost": hub._privileged_add_samples_host,
                 "blockedConnectHosts": hub.blocked_connect_hosts_snapshot(),
-                "blockedLogonHosts": hub.blocked_logon_hosts_snapshot(),
+                "allowedLogonHosts": hub.allowed_logon_hosts_snapshot(),
+                "allowedQueryHosts": hub.allowed_query_hosts_snapshot(),
                 "configFile": str(hub._config_file_path) if hub._config_file_path else "",
             }
             await _http_send(
@@ -543,21 +546,31 @@ async def handle_bridge_http(
                     notes.append(f"{peer_host!r} 已在连接阻止列表中")
                 if closed:
                     notes.append(f"已断开该 IP 的 {closed} 个现有连接")
-            elif action == "blockLogon":
-                if hub.add_blocked_logon_host(peer_host):
-                    notes.append(f"已阻止 {peer_host!r} 登录（不转发、不合成应答）")
+            elif action == "allowLogon":
+                if hub.add_allowed_logon_host(peer_host):
+                    notes.append(f"已允许 {peer_host!r} 登录（Logon / Logoff）")
                 else:
-                    notes.append(f"{peer_host!r} 已在登录阻止列表中")
+                    notes.append(f"{peer_host!r} 已在登录允许列表中")
             elif action == "unblockConnect":
                 if hub.remove_blocked_connect_host(peer_host):
                     notes.append(f"已解除 {peer_host!r} 的连接阻止")
                 else:
                     notes.append(f"{peer_host!r} 不在连接阻止列表中")
-            elif action == "unblockLogon":
-                if hub.remove_blocked_logon_host(peer_host):
-                    notes.append(f"已解除 {peer_host!r} 的登录阻止")
+            elif action == "disallowLogon":
+                if hub.remove_allowed_logon_host(peer_host):
+                    notes.append(f"已移除 {peer_host!r} 的登录允许")
                 else:
-                    notes.append(f"{peer_host!r} 不在登录阻止列表中")
+                    notes.append(f"{peer_host!r} 不在登录允许列表中")
+            elif action == "allowQuery":
+                if hub.add_allowed_query_host(peer_host):
+                    notes.append(f"已允许 {peer_host!r} 查询（RQ 类指令）")
+                else:
+                    notes.append(f"{peer_host!r} 已在查询允许列表中")
+            elif action == "disallowQuery":
+                if hub.remove_allowed_query_host(peer_host):
+                    notes.append(f"已移除 {peer_host!r} 的查询允许")
+                else:
+                    notes.append(f"{peer_host!r} 不在查询允许列表中")
             elif action == "setPrivileged":
                 hub.set_privileged_add_samples_host(peer_host)
                 notes.append(f"已将 {peer_host!r} 设为 AddSamples 直通特权 IP")
@@ -568,7 +581,7 @@ async def handle_bridge_http(
                     json.dumps(
                         {
                             "ok": False,
-                            "error": "action 须为 blockConnect、blockLogon、unblockConnect、unblockLogon 或 setPrivileged",
+                            "error": "action 须为 blockConnect、unblockConnect、allowLogon、disallowLogon、allowQuery、disallowQuery 或 setPrivileged",
                         },
                         ensure_ascii=False,
                     ).encode("utf-8"),

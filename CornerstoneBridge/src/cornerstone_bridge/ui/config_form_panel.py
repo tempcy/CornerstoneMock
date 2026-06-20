@@ -135,7 +135,8 @@ def _sections() -> Tuple[_SectionSpec, ...]:
                 z("add_samples_queue_persist_file", "队列持久化文件", "text", 4),
                 z("privileged_add_samples_host", "特权加样 IP", "text", 2),
                 z("blocked_connect_hosts", "阻止连接 IP", "text", 4),
-                z("blocked_logon_hosts", "阻止登录 IP", "text", 4),
+                z("allowed_logon_hosts", "允许登录 IP", "text", 4),
+                z("allowed_query_hosts", "允许查询 IP", "text", 4),
             ),
         ),
         _SectionSpec(
@@ -289,7 +290,7 @@ class _QuadrantGrid(QWidget):
 class ConfigFormPanel(QWidget):
     """完整 Bridge 配置表单。"""
 
-    _HOST_LIST_KEYS = frozenset({"blocked_connect_hosts", "blocked_logon_hosts"})
+    _HOST_LIST_KEYS = frozenset({"blocked_connect_hosts", "allowed_logon_hosts", "allowed_query_hosts"})
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

@@ -20,7 +20,7 @@ from xml.sax.saxutils import escape as _xml_escape
 
 from cornerstone_cli.communications.tcp_engine import HEARTBEAT_XML
 
-from .bridge_logging import get_logger, log_gateway_xml, log_policy_drop
+from .bridge_logging import get_logger, is_logon_block_xml_tag, is_rq_xml_tag, log_gateway_xml, log_policy_drop
 from .hub import GatewayHub, PendingAddSamples
 from .hub_helpers import _peer_host_from_peername, _peer_host_matches_privileged
 from .parsers import _xml_local_tag
@@ -121,15 +121,27 @@ async def _handle_client(
             if tag == "Logon":
                 hub.on_client_logon_request(writer, text)
 
+            if is_logon_block_xml_tag(tag) and not hub.is_host_allowed_logon(peer_host):
+                log_policy_drop(
+                    _log,
+                    "%s dropped (logon not allowed IP %r): %s",
+                    tag,
+                    peer_host,
+                    peer_s,
+                )
+                continue
+
+            if is_rq_xml_tag(tag) and not hub.is_host_allowed_query(peer_host):
+                log_policy_drop(
+                    _log,
+                    "%s dropped (query not allowed IP %r): %s",
+                    tag,
+                    peer_host,
+                    peer_s,
+                )
+                continue
+
             if tag == "Logon":
-                if hub.is_host_blocked_logon(peer_host):
-                    log_policy_drop(
-                        _log,
-                        "Logon dropped (logon blocked IP %r): %s",
-                        peer_host,
-                        peer_s,
-                    )
-                    continue
                 if hub.should_synthesize_client_logon():
                     resp = _synthetic_logon_success(cookie)
                     _log.info("synthetic Logon for %s (gateway session)", peer_s)

@@ -163,3 +163,50 @@ text=<Logon ErrorCode="0" ErrorMessage="Success" Cookie="614008437b3146320368675
 2026-05-25 23:23:19 INFO     [cornerstone.bridge.gateway] upstream IN tag=Logon cookie='9852dbd65561a0979e4a9e781b3e071e' bytes=88
 2026-05-25 23:23:19 INFO     [cornerstone.bridge.gateway] web instrument_rq OUT tag=RemoteControlState cookie='606e3dcb91dab9bde5acd9266a1fd22e' bytes=80
 2026-05-25 23:23:19 INFO     [cornerstone.bridge.gateway] upstream IN tag=RemoteControlState cookie='606e3dcb91dab9bde5acd9266a1fd22e' bytes=124
+2026-06-20 11:54:45 INFO     [cornerstone.bridge] logging initialized console=info verbose_gateway=False file=D:\work\CornerstoneMock\CornerstoneBridge\logs\bridge.log file_level=info
+2026-06-20 11:54:45 INFO     [cornerstone.bridge.server] 配置文件: D:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.config.toml
+2026-06-20 11:54:45 INFO     [cornerstone.bridge.gateway] 已从磁盘恢复 8 条 AddSamples 队列: D:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.add-samples-queue.json
+2026-06-20 11:54:45 INFO     [cornerstone.bridge.server] TCP 网关监听 (客户端连这里): ('0.0.0.0', 54321) (encoding=utf-16-le)
+2026-06-20 11:54:45 INFO     [cornerstone.bridge.server] REST API: http://127.0.0.1:8081/ (('127.0.0.1', 8081))
+2026-06-20 11:54:45 INFO     [cornerstone.bridge.server] 上游仪器 (Bridge 主动连): 127.0.0.1:12345 ; synthetic 2nd+ Logon=on ; instrument API=long (reuse upstream) ; upstream heartbeat=0.0s ; upstream auto-reconnect=on
+2026-06-20 11:54:45 INFO     [cornerstone.bridge.server] 上游 inner 帧跨 TCP 拼接: timeout=5.0s（inner_len == tcp_payload-4 为完整）
+2026-06-20 11:54:45 INFO     [cornerstone.bridge.server] Web→upstream Logon user: 'remote' (password set)
+2026-06-20 11:54:45 INFO     [cornerstone.bridge.server] AddSamples 直通上位机 IP: '127.0.0.1' (其余 TCP 客户端仍截留)
+2026-06-20 11:54:45 INFO     [cornerstone.bridge.server] AddSamples 队列持久化: D:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.add-samples-queue.json
+2026-06-20 11:54:45 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 11:54:47 WARNING  [cornerstone.bridge.server] startup upstream TCP connect failed: [WinError 1225] 远程计算机拒绝网络连接。
+2026-06-20 16:21:39 INFO     [cornerstone.bridge] logging initialized console=info verbose_gateway=False file=D:\work\CornerstoneMock\CornerstoneBridge\logs\bridge.log file_level=info
+2026-06-20 16:21:39 INFO     [cornerstone.bridge.server] 配置文件: D:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.config.toml
+2026-06-20 16:21:39 INFO     [cornerstone.bridge.gateway] 已从磁盘恢复 8 条 AddSamples 队列: D:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.add-samples-queue.json
+2026-06-20 16:21:39 INFO     [cornerstone.bridge.server] TCP 网关监听 (客户端连这里): ('0.0.0.0', 54321) (encoding=utf-16-le)
+2026-06-20 16:21:39 INFO     [cornerstone.bridge.server] REST API: http://127.0.0.1:8081/ (('127.0.0.1', 8081))
+2026-06-20 16:21:39 INFO     [cornerstone.bridge.server] 上游仪器 (Bridge 主动连): 127.0.0.1:12345 ; synthetic 2nd+ Logon=on ; instrument API=long (reuse upstream) ; upstream heartbeat=0.0s ; upstream auto-reconnect=on
+2026-06-20 16:21:39 INFO     [cornerstone.bridge.server] 上游 inner 帧跨 TCP 拼接: timeout=5.0s（inner_len == tcp_payload-4 为完整）
+2026-06-20 16:21:39 INFO     [cornerstone.bridge.server] Web→upstream Logon user: 'remote' (password set)
+2026-06-20 16:21:39 INFO     [cornerstone.bridge.server] AddSamples 直通上位机 IP: '127.0.0.1' (其余 TCP 客户端仍截留)
+2026-06-20 16:21:39 INFO     [cornerstone.bridge.server] AddSamples 队列持久化: D:\work\CornerstoneMock\CornerstoneBridge\cornerstone-bridge.add-samples-queue.json
+2026-06-20 16:21:39 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 16:21:41 WARNING  [cornerstone.bridge.server] startup upstream TCP connect failed: [WinError 1225] 远程计算机拒绝网络连接。
+2026-06-20 16:37:26 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 16:37:28 WARNING  [cornerstone.bridge.gateway] upstream command failure (1/3): web_logon_os:[WinError 1225] 远程计算机拒绝网络连接。
+2026-06-20 16:37:35 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 16:37:37 WARNING  [cornerstone.bridge.gateway] upstream command failure (2/3): web_logon_os:[WinError 1225] 远程计算机拒绝网络连接。
+2026-06-20 17:22:42 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:22:44 WARNING  [cornerstone.bridge.gateway] upstream command failure (3/3): web_logon_os:[WinError 1225] 远程计算机拒绝网络连接。
+2026-06-20 17:22:44 WARNING  [cornerstone.bridge.gateway] upstream stale recover skipped (transport down, reason=command_streak hb_fail=0 cmd_fail=3); scheduling reconnect
+2026-06-20 17:22:45 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:22:47 WARNING  [cornerstone.bridge.gateway] upstream reconnect attempt failed: [WinError 1225] 远程计算机拒绝网络连接。 (next in 2s)
+2026-06-20 17:22:49 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:22:56 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:23:06 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:23:24 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:23:58 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:25:00 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:26:02 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:27:04 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:28:06 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:28:08 WARNING  [cornerstone.bridge.gateway] upstream reconnect attempt failed: [WinError 1225] 远程计算机拒绝网络连接。 (next in 60s) (另有 8 条同类已抑制)
+2026-06-20 17:29:08 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:30:10 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:31:12 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
+2026-06-20 17:32:14 INFO     [cornerstone.bridge.gateway] connecting upstream 127.0.0.1:12345 (encoding=utf-16-le)
