@@ -24,8 +24,8 @@ public sealed class EdgeDockController : IDisposable
     private const int DragSettleMs = 160;
     private const int HoverPollMs = 40;
     private const int HideOutsidePolls = 4;
-    private const int MinExpandedWidthDip = 360;
-    private const int MinExpandedHeightDip = 200;
+    private const int MinExpandedWidthDip = QueueWindowLimits.MinWidthDip;
+    private const int MinExpandedHeightDip = QueueWindowLimits.MinHeightDip;
     private const int TopStripDip = 12;
 
     private readonly Window _mainWindow;
@@ -152,6 +152,19 @@ public sealed class EdgeDockController : IDisposable
 
         var bounds = GetWindowBounds();
         var work = GetWorkArea();
+        var minW = NativeWindowPositioner.ScaleToPhysical(_hwnd, MinExpandedWidthDip);
+        var minH = NativeWindowPositioner.ScaleToPhysical(_hwnd, MinExpandedHeightDip);
+        if (bounds.Width < minW || bounds.Height < minH)
+        {
+            var clamped = ClampToWork(bounds, work);
+            if (bounds.Width != clamped.Width || bounds.Height != clamped.Height)
+            {
+                MoveWindow(clamped);
+            }
+
+            _shownBounds = clamped;
+            return;
+        }
 
         if (!_slideOutLocked)
         {
@@ -378,6 +391,24 @@ public sealed class EdgeDockController : IDisposable
             DockEdge.Right => new RectInt32(work.X + work.Width - reach, work.Y, reach, work.Height),
             _ => default,
         };
+    }
+
+    public RectInt32 GetRestorableBounds()
+    {
+        if (_shownBounds.Width > 0 && _shownBounds.Height > 0)
+        {
+            return _shownBounds;
+        }
+
+        return GetWindowBounds();
+    }
+
+    public void NotifyShownBoundsChanged(RectInt32 bounds)
+    {
+        if (bounds.Width > 0 && bounds.Height > 0)
+        {
+            _shownBounds = bounds;
+        }
     }
 
     private void MoveWindow(RectInt32 rect)

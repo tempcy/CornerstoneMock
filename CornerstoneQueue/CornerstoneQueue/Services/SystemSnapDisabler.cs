@@ -15,6 +15,7 @@ public static class SystemSnapDisabler
     private const uint WsMaximizeBox = 0x00010000;
 
     private const uint WmWindowPosChanging = 0x0046;
+    private const uint WmGetMinMaxInfo = 0x0024;
     private const uint WmNcLButtonDblClk = 0x00A3;
     private const uint WmSysCommand = 0x0112;
     private const int ScMaximize = 0xF030;
@@ -83,6 +84,13 @@ public static class SystemSnapDisabler
     {
         switch (msg)
         {
+            case WmGetMinMaxInfo:
+            {
+                var result = CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam);
+                ApplyMinTrackSize(lParam);
+                return result;
+            }
+
             case WmNcLButtonDblClk:
                 return IntPtr.Zero;
 
@@ -104,6 +112,29 @@ public static class SystemSnapDisabler
         }
 
         return CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam);
+    }
+
+    private static void ApplyMinTrackSize(IntPtr lParam)
+    {
+        if (_hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var mmi = Marshal.PtrToStructure<MinMaxInfo>(lParam)!;
+        var minW = NativeWindowPositioner.ScaleToPhysical(_hwnd, QueueWindowLimits.MinWidthDip);
+        var minH = NativeWindowPositioner.ScaleToPhysical(_hwnd, QueueWindowLimits.MinHeightDip);
+        if (mmi.ptMinTrackSize.X < minW)
+        {
+            mmi.ptMinTrackSize.X = minW;
+        }
+
+        if (mmi.ptMinTrackSize.Y < minH)
+        {
+            mmi.ptMinTrackSize.Y = minH;
+        }
+
+        Marshal.StructureToPtr(mmi, lParam, false);
     }
 
     private static bool TryBlockSystemSnap(IntPtr lParam)
@@ -193,6 +224,16 @@ public static class SystemSnapDisabler
     {
         public int X;
         public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public PointNative ptReserved;
+        public PointNative ptMaxSize;
+        public PointNative ptMaxPosition;
+        public PointNative ptMinTrackSize;
+        public PointNative ptMaxTrackSize;
     }
 
     [StructLayout(LayoutKind.Sequential)]

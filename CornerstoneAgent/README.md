@@ -4,6 +4,7 @@
 
 - 完整架构与阶段划分：[AGENT.md](AGENT.md)
 - 企业：星火/盘古、多实验室指挥、企业微信：[ENTERPRISE.md](ENTERPRISE.md)
+- 本地开发：QwenPaw + Ollama 替代企业模型：[LOCAL-DEV.md](LOCAL-DEV.md)
 - 仓库总路线图：[../PLAN.md](../PLAN.md) §3
 
 实现状态：**未启动**（A0 起）。数据面请使用已部署的 `cornerstone-bridge`（默认 `http://127.0.0.1:8081`）。

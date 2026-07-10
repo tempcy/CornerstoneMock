@@ -31,10 +31,14 @@
     <ApplicationIcon>Assets\CornerstoneQueue.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <EnableHotReload>false</EnableHotReload>
+    <EnableXamlHotReload>false</EnableXamlHotReload>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <DebugType>portable</DebugType>
     <DebugSymbols>true</DebugSymbols>
-    <EnableXamlHotReload>false</EnableXamlHotReload>
   </PropertyGroup>
 
   <ItemGroup>

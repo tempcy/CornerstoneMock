@@ -55,8 +55,10 @@ add_samples_queue_persist_file = "%APPDATA%\\CornerstoneMock\\cornerstone-bridge
 privileged_add_samples_host = "127.0.0.1"
 # 拒绝这些 IP 建立 TCP 连接（启动时载入；变更后实时写回本文件）
 blocked_connect_hosts = []
-# 允许连接但丢弃 Logon（不转发仪器、不合成登录应答）
-blocked_logon_hosts = []
+# 仅允许这些 IP 的 Logon / Logoff（白名单，默认为空 = 全部拒绝）
+allowed_logon_hosts = []
+# 仅允许这些 IP 的 RQ 类查询（白名单，默认为空 = 全部拒绝）
+allowed_query_hosts = []
 
 # ========== 会话与转发行为 ==========
 # true = 每次客户端 Logon 都转发仪器；false = 上游曾成功后对后续客户端合成 Logon

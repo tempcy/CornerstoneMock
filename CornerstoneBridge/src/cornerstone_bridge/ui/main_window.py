@@ -483,7 +483,7 @@ class MainWindow(QMainWindow):
         for i, c in enumerate(clients):
             peer_txt = str(c.get("peer") or "—")
             if c.get("policyOnly"):
-                peer_txt = f"{peer_txt}（阻止列表）"
+                peer_txt = f"{peer_txt}（策略列表）"
             self._tbl_clients.setItem(i, 0, QTableWidgetItem(peer_txt))
             dur = c.get("connectedSeconds")
             if c.get("policyOnly") or dur is None:
@@ -513,13 +513,16 @@ class MainWindow(QMainWindow):
         lay.setSpacing(4)
 
         btn_block_conn = QPushButton("阻止连接")
-        btn_block_logon = QPushButton("阻止登录")
+        btn_allow_logon = QPushButton("允许登录")
         btn_unblock_conn = QPushButton("解除阻止连接")
-        btn_unblock_logon = QPushButton("解除阻止登录")
+        btn_disallow_logon = QPushButton("移除允许登录")
+        btn_allow_query = QPushButton("允许查询")
+        btn_disallow_query = QPushButton("移除允许查询")
         btn_priv = QPushButton("设特权")
 
         connect_blocked = bool(client.get("connectBlocked"))
-        logon_blocked = bool(client.get("logonBlocked"))
+        logon_allowed = bool(client.get("logonAllowed"))
+        query_allowed = bool(client.get("queryAllowed"))
 
         if connect_blocked:
             btn_block_conn.setVisible(False)
@@ -527,11 +530,17 @@ class MainWindow(QMainWindow):
         else:
             btn_unblock_conn.setVisible(False)
 
-        if logon_blocked:
-            btn_block_logon.setVisible(False)
-            btn_unblock_logon.setToolTip("从登录阻止列表移除此 IP")
+        if logon_allowed:
+            btn_allow_logon.setVisible(False)
+            btn_disallow_logon.setToolTip("从登录允许列表移除此 IP")
         else:
-            btn_unblock_logon.setVisible(False)
+            btn_disallow_logon.setVisible(False)
+
+        if query_allowed:
+            btn_allow_query.setVisible(False)
+            btn_disallow_query.setToolTip("从查询允许列表移除此 IP")
+        else:
+            btn_disallow_query.setVisible(False)
 
         if client.get("privileged"):
             btn_priv.setEnabled(False)
@@ -541,49 +550,74 @@ class MainWindow(QMainWindow):
             btn_block_conn.clicked.connect(
                 lambda _checked=False, h=peer_host: self._client_ip_policy("blockConnect", h)
             )
-            btn_block_logon.clicked.connect(
-                lambda _checked=False, h=peer_host: self._client_ip_policy("blockLogon", h)
+            btn_allow_logon.clicked.connect(
+                lambda _checked=False, h=peer_host: self._client_ip_policy("allowLogon", h)
             )
             btn_unblock_conn.clicked.connect(
                 lambda _checked=False, h=peer_host: self._client_ip_policy("unblockConnect", h)
             )
-            btn_unblock_logon.clicked.connect(
-                lambda _checked=False, h=peer_host: self._client_ip_policy("unblockLogon", h)
+            btn_disallow_logon.clicked.connect(
+                lambda _checked=False, h=peer_host: self._client_ip_policy("disallowLogon", h)
+            )
+            btn_allow_query.clicked.connect(
+                lambda _checked=False, h=peer_host: self._client_ip_policy("allowQuery", h)
+            )
+            btn_disallow_query.clicked.connect(
+                lambda _checked=False, h=peer_host: self._client_ip_policy("disallowQuery", h)
             )
             btn_priv.clicked.connect(
                 lambda _checked=False, h=peer_host: self._client_ip_policy("setPrivileged", h)
             )
         else:
-            for btn in (btn_block_conn, btn_block_logon, btn_unblock_conn, btn_unblock_logon, btn_priv):
+            for btn in (
+                btn_block_conn,
+                btn_allow_logon,
+                btn_allow_query,
+                btn_unblock_conn,
+                btn_disallow_logon,
+                btn_disallow_query,
+                btn_priv,
+            ):
                 btn.setEnabled(False)
 
         lay.addWidget(btn_block_conn)
         lay.addWidget(btn_unblock_conn)
-        lay.addWidget(btn_block_logon)
-        lay.addWidget(btn_unblock_logon)
+        lay.addWidget(btn_allow_logon)
+        lay.addWidget(btn_disallow_logon)
+        lay.addWidget(btn_allow_query)
+        lay.addWidget(btn_disallow_query)
         lay.addWidget(btn_priv)
         return w
 
     def _client_ip_policy(self, action: str, peer_host: str) -> None:
         labels = {
             "blockConnect": "阻止连接",
-            "blockLogon": "阻止登录",
+            "allowLogon": "允许登录",
             "unblockConnect": "解除阻止连接",
-            "unblockLogon": "解除阻止登录",
+            "disallowLogon": "移除允许登录",
+            "allowQuery": "允许查询",
+            "disallowQuery": "移除允许查询",
             "setPrivileged": "设特权 IP",
         }
         title = labels.get(action, "IP 策略")
         if action == "blockConnect":
             msg = f"将 {peer_host} 加入连接阻止列表并断开其现有连接？"
-        elif action == "blockLogon":
+        elif action == "allowLogon":
             msg = (
-                f"将 {peer_host} 加入登录阻止列表？\n"
-                "该 IP 的 Logon 将不转发仪器、也不合成登录应答。"
+                f"将 {peer_host} 加入登录允许列表？\n"
+                "仅列表内 IP 的 Logon / Logoff 可转发仪器或合成应答。"
             )
         elif action == "unblockConnect":
             msg = f"将 {peer_host} 从连接阻止列表移除？移除后该 IP 可重新连接 TCP 网关。"
-        elif action == "unblockLogon":
-            msg = f"将 {peer_host} 从登录阻止列表移除？移除后该 IP 的 Logon 将恢复正常处理。"
+        elif action == "disallowLogon":
+            msg = f"将 {peer_host} 从登录允许列表移除？移除后该 IP 的 Logon / Logoff 将被丢弃。"
+        elif action == "allowQuery":
+            msg = (
+                f"将 {peer_host} 加入查询允许列表？\n"
+                "仅列表内 IP 的 RQ 类指令（Status / Sets / Heartbeat 等）可转发仪器。"
+            )
+        elif action == "disallowQuery":
+            msg = f"将 {peer_host} 从查询允许列表移除？移除后该 IP 的 RQ 类指令将被丢弃。"
         else:
             msg = f"将 {peer_host} 设为唯一的 AddSamples 直通特权 IP？"
         if QMessageBox.question(self, title, msg) != QMessageBox.StandardButton.Yes:

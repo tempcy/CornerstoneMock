@@ -17,11 +17,39 @@ public sealed class AppSettings
     /// <summary>0.5–1.0，作用于主内容区。</summary>
     public double WindowOpacity { get; set; } = 1.0;
 
-    /// <summary>文字字号缩放百分比（80–150）。</summary>
+    /// <summary>队列列表字号（8–72，默认 24）。</summary>
+    public double QueueListFontSize { get; set; } = DefaultQueueListFontSize;
+
+    public const double DefaultQueueListFontSize = 24;
+    public const double MinQueueListFontSize = 8;
+    public const double MaxQueueListFontSize = 72;
+
+    /// <summary>状态行与按钮字号缩放百分比（80–125）。</summary>
+    public int UiFontScalePercent { get; set; } = 100;
+
+    /// <summary>旧版列表缩放百分比，仅用于读取旧配置。</summary>
     public int FontScalePercent { get; set; } = 100;
 
-    /// <summary>悬浮窗尺寸缩放百分比（80–150）。</summary>
+    /// <summary>旧版窗体缩放百分比，仅用于读取旧配置。</summary>
     public int WindowScalePercent { get; set; } = 100;
+
+    /// <summary>上次关闭时的窗口位置与尺寸（物理像素）；无效时启动用默认尺寸。</summary>
+    public int? WindowLeft { get; set; }
+
+    public int? WindowTop { get; set; }
+
+    public int? WindowWidth { get; set; }
+
+    public int? WindowHeight { get; set; }
+
+    /// <summary>列表名称列宽（DIP）；与说明列宽同时 &gt; 0 时优先于自动列宽。</summary>
+    public double QueueNameColumnWidth { get; set; }
+
+    /// <summary>列表说明列宽（DIP）。</summary>
+    public double QueueDescriptionColumnWidth { get; set; }
+
+    /// <summary>是否显示列表列标题栏（可拖拽调整列宽）。</summary>
+    public bool ShowQueueColumnHeader { get; set; }
 
     /// <summary>旧版合并缩放字段，仅用于读取旧配置。</summary>
     public int? UiScalePercent { get; set; }
@@ -55,8 +83,15 @@ public sealed class AppSettings
         QueuePollSeconds = QueuePollSeconds,
         AlwaysOnTop = AlwaysOnTop,
         WindowOpacity = WindowOpacity,
-        FontScalePercent = FontScalePercent,
-        WindowScalePercent = WindowScalePercent,
+        QueueListFontSize = QueueListFontSize,
+        UiFontScalePercent = UiFontScalePercent,
+        WindowLeft = WindowLeft,
+        WindowTop = WindowTop,
+        WindowWidth = WindowWidth,
+        WindowHeight = WindowHeight,
+        QueueNameColumnWidth = QueueNameColumnWidth,
+        QueueDescriptionColumnWidth = QueueDescriptionColumnWidth,
+        ShowQueueColumnHeader = ShowQueueColumnHeader,
         AutoReconnect = AutoReconnect,
         ReconnectIntervalSeconds = ReconnectIntervalSeconds,
         AutoClickInstrumentUi = AutoClickInstrumentUi,
@@ -77,16 +112,28 @@ public sealed class AppSettings
 
         if (UiScalePercent is int legacy)
         {
-            FontScalePercent = legacy;
-            WindowScalePercent = legacy;
+            QueueListFontSize = DefaultQueueListFontSize * legacy / 100.0;
+            UiFontScalePercent = legacy;
             UiScalePercent = null;
+        }
+
+        if (FontScalePercent != 100)
+        {
+            QueueListFontSize = DefaultQueueListFontSize * FontScalePercent / 100.0;
+            FontScalePercent = 100;
         }
 
         StatusPollSeconds = Math.Clamp(StatusPollSeconds, 1, 120);
         QueuePollSeconds = Math.Clamp(QueuePollSeconds, 2, 600);
         WindowOpacity = Math.Clamp(WindowOpacity, 0.5, 1.0);
-        FontScalePercent = Math.Clamp(FontScalePercent, 80, 150);
-        WindowScalePercent = Math.Clamp(WindowScalePercent, 80, 150);
+        QueueListFontSize = Math.Clamp(QueueListFontSize, MinQueueListFontSize, MaxQueueListFontSize);
+        UiFontScalePercent = Math.Clamp(UiFontScalePercent, 80, 125);
+        WindowLeft = WindowLeft;
+        WindowTop = WindowTop;
+        WindowWidth = WindowWidth is int w and > 0 ? w : null;
+        WindowHeight = WindowHeight is int h and > 0 ? h : null;
+        QueueNameColumnWidth = QueueNameColumnWidth > 0 ? QueueNameColumnWidth : 0;
+        QueueDescriptionColumnWidth = QueueDescriptionColumnWidth > 0 ? QueueDescriptionColumnWidth : 0;
         ReconnectIntervalSeconds = Math.Clamp(ReconnectIntervalSeconds, 2, 120);
 
         InstrumentWindowTitleContains = (InstrumentWindowTitleContains ?? "").Trim();

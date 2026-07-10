@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using CornerstoneQueue.Models;
 using CornerstoneQueue.Services;
 using CornerstoneQueue.ViewModels;
@@ -7,16 +9,21 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Graphics;
+using WinRT.Interop;
 
 namespace CornerstoneQueue;
 
-public sealed partial class MainWindow : Window
+public sealed partial class MainWindow : Window, INotifyPropertyChanged
 {
     private const int DefaultWidth = 360;
     private const int DefaultHeight = 200;
-    private const double QueueItemBaseFontSize = 24;
+    private const double QueueNameColumnMinDip = 48;
+    private const double QueueDescColumnMinDip = 48;
+    private const double QueueColumnSplitterDip = 12;
+    private const double QueueColumnMeasurePadDip = 8;
 
     private readonly BridgeApiClient _api;
     private readonly ObservableCollection<QueueItemViewModel> _items = new();
@@ -24,12 +31,16 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherQueueTimer _statusTimer;
     private readonly DispatcherQueueTimer _queueTimer;
     private readonly DispatcherQueueTimer _reconnectTimer;
+    private readonly DispatcherQueueTimer _windowBoundsTimer;
+    private readonly DispatcherQueueTimer _columnSaveTimer;
+    private readonly IntPtr _hwnd;
 
     private AppSettings _settings;
     private bool _hasWebCredentials = true;
     private bool _bridgeReachable = true;
     private bool _refreshInFlight;
     private bool _timersStarted;
+    private bool _suppressWindowSave;
     private string _lastQueueFingerprint = "";
     private string _lastStatusLine = "";
     private string _lastResultLine = "";
@@ -37,6 +48,95 @@ public sealed partial class MainWindow : Window
     private readonly EdgeDockController _edgeDock;
     private readonly InstrumentUiAutomationService _uiAutomation = new();
     private SettingsWindow? _settingsWindow;
+    private double _queueNameColumnWidth = 120;
+    private double _queueDescriptionColumnWidth = 120;
+    private GridLength _queueNameColumnLength = new(120);
+    private GridLength _queueDescriptionColumnLength = new(120);
+    private double _queueListFontSize = AppSettings.DefaultQueueListFontSize;
+    private bool _columnSplitterDragging;
+    private bool _columnSplitterPointerDown;
+    private const double ColumnDragThresholdDip = 3;
+    private double _columnDragStartX;
+    private double _columnDragStartNameW;
+    private uint _columnDragPointerId;
+    private Pointer? _columnDragPointer;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public double QueueListFontSize
+    {
+        get => _queueListFontSize;
+        private set
+        {
+            if (Math.Abs(_queueListFontSize - value) < 0.01)
+            {
+                return;
+            }
+
+            _queueListFontSize = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public GridLength QueueNameColumnLength
+    {
+        get => _queueNameColumnLength;
+        private set
+        {
+            if (Math.Abs(_queueNameColumnLength.Value - value.Value) < 0.5)
+            {
+                return;
+            }
+
+            _queueNameColumnLength = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public GridLength QueueDescriptionColumnLength
+    {
+        get => _queueDescriptionColumnLength;
+        private set
+        {
+            if (Math.Abs(_queueDescriptionColumnLength.Value - value.Value) < 0.5)
+            {
+                return;
+            }
+
+            _queueDescriptionColumnLength = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public double QueueNameColumnWidth
+    {
+        get => _queueNameColumnWidth;
+        private set
+        {
+            if (Math.Abs(_queueNameColumnWidth - value) < 0.5)
+            {
+                return;
+            }
+
+            _queueNameColumnWidth = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public double QueueDescriptionColumnWidth
+    {
+        get => _queueDescriptionColumnWidth;
+        private set
+        {
+            if (Math.Abs(_queueDescriptionColumnWidth - value) < 0.5)
+            {
+                return;
+            }
+
+            _queueDescriptionColumnWidth = value;
+            OnPropertyChanged();
+        }
+    }
 
     public MainWindow()
     {
@@ -45,10 +145,13 @@ public sealed partial class MainWindow : Window
 
         InitializeComponent();
         AppIconHelper.HookWindow(this);
+        _hwnd = WindowNative.GetWindowHandle(this);
         _edgeDock = new EdgeDockController(this, DockRoot);
         SystemSnapDisabler.Attach(this);
         Closed += (_, _) =>
         {
+            PersistWindowBounds();
+            PersistColumnWidths();
             _edgeDock.Dispose();
             SystemSnapDisabler.Detach();
             _api.Dispose();
@@ -65,6 +168,24 @@ public sealed partial class MainWindow : Window
 
         _reconnectTimer = _ui.CreateTimer();
         _reconnectTimer.Tick += async (_, _) => await ReconnectTickAsync();
+
+        _windowBoundsTimer = _ui.CreateTimer();
+        _windowBoundsTimer.Interval = TimeSpan.FromMilliseconds(400);
+        _windowBoundsTimer.Tick += (_, _) =>
+        {
+            _windowBoundsTimer.Stop();
+            PersistWindowBounds();
+        };
+
+        _columnSaveTimer = _ui.CreateTimer();
+        _columnSaveTimer.Interval = TimeSpan.FromMilliseconds(400);
+        _columnSaveTimer.Tick += (_, _) =>
+        {
+            _columnSaveTimer.Stop();
+            PersistColumnWidths();
+        };
+
+        AppWindow.Changed += OnMainAppWindowChanged;
 
         Activated += OnWindowActivated;
 
@@ -111,20 +232,22 @@ public sealed partial class MainWindow : Window
         SetAlwaysOnTop(_settings.AlwaysOnTop);
         DockRoot.Opacity = _settings.WindowOpacity;
 
-        var fontScale = _settings.FontScalePercent / 100.0;
-        var statusFont = 11 * fontScale;
-        var bodyFont = 12 * fontScale;
-        TxtStatusLine.FontSize = statusFont;
-        TxtResultLine.FontSize = statusFont;
-        BtnRefresh.FontSize = bodyFont;
-        BtnSettings.FontSize = bodyFont;
-        BtnSend.FontSize = bodyFont;
-        QueueList.FontSize = QueueItemBaseFontSize * fontScale;
+        var uiFontScale = _settings.UiFontScalePercent / 100.0;
+        TxtStatusLine.FontSize = 11 * uiFontScale;
+        TxtResultLine.FontSize = 11 * uiFontScale;
+        BtnRefresh.FontSize = 12 * uiFontScale;
+        BtnSettings.FontSize = 12 * uiFontScale;
+        BtnSend.FontSize = 12 * uiFontScale;
+        QueueListFontSize = _settings.QueueListFontSize;
+        QueueList.MinHeight = Math.Max(72, _settings.QueueListFontSize * 2.5);
 
-        var winScale = _settings.WindowScalePercent / 100.0;
-        var w = Math.Max(280, (int)Math.Round(DefaultWidth * winScale));
-        var h = Math.Max(160, (int)Math.Round(DefaultHeight * winScale));
-        AppWindow.Resize(new SizeInt32(w, h));
+        if (initialize && !TryRestoreSavedWindowBounds())
+        {
+            ApplyDefaultWindowSize();
+        }
+
+        ApplyQueueColumnWidths();
+        ApplyColumnHeaderVisibility();
 
         UpdateReconnectTimerState();
 
@@ -132,6 +255,333 @@ public sealed partial class MainWindow : Window
         {
             _ = RefreshAllAsync();
         }
+    }
+
+    private void OnMainAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        if (_suppressWindowSave || (!args.DidPositionChange && !args.DidSizeChange))
+        {
+            return;
+        }
+
+        _windowBoundsTimer.Stop();
+        _windowBoundsTimer.Start();
+
+        if (args.DidSizeChange && !_columnSplitterDragging && !_columnSplitterPointerDown)
+        {
+            ApplyQueueColumnWidths();
+        }
+    }
+
+    private void OnQueueListSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_columnSplitterDragging || _columnSplitterPointerDown)
+        {
+            return;
+        }
+
+        ApplyQueueColumnWidths();
+    }
+
+    private void ApplyColumnHeaderVisibility()
+    {
+        QueueColumnHeader.Visibility = _settings.ShowQueueColumnHeader
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void OnHeaderColumnSplitterPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_settings.ShowQueueColumnHeader)
+        {
+            return;
+        }
+
+        _columnSplitterPointerDown = true;
+        _columnSplitterDragging = false;
+        _columnDragPointerId = e.Pointer.PointerId;
+        _columnDragPointer = e.Pointer;
+        _columnDragStartX = e.GetCurrentPoint(QueueColumnHeader).Position.X;
+        _columnDragStartNameW = QueueNameColumnWidth;
+        HeaderColumnSplitter.CapturePointer(e.Pointer);
+        HeaderColumnSplitter.Opacity = 1;
+        e.Handled = true;
+    }
+
+    private void OnHeaderColumnSplitterPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_columnSplitterPointerDown || e.Pointer.PointerId != _columnDragPointerId)
+        {
+            return;
+        }
+
+        var delta = e.GetCurrentPoint(QueueColumnHeader).Position.X - _columnDragStartX;
+        if (!_columnSplitterDragging)
+        {
+            if (Math.Abs(delta) < ColumnDragThresholdDip)
+            {
+                return;
+            }
+
+            _columnSplitterDragging = true;
+        }
+
+        var available = GetQueueContentWidthDip();
+        if (available <= 0)
+        {
+            return;
+        }
+
+        var maxName = available - QueueDescColumnMinDip - QueueColumnSplitterDip;
+        var nameW = Math.Clamp(_columnDragStartNameW + delta, QueueNameColumnMinDip, maxName);
+        var descW = available - nameW - QueueColumnSplitterDip;
+        SetColumnWidths(nameW, descW, persist: false);
+        e.Handled = true;
+    }
+
+    private void OnHeaderColumnSplitterPointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_columnSplitterPointerDown || e.Pointer.PointerId != _columnDragPointerId)
+        {
+            return;
+        }
+
+        EndHeaderColumnSplitterDrag(persist: _columnSplitterDragging);
+        e.Handled = true;
+    }
+
+    private void OnHeaderColumnSplitterDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        EndHeaderColumnSplitterDrag(persist: false);
+        _settings.QueueNameColumnWidth = 0;
+        _settings.QueueDescriptionColumnWidth = 0;
+        AutoExpandQueueColumnsFromText();
+        SetColumnWidths(QueueNameColumnWidth, QueueDescriptionColumnWidth, persist: true);
+        e.Handled = true;
+    }
+
+    private void EndHeaderColumnSplitterDrag(bool persist)
+    {
+        if (!_columnSplitterPointerDown && !_columnSplitterDragging)
+        {
+            return;
+        }
+
+        _columnSplitterPointerDown = false;
+        _columnSplitterDragging = false;
+        if (_columnDragPointer is not null)
+        {
+            HeaderColumnSplitter.ReleasePointerCapture(_columnDragPointer);
+            _columnDragPointer = null;
+        }
+        HeaderColumnSplitter.Opacity = 0.7;
+        if (persist)
+        {
+            SetColumnWidths(QueueNameColumnWidth, QueueDescriptionColumnWidth, persist: true);
+        }
+    }
+
+    private void PersistWindowBounds()
+    {
+        var bounds = _edgeDock.GetRestorableBounds();
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return;
+        }
+
+        _settings.WindowLeft = bounds.X;
+        _settings.WindowTop = bounds.Y;
+        _settings.WindowWidth = bounds.Width;
+        _settings.WindowHeight = bounds.Height;
+        AppSettingsStore.Save(_settings);
+    }
+
+    private bool TryRestoreSavedWindowBounds()
+    {
+        var left = _settings.WindowLeft;
+        var top = _settings.WindowTop;
+        var width = _settings.WindowWidth;
+        var height = _settings.WindowHeight;
+        if (left is not int x || top is not int y || width is not int w || height is not int h
+            || w < QueueWindowLimits.MinWidthDip || h < QueueWindowLimits.MinHeightDip)
+        {
+            return false;
+        }
+
+        var work = NativeWindowPositioner.GetWorkArea(_hwnd);
+        if (work.Width <= 0 || work.Height <= 0)
+        {
+            return false;
+        }
+
+        w = Math.Min(Math.Max(w, QueueWindowLimits.MinWidthDip), work.Width);
+        h = Math.Min(Math.Max(h, QueueWindowLimits.MinHeightDip), work.Height);
+        x = Math.Clamp(x, work.X, work.X + work.Width - w);
+        y = Math.Clamp(y, work.Y, work.Y + work.Height - h);
+
+        _suppressWindowSave = true;
+        try
+        {
+            AppWindow.MoveAndResize(new RectInt32(x, y, w, h));
+            _edgeDock.NotifyShownBoundsChanged(new RectInt32(x, y, w, h));
+        }
+        finally
+        {
+            _suppressWindowSave = false;
+        }
+
+        return true;
+    }
+
+    private void ApplyDefaultWindowSize()
+    {
+        _suppressWindowSave = true;
+        try
+        {
+            AppWindow.Resize(new SizeInt32(DefaultWidth, DefaultHeight));
+            _edgeDock.NotifyShownBoundsChanged(NativeWindowPositioner.GetBounds(_hwnd));
+        }
+        finally
+        {
+            _suppressWindowSave = false;
+        }
+    }
+
+    private void ApplyQueueColumnWidths()
+    {
+        if (_columnSplitterDragging || _columnSplitterPointerDown)
+        {
+            return;
+        }
+
+        if (HasSavedColumnWidths())
+        {
+            ApplyColumnWidths(_settings.QueueNameColumnWidth, _settings.QueueDescriptionColumnWidth);
+            return;
+        }
+
+        AutoExpandQueueColumnsFromText();
+    }
+
+    private bool HasSavedColumnWidths() =>
+        _settings.QueueNameColumnWidth > 0 && _settings.QueueDescriptionColumnWidth > 0;
+
+    private void AutoExpandQueueColumnsFromText()
+    {
+        var fontSize = _settings.QueueListFontSize;
+        var maxName = 0.0;
+        var maxDesc = 0.0;
+        foreach (var item in _items)
+        {
+            maxName = Math.Max(maxName, QueueTextMeasurer.MeasureWidth(item.SampleNameDisplay, fontSize));
+            maxDesc = Math.Max(maxDesc, QueueTextMeasurer.MeasureWidth(item.SampleDescriptionDisplay, fontSize));
+        }
+
+        var nameW = Math.Max(QueueNameColumnMinDip, Math.Ceiling(maxName) + QueueColumnMeasurePadDip);
+        var descW = Math.Max(QueueDescColumnMinDip, Math.Ceiling(maxDesc) + QueueColumnMeasurePadDip);
+
+        var available = GetQueueContentWidthDip();
+        if (available > 0 && nameW + descW + QueueColumnSplitterDip > available)
+        {
+            var overflow = nameW + descW + QueueColumnSplitterDip - available;
+            descW = Math.Max(QueueDescColumnMinDip, descW - overflow);
+            if (nameW + descW + QueueColumnSplitterDip > available)
+            {
+                nameW = Math.Max(QueueNameColumnMinDip, available - descW - QueueColumnSplitterDip);
+            }
+        }
+
+        ApplyColumnWidths(nameW, descW);
+    }
+
+    private void ApplyColumnWidths(double nameWidth, double descWidth)
+    {
+        var available = GetQueueContentWidthDip();
+        if (available > 0)
+        {
+            var maxName = Math.Max(QueueNameColumnMinDip, available - QueueDescColumnMinDip - QueueColumnSplitterDip);
+            nameWidth = Math.Clamp(nameWidth, QueueNameColumnMinDip, maxName);
+            descWidth = Math.Clamp(descWidth, QueueDescColumnMinDip, available - nameWidth - QueueColumnSplitterDip);
+        }
+
+        QueueNameColumnWidth = nameWidth;
+        QueueDescriptionColumnWidth = descWidth;
+        QueueNameColumnLength = new GridLength(nameWidth);
+        QueueDescriptionColumnLength = new GridLength(descWidth);
+        SyncQueueColumnGridWidths();
+        _ui.TryEnqueue(SyncQueueColumnGridWidths);
+    }
+
+    private void SyncQueueColumnGridWidths()
+    {
+        if (QueueColumnHeader.ColumnDefinitions.Count >= 3)
+        {
+            QueueColumnHeader.ColumnDefinitions[0].Width = QueueNameColumnLength;
+            QueueColumnHeader.ColumnDefinitions[2].Width = QueueDescriptionColumnLength;
+        }
+
+        for (var i = 0; i < QueueList.Items.Count; i++)
+        {
+            if (QueueList.ContainerFromIndex(i) is not ListViewItem { ContentTemplateRoot: Grid grid } ||
+                grid.ColumnDefinitions.Count < 3)
+            {
+                continue;
+            }
+
+            grid.ColumnDefinitions[0].Width = QueueNameColumnLength;
+            grid.ColumnDefinitions[2].Width = QueueDescriptionColumnLength;
+        }
+
+        QueueList.InvalidateMeasure();
+    }
+
+    private void SetColumnWidths(double nameWidth, double descWidth, bool persist)
+    {
+        ApplyColumnWidths(nameWidth, descWidth);
+        if (!persist)
+        {
+            return;
+        }
+
+        _settings.QueueNameColumnWidth = QueueNameColumnWidth;
+        _settings.QueueDescriptionColumnWidth = QueueDescriptionColumnWidth;
+        _columnSaveTimer.Stop();
+        _columnSaveTimer.Start();
+    }
+
+    private void PersistColumnWidths()
+    {
+        if (QueueNameColumnWidth <= 0 || QueueDescriptionColumnWidth <= 0)
+        {
+            return;
+        }
+
+        _settings.QueueNameColumnWidth = QueueNameColumnWidth;
+        _settings.QueueDescriptionColumnWidth = QueueDescriptionColumnWidth;
+        AppSettingsStore.Save(_settings);
+    }
+
+    private double GetQueueContentWidthDip()
+    {
+        var width = QueueColumnHeader.ActualWidth;
+        if (width <= 0)
+        {
+            width = QueueList.ActualWidth;
+        }
+
+        if (width <= 0)
+        {
+            var scale = NativeWindowPositioner.GetScale(_hwnd);
+            if (scale <= 0)
+            {
+                scale = 1.0;
+            }
+
+            var bounds = NativeWindowPositioner.GetBounds(_hwnd);
+            width = bounds.Width / scale - 16;
+        }
+
+        return Math.Max(0, width);
     }
 
     private void SetAlwaysOnTop(bool onTop)
@@ -428,6 +878,8 @@ public sealed partial class MainWindow : Window
                 QueueList.SelectedItems.Add(vm);
             }
         }
+
+        ApplyQueueColumnWidths();
     }
 
     private void ApplyStatus(StatusResponse? data, bool bridgeReachable, string? error = null)
@@ -499,4 +951,7 @@ public sealed partial class MainWindow : Window
         TxtResultLine.Visibility = Visibility.Visible;
         TxtResultLine.Foreground = new SolidColorBrush(isError ? Colors.OrangeRed : Colors.Green);
     }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
