@@ -1,0 +1,113 @@
+{
+  "schema_version": "baoclaw-tools.v1",
+  "description": "C1 P0+P1 tools for Cornerstone 仪器智能体 (aligned with INTERFACE.md)",
+  "orchestrator_base_url": "http://127.0.0.1:8090",
+  "tools": [
+    {
+      "name": "list_instruments",
+      "description": "列出当前用户有权访问且在线/注册过的 Cornerstone 仪器。选仪器后再调用采集类工具。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "lab_id": { "type": "string", "description": "可选，按实验室过滤" },
+          "online_only": { "type": "boolean", "default": true }
+        },
+        "additionalProperties": false
+      },
+      "http": { "method": "POST", "path": "/v1/tools/list_instruments" }
+    },
+    {
+      "name": "get_instrument_status",
+      "description": "查询指定仪器在线与业务状态（能否跑样、漏气/系统检查等摘要）。需要 lab_id 与 instrument_id。",
+      "parameters": {
+        "type": "object",
+        "required": ["lab_id", "instrument_id"],
+        "properties": {
+          "lab_id": { "type": "string" },
+          "instrument_id": { "type": "string" },
+          "include_system_parameters": { "type": "boolean", "default": false },
+          "include_status_check": { "type": "boolean", "default": true },
+          "timeout_s": { "type": "integer", "default": 60 }
+        },
+        "additionalProperties": false
+      },
+      "http": { "method": "POST", "path": "/v1/tools/get_instrument_status" },
+      "agent_job_type": "get_status"
+    },
+    {
+      "name": "get_analysis_sets",
+      "description": "查询仪器近期分析集（sets）列表摘要，用于回答分析结果相关问题。",
+      "parameters": {
+        "type": "object",
+        "required": ["lab_id", "instrument_id"],
+        "properties": {
+          "lab_id": { "type": "string" },
+          "instrument_id": { "type": "string" },
+          "number": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 },
+          "start_at": { "type": "integer", "default": -1 },
+          "filter_key": { "type": "string", "default": "0" },
+          "timeout_s": { "type": "integer", "default": 90 }
+        },
+        "additionalProperties": false
+      },
+      "http": { "method": "POST", "path": "/v1/tools/get_analysis_sets" },
+      "agent_job_type": "get_sets"
+    },
+    {
+      "name": "get_set_reps",
+      "description": "按 set_key 查询某次分析的重复性（reps）与可选统计（set-stats）。",
+      "parameters": {
+        "type": "object",
+        "required": ["lab_id", "instrument_id", "set_key"],
+        "properties": {
+          "lab_id": { "type": "string" },
+          "instrument_id": { "type": "string" },
+          "set_key": { "type": "string" },
+          "include_detail": { "type": "boolean", "default": false },
+          "include_stats": { "type": "boolean", "default": true },
+          "tag": { "type": "integer", "default": -1 },
+          "timeout_s": { "type": "integer", "default": 90 }
+        },
+        "additionalProperties": false
+      },
+      "http": { "method": "POST", "path": "/v1/tools/get_set_reps" },
+      "agent_job_type": "get_set_reps"
+    },
+    {
+      "name": "collect_instrument",
+      "description": "按采集档位拉取一组只读仪器数据，组装 acquisition-snapshot（含 snapshot_id），供排故或深度问答。优先用 get_* 轻量工具；本工具更重。",
+      "parameters": {
+        "type": "object",
+        "required": ["lab_id", "instrument_id", "profile"],
+        "properties": {
+          "lab_id": { "type": "string" },
+          "instrument_id": { "type": "string" },
+          "profile": {
+            "type": "string",
+            "enum": ["status_light", "analysis_recent", "troubleshoot", "custom"]
+          },
+          "endpoints": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "仅 profile=custom 时生效；必须是白名单 endpoint 别名"
+          },
+          "set_key": {
+            "type": "string",
+            "description": "可选；set-stats/set-reps 优先使用；省略时从 sets 首条推断"
+          },
+          "duration_s": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 600,
+            "default": 0,
+            "description": "0=单次快照；>0 为短期会话采样秒数"
+          },
+          "timeout_s": { "type": "integer", "default": 120 }
+        },
+        "additionalProperties": false
+      },
+      "http": { "method": "POST", "path": "/v1/tools/collect_instrument" },
+      "agent_job_type": "collect"
+    }
+  ]
+}

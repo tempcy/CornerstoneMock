@@ -1,21 +1,35 @@
-# CornerstoneWeb 后续开发计划
+# Cornerstone 后续开发计划
 
-基于当前仓库（`cornerstone-cli` + `cornerstone-bridge` + `cornerstone-web` + `CornerstoneQueue`），分三条产品线规划、分阶段落地。
+围绕 LECO 气体分析仪器远程运维，构建「稳定通信 + AI 诊断 + 自动处置」能力。基于当前仓库（`cornerstone-cli` + `cornerstone-bridge` + `cornerstone-web` + `CornerstoneQueue` + `CornerstoneAgent`），分阶段落地。
 
-### 进度快照（2026-05）
+> 与对外汇报对齐：[docs/Cornerstone项目汇报.md](docs/Cornerstone项目汇报.md)
 
-
-| 组件                   | 阶段    | 状态                                                                     |
-| -------------------- | ----- | ---------------------------------------------------------------------- |
-| Bridge / Web         | 0–1   | ✅ 分包、独立进程、配置拆分为 `cornerstone-bridge.config.toml` + `cornerstone-web.config.toml`（兼容旧 `.json`） |
-| **Bridge 控制台**       | —     | ✅ `cornerstone-bridge-ui`：托盘、配置/日志（级别筛选、智能滚动）、连接/队列监控、服务启停 |
-| **Web 分析页谱图**        | —     | ✅ RepPlot 曲线改用 ECharts（`web_static/echarts.min.js`） |
-| **CornerstoneQueue** | M1–M3 + 仪器 UI 自动点击 | ✅ 见下文 §1（发送成功后可选 FlaUI 点击确认；**不**做系统通知/全局快捷键） |
-| Bridge 北向            | P2+   | ⏳ Modbus/MQTT                                                          |
-| CornerstoneAgent     | A0+   | ⏳ 规划已定稿（[CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)）；实现未启动 |
+### 进度快照（2026-07）
 
 
-**已确定架构**：**Bridge = 网关 + 协议适配（Modbus / IoT，阶段 2）**；`**cornerstone-web`** 仅静态 SPA + `/api/`* 反向代理，不持有 `GatewayHub` 或仪器会话。
+| 阶段 | 组件 | 状态 |
+| --- | --- | --- |
+| **0–1** | Bridge / Web / CLI：TCP 网关 + REST + XML 解析、配置拆分、Bridge 控制台、Web 分析页（ECharts） | ✅ 已实现 |
+| **1b** | CornerstoneQueue：试样代码缓存、Bridge 在线管理与发送、贴边收纳 | ✅ 已实现 |
+| **2** | 边缘 **CornerstoneAgent**：采集、规则、本地信息窗口 | ⏳ 规划中（[AGENT.md](CornerstoneAgent/AGENT.md) 已定稿，A0 未启动） |
+| **3** | 公司内网：**仪器智能体**、**仪器知识库**、**公司大模型**；对话查询分析结果与仪器状态 | ⏳ **当前聚焦**（网络打通与基本业务 POC） |
+| **远期** | Bridge 北向 Modbus / MQTT | 📋 暂缓 |
+
+
+**已确定架构**：仪器侧 **Bridge = 网关 + 协议解析 + REST**；`**cornerstone-web`** 仅静态 SPA + `/api/`* 反向代理；AI 能力经 **边缘 Agent + 公司内网智能体 + 知识库 + 大模型** 分层扩展（见下文「目标架构」）。Modbus/MQTT 北向保留在 Bridge 包内，待 OT/IT 对接需求明确后再排期。
+
+### 当前目标（阶段 3）
+
+- 学习了解公司大模型，争取打通实验室 ↔ 公司内网环境；
+- 跑通基本业务：对话查询**分析结果数据**与**仪器状态**（经 Agent 采集 Bridge REST，智能体编排回复）。
+
+### 后续计划（阶段 3 延续）
+
+- 探索对话能力集成到 **宝武聊天**（或公司统一运维入口）；
+- 建设**仪器知识库**：说明书、图纸、应用文档、维修经验等，供智能体检索增强；
+- 并行推进边缘 Agent A0–A2（采集 + 规则），为智能体提供结构化上下文。
+
+**已确定边界**：**Bridge = 网关 + 对内 REST**；北向 Modbus/MQTT 与 Agent/智能体解耦，不阻塞当前大模型对接。
 
 ---
 
@@ -66,18 +80,44 @@ flowchart TB
 
 **Web 包**（`CornerstoneWeb/src/cornerstone_web/`）：`web_static/`（含 `echarts.min.js` 分析页谱图）、`http_server.py`（静态 + 代理）、`server.py`、`dev_web.py`（`cornerstone-web-dev` 同进程拉起 Bridge + Web，转发 Bridge 全部配置项含 `upstream_inner_reassembly_timeout`）。
 
-### 目标架构
+### 目标架构（汇报版）
+
+```mermaid
+flowchart TB
+  subgraph corp ["公司内网"]
+    U["宝武聊天 / 运维入口"]
+    O["仪器智能体"]
+    K["仪器知识库"]
+    M["公司大模型"]
+    U --> O
+    O --> M
+    O --> K
+  end
+
+  subgraph lab ["各实验室"]
+    A["CornerstoneAgent"]
+    E["Bridge · Web · Queue · CLI"]
+    I["LECO 气体分析仪器"]
+    A --> E --> I
+  end
+
+  O <-->|"typed job / result / alert"| A
+```
+
+| 标签 | 说明 |
+| --- | --- |
+| 统一协议 | TCP/XML + Bridge REST |
+| 分层部署 | 仪器侧 + 边缘 Agent（执行面）+ 公司内网智能体（对话大脑） |
+| REST 能力 | Bridge REST；Web `/api` 反代 |
+| AI 扩展 | Agent 执行采集/规则；BaoClaw 对话 + 知识库 + 大模型；边界见 [ENTERPRISE.md §0](CornerstoneAgent/ENTERPRISE.md) |
+
+**远期北向扩展**（暂缓）：
 
 ```mermaid
 flowchart LR
-  TCP[TCP 客户端] --> Bridge
-  Queue[CornerstoneQueue] --> Bridge
-  Web[cornerstone-web] --> Bridge
-  Agent[CornerstoneAgent] --> Bridge
-  Bridge --> CS[Cornerstone]
-  Bridge --> MB[Modbus]
-  Bridge --> MQTT[MQTT/IoT]
-  CLI[cornerstone-cli] -.->|库复用| Bridge
+  Bridge[cornerstone-bridge] --> CS[Cornerstone]
+  Bridge -.->|P2+| MB[Modbus]
+  Bridge -.->|P2+| MQTT[MQTT/IoT]
 ```
 
 
@@ -103,8 +143,9 @@ flowchart LR
 | **0** ✅  | 仓内逻辑分包：`cornerstone_bridge` 下 `protocol.py` / `parsers.py` / `http_api.py` / `hub.py` / `gateway.py`                                 |
 | **1** ✅  | `cornerstone-bridge` / `cornerstone-web` 独立进程；配置拆为 `cornerstone-bridge.config.toml` + `cornerstone-web.config.toml`（兼容 `.json`）；`cornerstone-web-dev` 一键启动 |
 | **1b** ✅ | `CornerstoneQueue` 悬浮窗 M1–M3 + 仪器 UI 自动点击（WinUI 3，HTTP 调 Bridge REST）                                                                  |
-| **2**    | Bridge 增加 Modbus/MQTT（映射与 `instrument_rq` 读数共用）                                                                                      |
-| **3**    | Agent 只依赖 Bridge API；不再碰 TCP Cookie                                                                                                  |
+| **2**    | 边缘 `CornerstoneAgent` A0–A4：Bridge 采集、规则、信息窗口；只依赖 Bridge API，不碰 TCP Cookie                                                      |
+| **3**    | 公司内网仪器智能体 + 知识库 + 大模型；对话查询仪器状态与分析数据；宝武聊天等入口集成                                                                      |
+| **远期**   | Bridge 北向 Modbus/MQTT（映射与 `instrument_rq` 读数共用）                                                                                      |
 
 
 ### Bridge 第一版 REST（与现有 `/api/`* 对齐）
@@ -119,44 +160,47 @@ Bridge 至少提供：
 
 ---
 
-## 总览（三条产品线）
+## 总览（产品线）
 
 
 | 序号  | 方向         | 定位                       | 与仓库关系                                                             |
 | --- | ---------- | ------------------------ | ----------------------------------------------------------------- |
 | 1   | 缓存样品悬浮窗    | 轻量桌面端，专注队列查看与「发送至仪器」     | `**CornerstoneQueue/`**（WinUI 3）；消费 Bridge `GET/POST /api/queue`* |
-| 2   | 协议转换网关     | 厂家私有协议 ↔ Modbus / 通用 IoT | **即 cornerstone-bridge**（南向 TCP/XML + 北向 Modbus/MQTT）             |
-| 3   | 仪器本机 Agent | 长/短期参数记录 + 规则建议 + **云端 LLM 协作窗口** | 见 [CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)；只依赖 Bridge API / CLI / 日志 / 可选 UI 检查 |
+| 2   | 边缘 Agent + 公司智能体 | 采集 + 规则 + **对话式运维**（分析结果、仪器状态、排故） | [CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)、[ENTERPRISE.md](CornerstoneAgent/ENTERPRISE.md)；边缘 Agent 只连本机 Bridge |
+| 3   | 协议转换网关（远期） | 厂家私有协议 ↔ Modbus / 通用 IoT | **cornerstone-bridge** 北向扩展；**暂缓**，待 OT/IT 需求明确 |
 
 
 ```mermaid
 flowchart LR
-  subgraph core [核心]
+  subgraph core [仪器侧 已实现]
     CLI[cornerstone-cli]
     Bridge[cornerstone-bridge]
     Web[cornerstone-web]
+    Float[CornerstoneQueue]
   end
-  subgraph p1 [计划1]
-    Float[CornerstoneQueue 悬浮窗]
-  end
-  subgraph p2 [计划2 并入 Bridge]
-    MB[Modbus TCP/RTU]
-    IoT[MQTT/HTTP IoT]
-  end
-  subgraph p3 [计划3]
+  subgraph p2 [阶段 2 边缘]
     Agent[CornerstoneAgent]
-    LLM[云端大语言模型]
-    Win[LLM 信息窗口]
+    Win[信息窗口]
   end
-  Bridge --> Float
+  subgraph p3 [阶段 3 公司内网]
+    Chat[宝武聊天 / 运维入口]
+    Orch[仪器智能体]
+    KB[仪器知识库]
+    LLM[公司大模型]
+  end
+  subgraph future [远期]
+    MB[Modbus / MQTT]
+  end
+  Float --> Bridge
   CLI --> Bridge
   Web --> Bridge
-  Bridge --> MB
-  Bridge --> IoT
   Agent --> Bridge
   Agent --> Win
-  Win <--> LLM
-  Agent -.->|CLI/日志/Inspect| Bridge
+  Chat --> Orch
+  Orch --> LLM
+  Orch --> KB
+  Orch <-->|"typed job / result"| Agent
+  Bridge -.-> MB
 ```
 
 
@@ -219,7 +263,9 @@ flowchart LR
 
 ---
 
-## 2. 协议转换（Bridge：网关 + Modbus / IoT）
+## 2. 协议转换（Bridge：网关 + Modbus / IoT）— 远期暂缓
+
+> **排期说明**：汇报路线图中 Modbus/MQTT 列为远期；当前资源优先投入阶段 2–3（Agent + 公司大模型对话）。本节保留技术方案，待 OT/IT 对接需求明确后重启。
 
 ### 目标
 
@@ -272,9 +318,9 @@ flowchart LR
 
 ---
 
-## 3. 仪器本机 Agent（参数采集 + 规则建议 + 云端 LLM 信息窗口）
+## 3. 边缘 Agent 与公司智能体（参数采集 + 规则 + 对话式运维）
 
-> **详细规格**：[CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)
+> **详细规格**：[CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)（边缘）、[CornerstoneAgent/ENTERPRISE.md](CornerstoneAgent/ENTERPRISE.md)（公司内网）、[CornerstoneAgent/INTERFACE.md](CornerstoneAgent/INTERFACE.md)（BaoClaw tool ↔ Agent job）、[CornerstoneAgent/LOCAL-DEV.md](CornerstoneAgent/LOCAL-DEV.md)（本地 POC）
 
 ### 目标（重规划 2026-05）
 
@@ -323,14 +369,25 @@ flowchart TB
 
 ### 阶段划分
 
+**边缘 Agent（实验室）**
+
 | 阶段 | 内容 | 验收 |
 |------|------|------|
 | **A0** | 包骨架、Bridge 客户端、`collect once` | 单次采集 JSON 落盘 |
 | **A1** | 长/短周期调度 + SQLite | 24h 参数可查/导出 |
 | **A2** | 规则引擎 v1（分析 + 状态 + 队列） | 结构化建议 JSON，可静默 |
-| **A3** | 云端 LLM 客户端 + 脱敏；**信息窗口** v1 | 对话展示建议，可关闭 LLM |
+| **A3** | 信息窗口 v1；对接公司编排 API（非直连仪器） | 对话展示建议与采集证据 |
 | **A4** | CLI 子命令、日志 tail、UI inspect；与 Queue 发送事件可选联动 | 排故会话端到端 |
 | **A5** | 心跳、离线队列、installer 可选组件 | 7×24 驻场 |
+
+**公司内网（阶段 3，当前聚焦）**
+
+| 阶段 | 内容 | 验收 |
+|------|------|------|
+| **C0** | 了解公司大模型 API；打通实验室 ↔ 内网网络 | 内网可访问模型 endpoint |
+| **C1** | 仪器智能体 POC：对话查询 `sets` / `status` / `set-reps` 等 | ✅ 基建+P0 tools+BaoClaw skill（[INTERFACE.md](CornerstoneAgent/INTERFACE.md)）；端到端对话待接真 Bridge |
+| **C2** | 仪器知识库 v1（文档入库 + 检索） | 排故/操作问题可引用手册片段 |
+| **C3** | 宝武聊天（或统一运维入口）集成 | 用户从聊天发起查询并收到回复 |
 
 ### 设计原则
 
@@ -353,18 +410,19 @@ flowchart TB
 
 | 优先级    | 项目                            | 理由                   | 粗估（1 人） |
 | ------ | ----------------------------- | -------------------- | ------- |
-| **高**  | 1 悬浮窗 M1–M3 + UI 自动点击        | 已落地；产线校准与硬化待定     | —       |
-| **中**  | 2 Bridge P2–P3（Modbus/MQTT）   | 打通 OT/IT             | 4–6 周   |
-| **中高** | 3 Agent A0–A2                 | 采集 + 规则，不依赖 LLM      | 3–4 周   |
-| **后续** | 3 A3–A4 云端 LLM + 信息窗口、2 P4 写 Modbus | 密钥与脱敏评审              | 各 2–4 周 |
+| **已完成** | 仪器侧 0–1 + Queue 1b        | 远程控制底座与多入口已落地     | —       |
+| **高**  | 阶段 3 C0–C1：大模型对接 + 对话查数 POC | 汇报当前目标；验证端到端价值     | 2–4 周   |
+| **中高** | 边缘 Agent A0–A2 + C2 知识库 v1 | 为智能体提供采集与文档上下文      | 3–5 周   |
+| **中**  | C3 宝武聊天集成、Agent A3 信息窗口 | 统一入口与现场小窗并存         | 2–4 周   |
+| **暂缓** | Bridge P2–P4（Modbus/MQTT）   | OT/IT 对接非当前课题主线       | 待需求明确 |
 
 
 ### 建议里程碑
 
-1. **Q1 末**：~~悬浮窗 beta~~ **悬浮窗 M1–M3 与仪器 UI 自动点击已可用**；Bridge/Web 配置拆分已完成；Web 分析页 RepPlot 已切 ECharts；后续产线反馈与安装包迭代。
-2. **Q2 中**：Modbus/MQTT 只读点表 v1 + Agent 规则监控试点。
-3. **Q2 末**：Agent 长/短期采集 + 规则建议 v1；云端 LLM + 信息窗口 POC（A3）。
-4. **Q3**：多厂家适配插件、生产硬化（鉴权、TLS、审计）。
+1. **已完成（2026 Q1–Q2）**：Bridge/Web/CLI 通信底座；Queue 试样缓存；Web 分析页 ECharts；安装包与 Bridge 控制台。
+2. **当前（2026 Q3）**：公司大模型网络打通；对话查询分析结果与仪器状态 POC（C0–C1）；边缘 Agent A0 启动。
+3. **下一阶段**：仪器知识库 v1（C2）；宝武聊天集成探索（C3）；Agent 规则与长周期采集（A1–A2）。
+4. **远期**：Bridge Modbus/MQTT 北向；多厂家南向插件；生产硬化（鉴权、TLS、审计）。
 
 ---
 
@@ -374,11 +432,12 @@ flowchart TB
 | 目录/包                                       | 说明                                                                                              |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `CornerstoneCLI` / `cornerstone-cli`       | 共享协议库                                                                                           |
-| `CornerstoneBridge` / `cornerstone-bridge` | 网关 + 解析 + REST（`cornerstone-bridge`）；`cornerstone-bridge-ui` 桌面控制台；后续 Modbus/MQTT |
+| `CornerstoneBridge` / `cornerstone-bridge` | 网关 + 解析 + REST（`cornerstone-bridge`）；`cornerstone-bridge-ui` 桌面控制台；北向 Modbus/MQTT（远期暂缓） |
 | `CornerstoneWeb` / `**cornerstone-web`**   | 静态 UI + 可选 BFF；`web_static` 含 ECharts；入口 `cornerstone-web`、`cornerstone-web-dev`                                       |
 | `CornerstoneQueue`                         | WinUI 3 悬浮窗（M1–M3 + 可选 UI 自动点击 ✅）；`CornerstoneQueue.sln`；设置见 `%LocalAppData%\CornerstoneQueue\settings.json` |
 | `installer/`                               | PyInstaller + Inno Setup：Bridge 必选，Web/Queue/CLI/Bridge 控制台可选；Bridge/Web 可注册系统服务（默认全选） |
-| `CornerstoneAgent`                         | 边缘 Agent；规格 [AGENT.md](CornerstoneAgent/AGENT.md)                                              |
+| `CornerstoneAgent`                         | 边缘 Agent + 公司智能体规格；[AGENT.md](CornerstoneAgent/AGENT.md)、[ENTERPRISE.md](CornerstoneAgent/ENTERPRISE.md)、[INTERFACE.md](CornerstoneAgent/INTERFACE.md)、[LOCAL-DEV.md](CornerstoneAgent/LOCAL-DEV.md) |
+| `docs/Cornerstone项目汇报.md`              | 对外汇报稿（与本文进度/后续计划对齐）                                                                   |
 
 
 - 新程序建议**独立目录**（或后续独立仓库），pip 依赖 `cornerstone-cli` 或 HTTP 调用 Bridge。
@@ -391,5 +450,5 @@ flowchart TB
 - 安装包：服务账户权限、升级/覆盖安装策略、Python 运行时与 WinUI 依赖的离线体积优化
 - 悬浮窗：仪器 UI 自动点击在不同 Cornerstone 版本上的控件树差异与校准文档
 - Bridge：Modbus 寄存器表初稿、MQTT 主题命名规范；REST 与现 `/api/`* 差异清单
-- Agent：[AGENT.md](CornerstoneAgent/AGENT.md) 已定义阶段与边界；待实现 `suggestion.json` / `acquisition-snapshot.json` Schema、默认 `rules/default.yaml`
+- Agent：[AGENT.md](CornerstoneAgent/AGENT.md) / [INTERFACE.md](CornerstoneAgent/INTERFACE.md) 已定义边界与 tool↔job 草案；待拆 `schemas/*.json`、默认 `rules/default.yaml`
 

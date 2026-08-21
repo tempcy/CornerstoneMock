@@ -256,12 +256,27 @@ if (-not $SkipPython) {
     }
 
     Write-Host "[build] Install packages and PyInstaller ..."
-    & $py -m pip install -U pip
+    & $py -m pip install -U pip wheel setuptools
+    if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed (exit $LASTEXITCODE)" }
     & $py -m pip install pyinstaller
-    & $py -m pip install -e (Join-Path $Root "CornerstoneCLI")
-    & $py -m pip install -e (Join-Path $Root "CornerstoneBridge")
-    & $py -m pip install -e (Join-Path $Root "CornerstoneWeb")
-    & $py -m pip install -e (Join-Path $Root "CornerstoneBridge[ui]")
+    if ($LASTEXITCODE -ne 0) { throw "pip install pyinstaller failed (exit $LASTEXITCODE)" }
+    # UI 依赖（若已装则跳过解析失败）
+    & $py -m pip install "PySide6>=6.5"
+    # 本地包：先 CLI，再 Bridge/Web；--no-deps 避免镜像上找不到 cornerstone-cli
+    foreach ($pkg in @(
+            (Join-Path $Root "CornerstoneCLI"),
+            (Join-Path $Root "CornerstoneBridge"),
+            (Join-Path $Root "CornerstoneWeb")
+        )) {
+        Write-Host "[build] pip install -e $pkg ..."
+        & $py -m pip install --force-reinstall --no-build-isolation --no-deps -e $pkg
+        if ($LASTEXITCODE -ne 0) { throw "pip install -e failed: $pkg (exit $LASTEXITCODE)" }
+    }
+    $bridgeVer = (& $py -c "from importlib.metadata import version; print(version('cornerstone-bridge'))" | Out-String).Trim()
+    if ($bridgeVer -ne $AppVersion) {
+        throw "cornerstone-bridge metadata version '$bridgeVer' != VERSION '$AppVersion' (title bar would be wrong)"
+    }
+    Write-Host "[build] cornerstone-bridge metadata version OK: $bridgeVer"
 
     $specDir = Join-Path $InstallerDir "specs"
     $pyDist = Join-Path $InstallerDir "pydist"
@@ -363,6 +378,11 @@ foreach ($scriptName in @(
 }
 
 Write-BuildInfo -StagingRoot $Staging -Version $AppVersion -BuildId $BuildId
+# 控制台 exe 在 Bridge\ 下，旁路再放一份，标题栏优先读此文件
+$bridgeStagingDir = Join-Path $Staging "Bridge"
+if (Test-Path $bridgeStagingDir) {
+    Write-BuildInfo -StagingRoot $bridgeStagingDir -Version $AppVersion -BuildId $BuildId
+}
 
 # --- Inno Setup ---
 if (-not $SkipInstaller) {

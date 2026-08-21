@@ -1,0 +1,20 @@
+# MarkItDown — 仪器知识库文档转换（Python 3.14）
+#
+# 安装：
+#   python -m pip install -U "markitdown==0.1.6"
+#   python -m pip install -U mammoth openpyxl python-pptx pdfminer-six pdfplumber xlrd lxml olefile
+#
+# 说明：不要用 markitdown[all]（3.14 下 youtube-transcript-api / magika 等 pin 会失败）
+
+markitdown==0.1.6
+mammoth>=1.8
+openpyxl>=3.1
+python-pptx>=1.0
+pdfminer-six>=20231228
+pdfplumber>=0.11
+xlrd>=2.0
+lxml>=5.0
+olefile>=0.46
+# 大图按章渲染（extract_figures_by_chapter.py）
+pypdfium2>=4.0
+Pillow>=10.0

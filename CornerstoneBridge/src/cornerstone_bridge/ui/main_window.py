@@ -4,7 +4,6 @@ import re
 import subprocess
 import time
 from datetime import datetime
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -32,7 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from .bridge_api import BridgeApiClient, BridgeApiError
-from .build_info import packaging_time_label
+from .build_info import package_version_label, packaging_time_label
 
 
 class _MenuToolButtonSync(QObject):
@@ -131,10 +130,7 @@ class MainWindow(QMainWindow):
 
     @classmethod
     def _build_window_title(cls) -> str:
-        try:
-            ver = version("cornerstone-bridge")
-        except PackageNotFoundError:
-            ver = ""
+        ver = package_version_label()
         parts = [cls._APP_TITLE]
         if ver:
             parts.append(f"v{ver}")

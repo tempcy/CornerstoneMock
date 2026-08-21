@@ -1,8 +1,8 @@
 # Cornerstone 远程控制（Python CLI + Bridge + Web）
 
-**当前版本：0.1.14**（变更见 [CHANGELOG.md](CHANGELOG.md)）
+**当前版本：0.1.16**（变更见 [CHANGELOG.md](CHANGELOG.md)）
 
-后续开发路线图见 [PLAN.md](PLAN.md)。
+后续开发路线图见 [PLAN.md](PLAN.md)（与 [项目汇报](docs/Cornerstone项目汇报.md) 对齐）。
 
 本仓库为 **Python CLI（`CornerstoneCLI`）**、**Bridge（`CornerstoneBridge`）** 与 **Web UI（`CornerstoneWeb` 目录，包名 `cornerstone-web`）**。原始 C# WPF 客户端请放在本地 `**Cornerstone_RemoteControlClient/`** 目录自行对照（该目录已列入 `.gitignore`，**不会**推送到 Git）。
 
@@ -10,7 +10,7 @@
 - `**CornerstoneBridge/`**：`cornerstone-bridge`（TCP 网关、XML 解析、`/api/`* REST）；`cornerstone-bridge-ui`（可选 PySide6 托盘控制台，见 `[ui]` 额外依赖）。
 - `**CornerstoneWeb/`**：`cornerstone-web`（静态页 + 将 `/api/`* 代理到 Bridge）；`cornerstone-web-dev` 一键起 Bridge + Web。
 - `**CornerstoneQueue/`**：WinUI 3 桌面悬浮窗（缓存样品队列，HTTP 调 Bridge REST；可选仪器 UI 自动点击确认）。
-- `**CornerstoneAgent/`**（规划）：仪器驻场 Agent——长/短期参数记录、规则建议、经云端 LLM 协作的信息窗口；详见 [CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md) 与 [PLAN.md](PLAN.md) §3。
+- `**CornerstoneAgent/`**（规划）：边缘 Agent（采集、规则、信息窗口）+ 公司内网仪器智能体与知识库；详见 [CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)、[ENTERPRISE.md](CornerstoneAgent/ENTERPRISE.md) 与 [PLAN.md](PLAN.md)。
 
 下文所述 **Python 版通信内核** 与配套工具位于上述三个子目录中，用于替代/复用原客户端中的核心通信逻辑：
 

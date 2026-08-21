@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "acquisition-snapshot.v1.json",
+  "title": "Cornerstone acquisition snapshot",
+  "type": "object",
+  "required": ["schema_version", "snapshot_id", "profile", "captured_at", "endpoints"],
+  "properties": {
+    "schema_version": { "const": "acquisition-snapshot.v1" },
+    "snapshot_id": { "type": "string", "minLength": 1 },
+    "profile": {
+      "type": "string",
+      "enum": ["status_light", "analysis_recent", "troubleshoot", "custom"]
+    },
+    "aliases": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "captured_at": { "type": "string" },
+    "saved_at": { "type": "string" },
+    "duration_s": { "type": "integer", "minimum": 0, "maximum": 600 },
+    "sample_interval_s": { "type": "integer", "minimum": 5 },
+    "sample_count": { "type": "integer", "minimum": 1 },
+    "persisted": { "type": "boolean" },
+    "endpoints": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "path": { "type": "string" },
+          "query": { "type": "object" },
+          "data": {},
+          "error": { "type": "object" }
+        }
+      }
+    },
+    "samples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["captured_at", "endpoints"],
+        "properties": {
+          "captured_at": { "type": "string" },
+          "endpoints": { "type": "object" }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

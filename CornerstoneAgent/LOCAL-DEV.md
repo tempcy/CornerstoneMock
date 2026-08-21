@@ -243,6 +243,32 @@ req = urllib.request.Request(
 print(json.loads(urllib.request.urlopen(req, timeout=120).read())["choices"][0]["message"]["content"])
 ```
 
+### 6.6 C1 编排 + P0 tools（register / heartbeat / 查数）
+
+```bash
+cd CornerstoneAgent
+python3 -m pip install -e .
+copy cornerstone-agent.config.example.json cornerstone-agent.config.json
+python3 -m cornerstone_agent run
+```
+
+另开终端：
+
+```bash
+curl.exe -s http://127.0.0.1:8090/health
+curl.exe -s -X POST http://127.0.0.1:8090/v1/tools/list_instruments -H "Content-Type: application/json" --data-binary "@-" <<EOF
+{"online_only":true}
+EOF
+```
+
+Windows PowerShell 建议把 JSON 写入临时文件再 `--data-binary "@file.json"`。
+
+或：`python3 scripts/smoke_c1.py` / `python3 -m cornerstone_agent tool get_instrument_status`
+
+BaoClaw：启用技能 `cornerstone_instrument`（见 `BaoClaw/skills/cornerstone_instrument/SKILL.md`），对话中让模型按 skill 调 `8090` 上的 `/v1/tools/*`。
+
+接口细则：[INTERFACE.md](INTERFACE.md)。
+
 ---
 
 ## 7. 分阶段测试路径
@@ -281,7 +307,7 @@ A：不冲突。本地固定 `mode = gateway` + Ollama；上线后改为 `orches
 
 - 架构与 A0–A5：[AGENT.md](AGENT.md)
 - 企业生产（星火/盘古/微信）：[ENTERPRISE.md](ENTERPRISE.md)
-- 仓库里程碑：[../PLAN.md](../PLAN.md) §3
+- 仓库里程碑：[../PLAN.md](../PLAN.md)（阶段 3 当前聚焦；与 [项目汇报](../docs/Cornerstone项目汇报.md) 对齐）
 
 ---
 
