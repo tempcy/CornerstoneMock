@@ -406,15 +406,16 @@ flowchart TB
     A2[A2 规则引擎]
     P1[P0/P1 查数]
   end
-  subgraph loop [反馈闭环]
-    Z[智宝对话]
-    FB["/v1/kb/feedback"]
-    BR[Bridge 建议 ack]
+  subgraph loop [反馈闭环 — 公司侧]
+    Z[智宝/BaoClaw]
+    FB["feedback/*.jsonl"]
+    BR[Bridge ack 审计]
+    Z --> FB
+    BR -.->|notice_ack 整理| FB
   end
   ingest --> Z
   live --> Z
   Z --> FB
-  BR --> FB
   FB --> FC
   FB --> A2
 ```
@@ -438,7 +439,7 @@ flowchart TB
 | `correction` | AI 纠错 | 降权错误引用 / 修订规则 |
 | `escalation` | 转人工 | 工单（可选） |
 
-Schema：`CornerstoneAgent/schemas/kb-feedback.v1.json`；案例：`BaoClaw/knowledge/schemas/fault-case.v1.json`；流程：`BaoClaw/knowledge/schemas/FEEDBACK.md`；API 草案：INTERFACE.md §9。
+Schema：`CornerstoneAgent/schemas/kb-feedback.v1.json`；**存储 Plan A**：`BaoClaw/knowledge/feedback/` + `feedback_tool.py`；流程：`BaoClaw/knowledge/schemas/FEEDBACK.md`。
 
 #### 参数预警三层
 
@@ -454,10 +455,10 @@ Schema：`CornerstoneAgent/schemas/kb-feedback.v1.json`；案例：`BaoClaw/know
 
 | 优先级 | 事项 | 验收 |
 |--------|------|------|
-| **P0** | `fault-case.v1` + 首批 verified 示例 | 3+ 案例可检索引用 |
-| **P0** | 反馈 schema + INTERFACE §9 API 草案 | 智宝/编排可对齐开发 |
-| **P1** | 编排 `POST /v1/kb/feedback` + SQLite 存储 | 对话评分可落库 |
-| **P1** | notice sync → 自动 `notice_ack` | ack 带 note 生成反馈 |
+| **P0** | Plan A：`feedback/*.jsonl` + `feedback_tool.py` + 示例 | ✅ 已实施 |
+| **P0** | `fault-case.v1` + verified 示例 | 3+ 案例 |
+| **P1** | 智宝对话 append 插件（调 `feedback_tool.py`） | 无需机房 HTTP |
+| **P1** | ack → `notice_ack` 整理脚本（读 Agent 审计） | 半自动入库 |
 | **P1** | C2 检索接入（案例 &gt; 日历 &gt; 手册） | 回答含 `case_id` |
 | **P2** | A2 规则 v1（5–10 条高频）+ `rules_eval` tool | 预警 → 建议 → ack 闭环 |
 | **P2** | `promote` 审核工作流 + MD 摘要生成 | 周审入库 |
@@ -500,7 +501,7 @@ Schema：`CornerstoneAgent/schemas/kb-feedback.v1.json`；案例：`BaoClaw/know
 4. **远期**：Bridge Modbus/MQTT 北向；多厂家南向插件；生产硬化（鉴权、TLS、审计）。
 
 > **2026-08 增量**：告警/建议下行路径 D0–D2 已落地——智宝/编排经 `post_operator_notice` → Agent → Bridge `/api/operator-notices` → 操作员对话框；ack 可经 `/api/ui/operator-notices/sync` 回写审计。  
-> **2026-08 规划**：C2+ 知识库反馈 schema（`kb-feedback.v1`、`fault-case.v1`）与 INTERFACE §9 API 草案已入仓；编排 HTTP 与智宝评分 UI 待实现。
+> **2026-08 规划**：C2+ 反馈 **Plan A** 已实施——`BaoClaw/knowledge/feedback/*.jsonl` + `feedback_tool.py`；实验室编排不存反馈，仅回传 snapshot 证据。
 
 ---
 

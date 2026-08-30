@@ -23,6 +23,8 @@ knowledge/
     fault_cases/            # 故障案例（JSON + 示例）
     anomaly_calendar/       # 设备异常日历
   schemas/                  # fault-case.v1、FEEDBACK 约定
+  feedback/                 # Plan A：使用反馈 JSONL（公司侧，入 Git）
+  feedback_tool.py          # append / list / promote CLI
   markdown/                 # MarkItDown 转换结果（镜像 raw 相对路径）
     manuals/
     procedures/
@@ -38,6 +40,7 @@ knowledge/
 | 路径 | 入库？ | 用途 |
 |------|--------|------|
 | `README.md`、`*.py`、`requirements-*.txt`、分类 README | 是 | 工作流与约定 |
+| `feedback/*.jsonl` | 是 | 使用反馈（Plan A） |
 | `raw/**` PDF/Office | 否（本机） | 原文 |
 | `markdown/**` | 否（本机） | 检索用正文 |
 | `figures/**` | 否（本机） | 大图 PNG |
@@ -86,11 +89,13 @@ python extract_figures_by_chapter.py ^
 - 状态：`draft` → `verified`（审核后检索）→ `deprecated`
 - 权重：**verified 案例 > 异常日历原始条目 > 手册通用描述**
 
-## 使用反馈（C2+）
+## 使用反馈（C2+ · Plan A）
 
+- **存储**：`feedback/YYYY-MM.jsonl` + `promote_log.jsonl`（**公司侧 BaoClaw 工作区**，不入实验室编排）
 - Schema：`CornerstoneAgent/schemas/kb-feedback.v1.json`
-- 流程说明：`schemas/FEEDBACK.md`；编排 API 草案见 [INTERFACE.md §9](../../CornerstoneAgent/INTERFACE.md)
-- 入口：智宝对话评分、排故结案、Bridge 运维建议 ack
+- CLI：`py -3 feedback_tool.py append|list|promote`（见 [`feedback/README.md`](feedback/README.md)）
+- 流程：[`schemas/FEEDBACK.md`](schemas/FEEDBACK.md)
+- 实验室仅回传 `snapshot_id` / 时序摘要；Bridge ack 整理为 `notice_ack` 后 append 到本目录
 
 ## 与智能体
 
