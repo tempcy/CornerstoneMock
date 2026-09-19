@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Batch-convert knowledge/raw/* into knowledge/markdown/*.md via MarkItDown."""
+"""Batch-convert knowledge/raw/** into knowledge/markdown/** via MarkItDown.
+
+Preserves relative paths under raw/ (e.g. raw/manuals/foo.pdf → markdown/manuals/foo.md).
+"""
 
 from __future__ import annotations
 
@@ -11,7 +14,6 @@ from markitdown import MarkItDown
 ROOT = Path(__file__).resolve().parent
 RAW = ROOT / "raw"
 OUT = ROOT / "markdown"
-SKIP_SUFFIX = {".md", ".txt"}  # already text; copy/skip
 INCLUDE = {
     ".pdf",
     ".docx",
@@ -38,7 +40,7 @@ def main() -> int:
     files = [p for p in RAW.rglob("*") if p.is_file() and p.suffix.lower() in INCLUDE]
     if not files:
         print(f"No convertible files under {RAW}")
-        print("Drop PDF/DOCX/PPTX/XLSX into knowledge/raw/ then re-run.")
+        print("Drop files into knowledge/raw/<category>/ then re-run.")
         return 0
     ok = 0
     for src in sorted(files):
@@ -50,7 +52,7 @@ def main() -> int:
             text = (result.text_content or "").strip()
             header = f"<!-- source: {rel.as_posix()} -->\n\n"
             dest.write_text(header + text + "\n", encoding="utf-8")
-            print(f"OK  {rel} -> {dest.relative_to(ROOT)}")
+            print(f"OK  {rel.as_posix()} -> {dest.relative_to(ROOT).as_posix()}")
             ok += 1
         except Exception as e:
             print(f"FAIL {rel}: {e}", file=sys.stderr)

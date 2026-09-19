@@ -15,7 +15,9 @@ if ($BridgeOnly) {
 
 $ErrorActionPreference = "Stop"
 $AppVersion = (Get-Content -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) "VERSION") -Raw).Trim()
-if (-not $AppVersion) { $AppVersion = "0.2.0" }
+if ($AppVersion -notmatch '^\d+\.\d+\.\d+$') {
+    throw "VERSION must be MAJOR.MINOR.PATCH (got '$AppVersion'). See installer/README.md."
+}
 if ($PSVersionTable.PSVersion.Major -ge 6) {
     $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 }
@@ -272,11 +274,13 @@ if (-not $SkipPython) {
         & $py -m pip install --force-reinstall --no-build-isolation --no-deps -e $pkg
         if ($LASTEXITCODE -ne 0) { throw "pip install -e failed: $pkg (exit $LASTEXITCODE)" }
     }
-    $bridgeVer = (& $py -c "from importlib.metadata import version; print(version('cornerstone-bridge'))" | Out-String).Trim()
-    if ($bridgeVer -ne $AppVersion) {
-        throw "cornerstone-bridge metadata version '$bridgeVer' != VERSION '$AppVersion' (title bar would be wrong)"
+    foreach ($pkgName in @("cornerstone-bridge", "cornerstone-web", "cornerstone-cli")) {
+        $pkgVer = (& $py -c "from importlib.metadata import version; print(version('$pkgName'))" | Out-String).Trim()
+        if ($pkgVer -ne $AppVersion) {
+            throw "$pkgName metadata version '$pkgVer' != VERSION '$AppVersion'"
+        }
+        Write-Host "[build] $pkgName metadata version OK: $pkgVer"
     }
-    Write-Host "[build] cornerstone-bridge metadata version OK: $bridgeVer"
 
     $specDir = Join-Path $InstallerDir "specs"
     $pyDist = Join-Path $InstallerDir "pydist"

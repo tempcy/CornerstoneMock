@@ -8,7 +8,9 @@
 | **CLI TCP** | `<GC8_IP>:54321` | 仪器 TCP 网关；连通性自检 / 排故备用（C1 查数不经此端口） |
 | **Agent 编排** | `http://127.0.0.1:8090` | 本机 Orchestrator（`run` 启动） |
 
-**未实现（不必测）**：长周期调度（A1）、规则引擎（P2 `rules_eval`）、`log_tail`、Queue / 仪器日志。
+**未实现（不必测）**：规则引擎（P2 `rules_eval`）、`log_tail`、Queue / 仪器日志。
+
+A1 长周期时序（SQLite）**已实现**，见下文 §7。
 
 配置文件：本机 `cornerstone-agent.config.json`（含现场 IP，已加入 `.gitignore`，勿提交）。地址占位符见 [docs/二炼钢实验室网络.md](../docs/二炼钢实验室网络.md)。
 
@@ -261,7 +263,59 @@ python3 scripts/smoke_c1.py
 
 ---
 
-## 7. 验收清单
+## 7. A1 长周期时序（SQLite）
+
+`run` 时若配置 `timeseries.enabled`（默认 true），后台按 **采集任务** 独立调度：
+
+- **Widgets**（`status-widgets`）：默认 **10 秒**，有效期 **3 天**
+- **Ambients**（`ambients`）：默认 **5 分钟**，有效期 **90 天**
+
+范围可选本 Agent 下全部设备，或指定单台。采集项清单来自白名单查询命令，可在运维台「配置」页保存并热加载。
+
+单元测试（无仪器）：
+
+```bash
+cd CornerstoneAgent
+python3 -m unittest tests.test_timeseries_a1 tests.test_timeseries_tools tests.test_collect_p1 tests.test_ui_api
+```
+
+BaoClaw / 对话侧 tool（读 SQLite，不经 Bridge）：
+
+```bash
+curl.exe -s -X POST http://127.0.0.1:8090/v1/tools/get_timeseries_latest -H "Content-Type: application/json" -d "{\"lab_id\":\"lab-2lg\",\"instrument_id\":\"GC8\",\"job_id\":\"widgets\"}"
+curl.exe -s -X POST http://127.0.0.1:8090/v1/tools/query_timeseries -H "Content-Type: application/json" -d "{\"lab_id\":\"lab-2lg\",\"instrument_id\":\"GC8\",\"hours\":24,\"job_id\":\"widgets\",\"metric\":\"gauge.Back_Pressure\"}"
+```
+
+立即采集一次（不需要先 `run`）：
+
+```bash
+python3 -m cornerstone_agent collect once --instrument-id GC8
+python3 -m cornerstone_agent collect once --instrument-id GC8 --job widgets
+python3 -m cornerstone_agent collect once --all
+```
+
+查询 24h / 导出 CSV：
+
+```bash
+python3 -m cornerstone_agent timeseries query --instrument-id GC8 --hours 24
+python3 -m cornerstone_agent timeseries query --instrument-id GC8 --job widgets --metric gauge.上端气流压力
+python3 -m cornerstone_agent timeseries query --instrument-id GC8 --job ambients --hours 2160
+python3 -m cornerstone_agent timeseries export --instrument-id GC8 --hours 24 --out gc8.csv
+```
+
+编排已启动时：
+
+- 运维台 `http://127.0.0.1:8090/ui/` → **时序**
+- `GET /api/ui/timeseries?instrument_id=GC8&hours=24&job_id=widgets`
+- `GET /api/ui/timeseries/export.csv?instrument_id=GC8&hours=24&job_id=ambients`
+- `POST /api/ui/timeseries/collect-once` body `{"instrument_id":"GC8","job_id":"widgets"}`
+- `PUT /api/ui/timeseries/jobs` body `{ "jobs": [ ... ] }`（热加载，不改 instruments）
+
+期望：`stats.samples >= 1`（采集成功后）；CSV 含 `ts,instrument_id,metric,...`。
+
+---
+
+## 8. 验收清单
 
 | # | 项 | 通过条件 |
 |---|----|----------|
@@ -273,10 +327,11 @@ python3 scripts/smoke_c1.py
 | 6 | P0 sets | `get_analysis_sets` 返回 sets |
 | 7 | P0 reps | `get_set_reps` 用真实 `set_key` 成功 |
 | 8 | 冒烟脚本 | `smoke_c1.py` 退出码 0 且查数成功 |
+| 9 | A1 时序 | `collect once` 后 `timeseries query` 24h 有样本；或运维台时序页有曲线 |
 
 ---
 
-## 8. 常见失败
+## 9. 常见失败
 
 | 现象 | 排查 |
 |------|------|

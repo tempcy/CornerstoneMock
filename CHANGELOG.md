@@ -1,6 +1,33 @@
 # Changelog
 
+安装包版本（仓库根目录 `VERSION`）自 **0.1.17** 之后按三位规则递增，详见 [installer/README.md](installer/README.md)：
+
+| 位 | 何时 +1 | 重置 |
+| --- | --- | --- |
+| 大版本 | 架构或界面大更新 | 中、小归 0 |
+| 中版本 | 增加 Bridge 能力 | 小版本归 0 |
+| 小版本 | Bug 修正 | 从 0 起累加 |
+
+`CornerstoneAgent` 独立编号，不写入安装包 `VERSION`。
+
 ## [Unreleased]
+
+---
+
+## 0.1.17
+
+**定位**：Bridge 增加操作员建议下行（Agent / 智宝 → 控制台对话框）。本版仍沿用 0.1.x 补丁号；**其后**安装包升版改用上文三位规则。
+
+### Bridge
+
+- **操作员建议 inbox**：REST `GET/POST /api/operator-notices`、单条查询与 `/ack` 确认；内存 + 可选 JSON 落盘；仅展示与确认，不写仪器。
+- **控制台**：新增「运维建议」页签（列表、待确认计数、已读/已处理）；`reject` / `maintain` 级建议弹窗提醒。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.17 |
+| cornerstone-web | 0.1.17 |
+| cornerstone-cli | 0.1.17 |
 
 ---
 

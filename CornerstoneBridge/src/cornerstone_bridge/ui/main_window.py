@@ -109,8 +109,12 @@ class MainWindow(QMainWindow):
 
         self._build_monitor_tab()
         self._build_queue_tab()
+        self._build_notices_tab()
         self._build_config_tab()
         self._build_logs_tab()
+
+        self._seen_popup_ids: set[str] = set()
+        self._popup_open = False
 
         self._poll = QTimer(self)
         self._poll.setInterval(2000)
@@ -349,21 +353,82 @@ class MainWindow(QMainWindow):
         )
         self._tabs.addTab(w, "日志")
 
+    def _build_notices_tab(self) -> None:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        top = QHBoxLayout()
+        self._btn_refresh_notices = QPushButton("立即刷新")
+        self._btn_refresh_notices.clicked.connect(lambda: self._refresh_notices(notify=True))
+        self._lbl_notices_pending = QLabel("未确认: —")
+        top.addWidget(self._btn_refresh_notices)
+        top.addWidget(self._lbl_notices_pending)
+        top.addStretch()
+        layout.addLayout(top)
+
+        self._tbl_notices = QTableWidget(0, 6)
+        self._tbl_notices.setHorizontalHeaderLabels(
+            ["时间", "级别", "来源", "标题", "状态", "操作"]
+        )
+        hdr = self._tbl_notices.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self._tbl_notices.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._tbl_notices.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._tbl_notices.cellDoubleClicked.connect(self._on_notice_row_double_clicked)
+        layout.addWidget(self._tbl_notices)
+
+        self._txt_notice_detail = QTextEdit()
+        self._txt_notice_detail.setReadOnly(True)
+        self._txt_notice_detail.setMaximumHeight(160)
+        layout.addWidget(QLabel("详情"))
+        layout.addWidget(self._txt_notice_detail)
+
+        btns = QHBoxLayout()
+        self._btn_ack_notice = QPushButton("已读 / 已处理")
+        self._btn_ack_notice.clicked.connect(lambda: self._ack_selected_notice("acked"))
+        self._btn_dismiss_notice = QPushButton("忽略")
+        self._btn_dismiss_notice.clicked.connect(lambda: self._ack_selected_notice("dismissed"))
+        self._btn_copy_notice = QPushButton("复制正文")
+        self._btn_copy_notice.clicked.connect(self._copy_selected_notice)
+        btns.addWidget(self._btn_ack_notice)
+        btns.addWidget(self._btn_dismiss_notice)
+        btns.addWidget(self._btn_copy_notice)
+        btns.addStretch()
+        layout.addLayout(btns)
+        layout.addWidget(
+            QLabel(
+                "说明：智宝 / Agent 下发的运维建议仅供展示与确认，不会自动改仪器。"
+                "级别为 reject / maintain 时会置顶弹窗。"
+            )
+        )
+        self._tabs.insertTab(2, w, "运维建议")
+        self._notice_rows: List[Dict[str, Any]] = []
+
     def _on_poll(self) -> None:
         self._update_bridge_connection_status()
+        self._poll_operator_notices()
         if not self._chk_auto.isChecked():
             return
-        if self._tabs.currentIndex() == 0:
+        idx = self._tabs.currentIndex()
+        if idx == 0:
             self._refresh_monitor()
-        elif self._tabs.currentIndex() == 1:
+        elif idx == 1:
             self._refresh_queue()
-        if self._tabs.currentIndex() == 3:
+        elif idx == 2:
+            self._refresh_notices()
+        # 配置=3；日志=4（插入运维建议后）
+        if idx == 4:
             self._refresh_logs()
 
     def _refresh_all(self) -> None:
         self._reload_api_client()
         self._refresh_monitor()
         self._refresh_queue()
+        self._refresh_notices()
         self._refresh_logs()
 
     def _refresh_current_tab(self) -> None:
@@ -372,7 +437,9 @@ class MainWindow(QMainWindow):
             self._refresh_monitor()
         elif idx == 1:
             self._refresh_queue()
-        elif idx == 3:
+        elif idx == 2:
+            self._refresh_notices(notify=True)
+        elif idx == 4:
             self._refresh_logs(force_full=True)
 
     def _apply_offline_placeholders(self) -> None:
@@ -949,3 +1016,146 @@ class MainWindow(QMainWindow):
             sb.setValue(sb.maximum())
         else:
             self._append_log_text(filtered)
+
+    # --- 运维建议下行 ---
+
+    def _poll_operator_notices(self) -> None:
+        if not self._api_connected or self._popup_open:
+            return
+        try:
+            data = self._api.get_operator_notices(pending_only=True)
+        except BridgeApiError:
+            return
+        popup_ids = list(data.get("popupIds") or [])
+        items = {str(it.get("noticeId") or ""): it for it in (data.get("items") or [])}
+        for nid in popup_ids:
+            if not nid or nid in self._seen_popup_ids:
+                continue
+            notice = items.get(nid)
+            if not notice:
+                continue
+            self._seen_popup_ids.add(nid)
+            self._show_notice_popup(notice)
+            break  # 一次只弹一条，避免刷屏
+
+    def _refresh_notices(self, *, notify: bool = False) -> None:
+        if notify:
+            self._update_bridge_connection_status()
+        if not self._api_connected:
+            self._lbl_notices_pending.setText("未确认: Bridge 未连接")
+            self._tbl_notices.setRowCount(0)
+            self._notice_rows = []
+            if notify:
+                QMessageBox.warning(self, "运维建议", "无法连接 Bridge API")
+            return
+        try:
+            data = self._api.get_operator_notices()
+        except BridgeApiError as e:
+            if notify:
+                QMessageBox.warning(self, "运维建议", str(e))
+            return
+        items = list(data.get("items") or [])
+        self._notice_rows = items
+        pending = int(data.get("pendingCount") or 0)
+        self._lbl_notices_pending.setText(f"未确认: {pending}")
+        self._tbl_notices.setRowCount(len(items))
+        for i, it in enumerate(items):
+            self._tbl_notices.setItem(i, 0, QTableWidgetItem(str(it.get("createdAtText") or "")))
+            self._tbl_notices.setItem(i, 1, QTableWidgetItem(str(it.get("severity") or "")))
+            self._tbl_notices.setItem(i, 2, QTableWidgetItem(str(it.get("source") or "")))
+            self._tbl_notices.setItem(i, 3, QTableWidgetItem(str(it.get("title") or "")))
+            self._tbl_notices.setItem(i, 4, QTableWidgetItem(str(it.get("status") or "")))
+            op = "查看"
+            if it.get("status") == "pending":
+                op = "待确认"
+            self._tbl_notices.setItem(i, 5, QTableWidgetItem(op))
+            self._tbl_notices.item(i, 0).setData(Qt.ItemDataRole.UserRole, str(it.get("noticeId") or ""))
+
+    def _selected_notice(self) -> Optional[Dict[str, Any]]:
+        row = self._tbl_notices.currentRow()
+        if row < 0 or row >= len(self._notice_rows):
+            return None
+        return self._notice_rows[row]
+
+    def _on_notice_row_double_clicked(self, row: int, _col: int) -> None:
+        if row < 0 or row >= len(self._notice_rows):
+            return
+        self._show_notice_detail(self._notice_rows[row])
+
+    def _show_notice_detail(self, notice: Dict[str, Any]) -> None:
+        lines = [
+            f"标题: {notice.get('title') or ''}",
+            f"级别: {notice.get('severity') or ''}    来源: {notice.get('source') or ''}",
+            f"状态: {notice.get('status') or ''}    ID: {notice.get('noticeId') or ''}",
+            "",
+            str(notice.get("message") or ""),
+        ]
+        actions = notice.get("actions") or []
+        if actions:
+            lines.append("")
+            lines.append("建议步骤:")
+            for a in actions:
+                if isinstance(a, dict):
+                    lines.append(f"- {a.get('label') or a.get('text') or a}")
+                else:
+                    lines.append(f"- {a}")
+        evidence = notice.get("evidence") or []
+        if evidence:
+            lines.append("")
+            lines.append("依据:")
+            for e in evidence[:12]:
+                lines.append(f"- {e}")
+        self._txt_notice_detail.setPlainText("\n".join(lines))
+
+    def _ack_selected_notice(self, action: str) -> None:
+        notice = self._selected_notice()
+        if not notice:
+            QMessageBox.information(self, "运维建议", "请先选择一条建议")
+            return
+        nid = str(notice.get("noticeId") or "")
+        if not nid:
+            return
+        try:
+            self._api.ack_operator_notice(nid, action=action, acked_by="bridge-ui")
+        except BridgeApiError as e:
+            QMessageBox.warning(self, "运维建议", str(e))
+            return
+        self._refresh_notices()
+
+    def _copy_selected_notice(self) -> None:
+        notice = self._selected_notice()
+        if not notice:
+            return
+        text = f"{notice.get('title') or ''}\n{notice.get('message') or ''}".strip()
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.clipboard().setText(text)
+
+    def _show_notice_popup(self, notice: Dict[str, Any]) -> None:
+        self._popup_open = True
+        try:
+            self.show_normal()
+            self._tabs.setCurrentIndex(2)
+            self._show_notice_detail(notice)
+            sev = str(notice.get("severity") or "")
+            title = f"运维建议 [{sev}] {notice.get('title') or ''}"
+            msg = str(notice.get("message") or "")
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle(title[:80] or "运维建议")
+            box.setText(msg[:2000] or "(无正文)")
+            box.setInformativeText("请现场确认后在「运维建议」页签点已读/已处理。")
+            ack_btn = box.addButton("已读 / 已处理", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton("稍后处理", QMessageBox.ButtonRole.RejectRole)
+            box.setWindowModality(Qt.WindowModality.ApplicationModal)
+            box.exec()
+            if box.clickedButton() is ack_btn:
+                nid = str(notice.get("noticeId") or "")
+                if nid:
+                    try:
+                        self._api.ack_operator_notice(nid, action="acked", acked_by="bridge-ui-popup")
+                    except BridgeApiError:
+                        pass
+                    self._refresh_notices()
+        finally:
+            self._popup_open = False

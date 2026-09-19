@@ -89,5 +89,20 @@ installer/tools/nssm.zip
 installer/tools/nssm-2.24/
 installer/Cornerstone-test-minimal.iss
 
+# Agent 运行时（SQLite / 快照）
+CornerstoneAgent/agent_timeseries.sqlite3
+CornerstoneAgent/agent_timeseries.sqlite3-wal
+CornerstoneAgent/agent_timeseries.sqlite3-shm
+CornerstoneAgent/acquisition_snapshots/
+
 # 原始 C# 客户端：不纳入版本库（本地保留）
 Cornerstone_RemoteControlClient/
+
+# 仪器知识库大体积本机产物（保留工作流与分类骨架）
+BaoClaw/knowledge/raw/**/*.pdf
+BaoClaw/knowledge/raw/**/*.docx
+BaoClaw/knowledge/raw/**/*.pptx
+BaoClaw/knowledge/markdown/manuals/
+BaoClaw/knowledge/markdown/_preview/
+BaoClaw/knowledge/figures/
+BaoClaw/knowledge/catalogs/manuals/

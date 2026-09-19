@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cornerstone-agent"
-version = "0.2.0"
-description = "Cornerstone 边缘 Agent + C1 POC 编排（注册表 / typed job / P0 tools）。"
+version = "0.3.3"
+description = "Cornerstone 边缘 Agent：编排 P0/P1 tools + A1 多任务 SQLite 时序。"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [{ name = "LECO / Cornerstone Agent" }]

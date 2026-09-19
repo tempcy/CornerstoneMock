@@ -16,6 +16,7 @@ TOOL_TO_JOB = {
     "get_analysis_sets": "get_sets",
     "get_set_reps": "get_set_reps",
     "collect_instrument": "collect",
+    "post_operator_notice": "operator_notice",
     "eval_instrument_rules": "rules_eval",
     "tail_instrument_logs": "log_tail",
     "inspect_instrument_ui": "ui_inspect",

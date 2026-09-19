@@ -2,14 +2,152 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 
 def _as_dict(v: Any, default: dict | None = None) -> dict:
     return dict(v) if isinstance(v, dict) else (default or {})
+
+
+_JOB_ID_SAFE = re.compile(r"^[A-Za-z0-9._-]{1,40}$")
+
+
+def _clamp_interval(raw: Any, default: float = 300.0) -> float:
+    try:
+        interval = float(raw if raw is not None else default)
+    except (TypeError, ValueError):
+        interval = default
+    if interval < 5:
+        return 5.0
+    if interval > 86400:
+        return 86400.0
+    return interval
+
+
+def _clamp_retention(raw: Any, default: int = 30) -> int:
+    try:
+        days = int(raw if raw is not None else default)
+    except (TypeError, ValueError):
+        days = default
+    if days < 1:
+        return 1
+    if days > 3650:
+        return 3650
+    return days
+
+
+def _parse_job(raw: Any, *, fallback_id: str) -> TimeseriesJobConfig | None:
+    if not isinstance(raw, dict):
+        return None
+    jid = str(raw.get("id") or fallback_id).strip()
+    if not _JOB_ID_SAFE.match(jid):
+        jid = fallback_id
+    endpoints: list[str] = []
+    if isinstance(raw.get("endpoints"), list):
+        endpoints = [str(x).strip() for x in raw["endpoints"] if str(x).strip()]
+    if not endpoints:
+        return None
+    from .collect import ENDPOINT_SPECS
+
+    endpoints = [a for a in endpoints if a in ENDPOINT_SPECS]
+    if not endpoints:
+        return None
+    scope = str(raw.get("scope") or "all").strip().lower()
+    if scope not in ("all", "single"):
+        scope = "all"
+    ids: list[str] = []
+    if isinstance(raw.get("instrument_ids"), list):
+        ids = [str(x).strip() for x in raw["instrument_ids"] if str(x).strip()]
+    enabled = True if "enabled" not in raw else bool(raw.get("enabled"))
+    return TimeseriesJobConfig(
+        id=jid,
+        enabled=enabled,
+        label=str(raw.get("label") or jid).strip() or jid,
+        endpoints=endpoints,
+        interval_s=_clamp_interval(raw.get("interval_s"), 300.0),
+        retention_days=_clamp_retention(raw.get("retention_days"), 30),
+        scope=scope,
+        instrument_ids=ids,
+    )
+
+
+def default_timeseries_jobs() -> list[TimeseriesJobConfig]:
+    return [
+        TimeseriesJobConfig(
+            id="widgets",
+            enabled=True,
+            label="实时仪表 Widgets",
+            endpoints=["status-widgets"],
+            interval_s=10.0,
+            retention_days=3,
+            scope="all",
+        ),
+        TimeseriesJobConfig(
+            id="ambients",
+            enabled=True,
+            label="环境 Ambients",
+            endpoints=["ambients"],
+            interval_s=300.0,
+            retention_days=90,
+            scope="all",
+        ),
+    ]
+
+
+def _parse_timeseries(ts: dict[str, Any]) -> TimeseriesConfig:
+    timeout = float(ts.get("timeout_s") or 90)
+    if timeout < 5:
+        timeout = 5.0
+    enabled = True if "enabled" not in ts else bool(ts.get("enabled"))
+    jobs: list[TimeseriesJobConfig] = []
+    if "jobs" in ts:
+        raw_jobs = ts.get("jobs")
+        if isinstance(raw_jobs, list):
+            seen: set[str] = set()
+            for i, item in enumerate(raw_jobs):
+                job = _parse_job(item, fallback_id=f"job-{i + 1}")
+                if job is None:
+                    continue
+                if job.id in seen:
+                    job.id = f"{job.id}-{i + 1}"
+                seen.add(job.id)
+                jobs.append(job)
+    else:
+        jobs = default_timeseries_jobs()
+    return TimeseriesConfig(
+        enabled=enabled,
+        db_path=str(ts.get("db_path") or "agent_timeseries.sqlite3"),
+        timeout_s=timeout,
+        jobs=jobs,
+    )
+
+
+def timeseries_to_mapping(ts: "TimeseriesConfig") -> dict[str, Any]:
+    return {
+        "enabled": ts.enabled,
+        "db_path": ts.db_path,
+        "timeout_s": ts.timeout_s,
+        "jobs": [j.to_mapping() for j in ts.jobs],
+    }
+
+
+def save_timeseries_config(cfg: "AgentConfig", ts: "TimeseriesConfig") -> Path:
+    """只改配置文件里的 timeseries，保留 instruments[] 等其它字段。"""
+    path = Path(cfg.config_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"config file not found: {path}")
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("config root must be object")
+    raw["timeseries"] = timeseries_to_mapping(ts)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return path
 
 
 @dataclass
@@ -80,14 +218,119 @@ class PrivacyConfig:
     redact_sample_names: bool = True
 
 
+DEFAULT_TIMESERIES_ENDPOINTS = (
+    "status-widgets",
+    "ambients",
+)
+
+
+@dataclass
+class TimeseriesJobConfig:
+    """一条独立采集任务：查询命令列表 + 周期 + 有效期 + 仪器范围。"""
+
+    id: str
+    endpoints: list[str]
+    enabled: bool = True
+    label: str = ""
+    interval_s: float = 300.0
+    retention_days: int = 30
+    scope: str = "all"
+    instrument_ids: list[str] = field(default_factory=list)
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "enabled": self.enabled,
+            "label": self.label or self.id,
+            "endpoints": list(self.endpoints),
+            "interval_s": self.interval_s,
+            "retention_days": self.retention_days,
+            "scope": self.scope,
+            "instrument_ids": list(self.instrument_ids),
+        }
+
+    def matches_instrument(self, instrument_id: str) -> bool:
+        iid = (instrument_id or "").strip()
+        if not iid:
+            return False
+        if self.scope != "single":
+            return True
+        wanted = {x.strip() for x in self.instrument_ids if str(x).strip()}
+        return iid in wanted
+
+
+@dataclass
+class TimeseriesConfig:
+    """A1 长周期采集：多任务 SQLite 时序。"""
+
+    enabled: bool = True
+    db_path: str = "agent_timeseries.sqlite3"
+    timeout_s: float = 90.0
+    jobs: list[TimeseriesJobConfig] = field(default_factory=default_timeseries_jobs)
+
+    def enabled_jobs(self) -> list[TimeseriesJobConfig]:
+        return [j for j in self.jobs if j.enabled and j.endpoints]
+
+    def job_by_id(self, job_id: str) -> TimeseriesJobConfig | None:
+        jid = (job_id or "").strip()
+        if not jid:
+            return None
+        for job in self.jobs:
+            if job.id == jid:
+                return job
+        return None
+
+    @property
+    def interval_s(self) -> float:
+        jobs = self.enabled_jobs()
+        if not jobs:
+            return 300.0
+        return min(j.interval_s for j in jobs)
+
+    @property
+    def retention_days(self) -> int:
+        jobs = self.jobs or default_timeseries_jobs()
+        return max((j.retention_days for j in jobs), default=30)
+
+    @property
+    def endpoints(self) -> list[str]:
+        out: list[str] = []
+        for job in self.enabled_jobs():
+            for alias in job.endpoints:
+                if alias not in out:
+                    out.append(alias)
+        return out
+
+    def select_instruments(
+        self,
+        job: TimeseriesJobConfig,
+        instruments: Sequence[InstrumentEndpoint],
+    ) -> list[InstrumentEndpoint]:
+        if job.scope == "single":
+            wanted = {x.strip() for x in job.instrument_ids if str(x).strip()}
+            if not wanted:
+                return []
+            return [ep for ep in instruments if ep.instrument_id in wanted]
+        return list(instruments)
+
+
 @dataclass
 class AgentConfig:
     identity: IdentityConfig = field(default_factory=IdentityConfig)
     bridge: BridgeConfig = field(default_factory=BridgeConfig)
     orchestrator: OrchestratorConfig = field(default_factory=OrchestratorConfig)
     privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
+    timeseries: TimeseriesConfig = field(default_factory=TimeseriesConfig)
     instruments: list[InstrumentEndpoint] = field(default_factory=list)
     config_path: str = ""
+
+    def resolve_data_path(self, raw: str, default_name: str) -> Path:
+        """相对路径相对配置文件目录（无配置则 CWD）。"""
+        p = Path((raw or default_name).strip() or default_name)
+        if p.is_absolute():
+            return p
+        base = Path(self.config_path).resolve().parent if self.config_path else Path.cwd()
+        return (base / p).resolve()
 
     def local_instruments(self) -> list[InstrumentEndpoint]:
         """嵌入式注册/心跳目标：优先 ``instruments[]``，否则 identity+bridge。"""
@@ -113,6 +356,7 @@ class AgentConfig:
         br = _as_dict(data.get("bridge"))
         orch = _as_dict(data.get("orchestrator"))
         priv = _as_dict(data.get("privacy"))
+        ts = _as_dict(data.get("timeseries"))
         raw_instruments = data.get("instruments")
         instruments: list[InstrumentEndpoint] = []
         if isinstance(raw_instruments, list):
@@ -155,6 +399,7 @@ class AgentConfig:
             privacy=PrivacyConfig(
                 redact_sample_names=bool(priv.get("redact_sample_names", True)),
             ),
+            timeseries=_parse_timeseries(ts),
             instruments=instruments,
             config_path=config_path,
         )

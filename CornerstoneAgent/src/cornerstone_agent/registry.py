@@ -66,6 +66,7 @@ DEFAULT_CAPABILITIES = [
     "get_sets",
     "get_set_reps",
     "collect",
+    "operator_notice",
     "rules_eval",
     "log_tail",
 ]

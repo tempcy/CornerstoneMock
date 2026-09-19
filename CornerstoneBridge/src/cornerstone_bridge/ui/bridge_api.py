@@ -83,3 +83,31 @@ class BridgeApiClient:
             return False, str(st.get("error") or "未知错误")
         except BridgeApiError as e:
             return False, str(e)
+
+    def get_operator_notices(self, *, pending_only: bool = False, status: str = "") -> Dict[str, Any]:
+        q = []
+        if pending_only:
+            q.append("pending_only=true")
+        if status:
+            q.append(f"status={status}")
+        path = "/api/operator-notices"
+        if q:
+            path = path + "?" + "&".join(q)
+        return self._request("GET", path)
+
+    def post_operator_notice(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/api/operator-notices", body=body)
+
+    def ack_operator_notice(
+        self,
+        notice_id: str,
+        *,
+        action: str = "acked",
+        acked_by: str = "operator",
+        note: str = "",
+    ) -> Dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/api/operator-notices/{notice_id}/ack",
+            body={"action": action, "acked_by": acked_by, "note": note},
+        )

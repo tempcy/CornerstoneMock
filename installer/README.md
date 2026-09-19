@@ -1,6 +1,31 @@
 # Cornerstone Mock 安装程序
 
-**发布版本**由仓库根目录 [`VERSION`](../VERSION) 决定（当前 **0.1.16**）；`build-release.ps1` 与 Inno Setup 均读取该文件。每次打包还会自动生成**构建标识码**（UTC 时间戳 + Git 短哈希，例如 `20250525143000-a1b2c3d`），输出 `CornerstoneMock-Setup-<版本>-<标识码>.exe`。
+**发布版本**由仓库根目录 [`VERSION`](../VERSION) 决定（当前 **0.1.17**）；`build-release.ps1` 与 Inno Setup 均读取该文件。每次打包还会自动生成**构建标识码**（UTC 时间戳 + Git 短哈希，例如 `20250525143000-a1b2c3d`），输出 `CornerstoneMock-Setup-<版本>-<标识码>.exe`。
+
+### 版本号规则（MAJOR.MINOR.PATCH）
+
+安装包三位版本以 **0.1.17** 为当前基线；**其后**按下列规则递增（用 `installer\bump-version.ps1`）：
+
+| 位 | 何时 +1 | 其余位 |
+| --- | --- | --- |
+| **第一位（大版本）** | 大的架构或界面更新 | 中、小归 **0** |
+| **第二位（中版本）** | 增加了 Bridge 能力 | 小版本归 **0** |
+| **第三位（小版本）** | Bug 修正 | 从 **0** 起累加 |
+
+相对当前 `VERSION`：仅修 bug → 第三位 +1；新增 Bridge 能力 → 第二位 +1 且小版本归 0；架构/界面大更新 → 第一位 +1 且中、小归 0。
+
+`CornerstoneAgent` 使用独立版本（见该包 `pyproject.toml`），不随安装包 `VERSION` 联动。安装包内 `cornerstone-bridge` / `cornerstone-web` / `cornerstone-cli` 与 `VERSION` 保持一致。
+
+升版：
+
+```powershell
+cd installer
+.\bump-version.ps1 -Bump patch   # bug 修正          x.y.z -> x.y.(z+1)
+.\bump-version.ps1 -Bump minor   # 新增 Bridge 能力    x.y.z -> x.(y+1).0
+.\bump-version.ps1 -Bump major   # 架构 / 界面大更新    x.y.z -> (x+1).0.0
+```
+
+升版后请补全 `CHANGELOG.md` 中新章节的变更说明，再执行 `.\build-release.ps1`。
 
 生成 **Bridge（必选）**、**Web / Queue / CLI（可选）** 的 Windows 安装包；支持将 **Bridge**、**Web** 注册为 Windows 服务（默认勾选）。
 

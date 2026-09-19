@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from cornerstone_agent.bridge_client import BridgeError  # noqa: E402
-from cornerstone_agent.collect import resolve_endpoint_aliases  # noqa: E402
+from cornerstone_agent.collect import list_query_catalog, resolve_endpoint_aliases  # noqa: E402
 from cornerstone_agent.jobs import execute_job, handle_collect  # noqa: E402
 from cornerstone_agent.snapshots import SnapshotStore  # noqa: E402
 
@@ -48,7 +48,15 @@ class CollectResolveTests(unittest.TestCase):
 
     def test_unknown_alias(self) -> None:
         with self.assertRaises(ValueError):
-            resolve_endpoint_aliases("custom", ["not-a-real-endpoint"])
+            resolve_endpoint_aliases("custom", ["nope"])
+
+    def test_query_catalog(self) -> None:
+        cat = list_query_catalog()
+        by = {c["alias"]: c for c in cat}
+        self.assertEqual(by["status-widgets"]["command"], "status")
+        self.assertEqual(by["ambients"]["command"], "ambients")
+        self.assertTrue(by["status-widgets"]["timeseries_ok"])
+        self.assertEqual(by["ambients"]["rest"], "/api/environment/ambients")
 
 
 class CollectJobTests(unittest.TestCase):

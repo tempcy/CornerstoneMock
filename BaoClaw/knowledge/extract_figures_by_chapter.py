@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Scan CS844 (or similar) PDF: detect large-graphic pages, render PNGs by chapter,
-and write per-chapter figure catalogs + master index.
+Scan LECO 844/836-style PDF: detect large-graphic pages, render PNGs by chapter,
+and write per-manual figure catalogs + master index.
+
+Layout (knowledge/):
+  figures/manuals/<manual_id>/<chapter_slug>/fig_….png
+  catalogs/manuals/<manual_id>/chNN_figures.md + INDEX.md
+  catalogs/INDEX.md  (all manuals)
 
 Usage:
-  python extract_figures_by_chapter.py
-  python extract_figures_by_chapter.py --pdf path/to.pdf --scale 1.5
+  python extract_figures_by_chapter.py --pdf raw/manuals/836….pdf \\
+    --toc-md markdown/manuals/ON836_….md --doc-id ON836_Instruction_Manual_v3.3_2024-06
 """
 
 from __future__ import annotations
@@ -22,21 +27,21 @@ from pathlib import Path
 import pypdfium2 as pdfium
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_PDF = ROOT / "raw" / (
-    "844 Series CarbonSulfur Analyzer Instruction Manual Version 3.3.x June 2024.pdf"
-)
 
-# Footer / header: "Illustrations 844 Series 10–16" or "2–19 844 Series Installations"
+# Footer: "Illustrations 844 Series 10–16" / "2–19 836 Series Installations"
 CH_FOOTER_RE = re.compile(
-    r"(?P<name>[A-Za-z][A-Za-z /&-]{2,40}?)\s+844 Series\s+"
+    r"(?P<name>[A-Za-z][A-Za-z /&-]{2,40}?)\s+"
+    r"(?P<series>\d{3})\s+Series\s+"
     r"(?P<ch>\d+)\s*[\u2013\-\u2014]\s*(?P<p>\d+)",
     re.I,
 )
 CH_FOOTER_RE2 = re.compile(
-    r"(?P<ch>\d+)\s*[\u2013\-\u2014]\s*(?P<p>\d+)\s+844 Series\s+"
+    r"(?P<ch>\d+)\s*[\u2013\-\u2014]\s*(?P<p>\d+)\s+"
+    r"(?P<series>\d{3})\s+Series\s+"
     r"(?P<name>[A-Za-z][A-Za-z /&-]{2,40})",
     re.I,
 )
+SERIES_TOKEN_RE = re.compile(r"\b(?P<series>\d{3})\s+Series\b", re.I)
 FIG_RE = re.compile(
     r"Figure\s*(?P<ch>\d+)\s*[\u2013\-\u2014]\s*(?P<n>\d+)\s*(?P<title>[^\n\r]{0,120})",
     re.I,
@@ -49,12 +54,12 @@ TOC_LINE_RE = re.compile(
 CHAPTER_SLUG = {
     1: "01_introduction",
     2: "02_installations",
-    3: "03_software",  # Analysis chapter; keep folder name stable
-    4: "04_diagnostics",  # Settings; keep folder name stable
+    3: "03_software",
+    4: "04_diagnostics",
     5: "05_instrument",
     6: "06_maintenance",
     7: "07_theory",
-    8: "08_service_ops",  # Diagnostics; keep folder name stable
+    8: "08_service_ops",
     9: "09_service",
     10: "10_illustrations",
     11: "11_schematics",
@@ -70,11 +75,9 @@ TOC_FIG_RE = re.compile(
 
 
 def load_toc_titles(md_path: Path | None) -> dict[str, str]:
-    """Figure id -> title from List of Illustrations in converted Markdown."""
     if not md_path or not md_path.is_file():
         return {}
     text = md_path.read_text(encoding="utf-8", errors="replace")
-    # Prefer front-matter TOC (first ~400 lines) to avoid body noise
     head = "\n".join(text.splitlines()[:450])
     out: dict[str, str] = {}
     for m in TOC_FIG_RE.finditer(head):
@@ -93,7 +96,7 @@ def clean_title(raw: str, fid: str, toc: dict[str, str]) -> str:
         or t.startswith(",")
         or re.match(r"^(following|page)\b", t, re.I)
         or len(t) < 3
-        or (" " not in t and len(t) > 12)  # glued OCR like ReferenceCard1of2
+        or (" " not in t and len(t) > 12)
     )
     if fid in toc:
         if junk or len(toc[fid]) > len(t) + 5:
@@ -103,10 +106,10 @@ def clean_title(raw: str, fid: str, toc: dict[str, str]) -> str:
 
 @dataclass
 class FigureHit:
-    pdf_page: int  # 1-based
+    pdf_page: int
     chapter: int
     chapter_name: str
-    figure_id: str  # e.g. 10-10
+    figure_id: str
     title: str
     text_len: int
     reason: str
@@ -130,7 +133,6 @@ def detect_chapter(text: str, prev_ch: int, prev_name: str) -> tuple[int, str]:
             name = re.sub(r"\s+", " ", m.group("name")).strip(" .-")
             if 1 <= ch <= 20:
                 return ch, name
-    # Figure-only page: prefer figure chapter number
     fm = FIG_RE.search(text[:600])
     if fm:
         return int(fm.group("ch")), prev_name or CHAPTER_SLUG.get(int(fm.group("ch")), "unknown")
@@ -142,12 +144,9 @@ def extract_figures(text: str) -> list[tuple[str, str]]:
     for m in FIG_RE.finditer(text):
         fid = f"{m.group('ch')}-{m.group('n')}"
         title = (m.group("title") or "").strip(" .\t–-")
-        # drop dotted leaders from TOC lines
         if re.search(r"\.{4,}", title) or re.search(r"\d+\s*[\u2013\-]\s*\d+\s*$", title):
-            # TOC style: "Pedestal Assembly........10–35" → take left part
             title = re.split(r"\.{2,}|\s+\d+\s*[\u2013\-]", title)[0].strip(" .\t")
         out.append((fid, title))
-    # dedupe keep first
     seen: set[str] = set()
     uniq: list[tuple[str, str]] = []
     for fid, title in out:
@@ -159,28 +158,22 @@ def extract_figures(text: str) -> list[tuple[str, str]]:
 
 
 def is_large_graphic_page(text: str, figures: list[tuple[str, str]]) -> tuple[bool, str]:
-    """Heuristic: sparse text and/or figure-dominated page."""
     body = text.strip()
     n = len(body)
     low = body.lower()
     if "intentionally left blank" in low:
         return False, ""
-    # Chapter figure TOC pages (many dotted leaders)
     if len(TOC_LINE_RE.findall(body)) >= 3:
         return False, ""
     if body.count("....") >= 5:
         return False, ""
-    # pure / near-pure drawing pages
     if n <= 120:
         return True, "sparse_text<=120"
     if n <= 400 and figures:
         return True, "sparse_text<=400+figure"
     if n <= 700 and figures and n / max(body.count("\n") + 1, 1) < 80:
-        # short lines, mostly caption
         return True, "caption_heavy<=700"
-    # schematic/assembly pages sometimes add a tiny legend
     if figures and n <= 1200:
-        # if >50% of non-empty lines look like figure captions / headers / page nums
         lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
         if not lines:
             return True, "empty"
@@ -188,7 +181,7 @@ def is_large_graphic_page(text: str, figures: list[tuple[str, str]]) -> tuple[bo
         for ln in lines:
             if FIG_RE.match(ln) or re.match(r"^\d+\s*[\u2013\-]\s*\d+", ln):
                 captionish += 1
-            elif re.search(r"844 Series", ln):
+            elif SERIES_TOKEN_RE.search(ln):
                 captionish += 1
             elif len(ln) < 60 and not ln.endswith("."):
                 captionish += 1
@@ -206,46 +199,60 @@ def slug_chapter(ch: int, name: str) -> str:
 
 
 def slug_manual(name: str) -> str:
-    """Sanitize manual / markdown basename for a single path segment."""
     s = Path(name).stem if name.lower().endswith((".pdf", ".md")) else name
     s = re.sub(r"[^\w.\-]+", "_", s, flags=re.UNICODE).strip("._")
     return s[:120] or "manual"
 
 
 def resolve_manual_id(doc_id: str | None, toc_md: Path | None, pdf_path: Path) -> str:
-    """figures/<manual_id>/<chapter>/… — prefer explicit id, else MD stem, else PDF stem."""
     if doc_id:
         return slug_manual(doc_id)
     if toc_md and toc_md.name:
-        # Prefer converted markdown filename (stable short name in knowledge/)
         return slug_manual(toc_md.name)
     return slug_manual(pdf_path.name)
 
 
+def rebuild_master_index(cat_manuals: Path) -> None:
+    """Rewrite catalogs/INDEX.md listing every manuals/<id>/INDEX.md."""
+    lines = [
+        "# 仪器知识库 — 图录总索引",
+        "",
+        "> 模型：按图录/正文做检索与定位。详细读图（装配/线路）交给人。",
+        "",
+        "| 类别 | 手册 | 图录 |",
+        "|------|------|------|",
+    ]
+    if cat_manuals.is_dir():
+        for d in sorted(cat_manuals.iterdir()):
+            if not d.is_dir():
+                continue
+            idx = d / "INDEX.md"
+            if idx.is_file():
+                lines.append(f"| manuals | `{d.name}` | [`INDEX.md`](manuals/{d.name}/INDEX.md) |")
+    lines.extend(
+        [
+            "",
+            "## 其它类别（预留）",
+            "",
+            "- `procedures/` — 手顺书",
+            "- `fault_cases/` — 故障案例",
+            "- `anomaly_calendar/` — 设备异常日历",
+            "",
+        ]
+    )
+    (cat_manuals.parent / "INDEX.md").write_text("\n".join(lines), encoding="utf-8")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--pdf", type=Path, default=DEFAULT_PDF)
+    ap.add_argument("--pdf", type=Path, required=True)
     ap.add_argument("--out", type=Path, default=ROOT)
-    ap.add_argument("--scale", type=float, default=1.5, help="render scale (~108 dpi * scale)")
-    ap.add_argument("--limit", type=int, default=0, help="debug: only first N pages")
-    ap.add_argument("--dry-run", action="store_true", help="detect only, no render")
-    ap.add_argument(
-        "--toc-md",
-        type=Path,
-        default=ROOT / "markdown" / "CS844_Instruction_Manual_v3.3_2024-06.md",
-        help="Markdown with List of Figures for title enrichment",
-    )
-    ap.add_argument(
-        "--doc-id",
-        type=str,
-        default="",
-        help="Manual folder name under figures/ (default: toc-md stem, else PDF stem)",
-    )
-    ap.add_argument(
-        "--catalog-only",
-        action="store_true",
-        help="rebuild catalogs from existing PNGs / meta (re-scan PDF, skip render)",
-    )
+    ap.add_argument("--scale", type=float, default=1.5)
+    ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--toc-md", type=Path, default=None)
+    ap.add_argument("--doc-id", type=str, default="")
+    ap.add_argument("--catalog-only", action="store_true")
     args = ap.parse_args()
 
     pdf_path = args.pdf
@@ -253,16 +260,25 @@ def main() -> int:
         print(f"PDF not found: {pdf_path}", file=sys.stderr)
         return 2
 
-    manual_id = resolve_manual_id(args.doc_id or None, args.toc_md, pdf_path)
-    # figures/<manual_id>/<chapter_slug>/fig_….png
-    fig_root = args.out / "figures" / manual_id
-    cat_root = args.out / "catalogs"
+    toc_md = args.toc_md
+    if toc_md is None:
+        # Heuristic: markdown/manuals/<doc-id or similar>.md
+        guess = args.out / "markdown" / "manuals"
+        if args.doc_id:
+            cand = guess / f"{slug_manual(args.doc_id)}.md"
+            if cand.is_file():
+                toc_md = cand
+
+    manual_id = resolve_manual_id(args.doc_id or None, toc_md, pdf_path)
+    fig_root = args.out / "figures" / "manuals" / manual_id
+    cat_root = args.out / "catalogs" / "manuals" / manual_id
     fig_root.mkdir(parents=True, exist_ok=True)
     cat_root.mkdir(parents=True, exist_ok=True)
 
-    toc = load_toc_titles(args.toc_md)
-    print(f"TOC titles loaded: {len(toc)}")
-    print(f"figures root: figures/{manual_id}/")
+    toc = load_toc_titles(toc_md)
+    print(f"TOC titles loaded: {len(toc)} from {toc_md}")
+    print(f"figures: figures/manuals/{manual_id}/")
+    print(f"catalogs: catalogs/manuals/{manual_id}/")
 
     pdf = pdfium.PdfDocument(str(pdf_path))
     n_pages = len(pdf)
@@ -283,7 +299,6 @@ def main() -> int:
         if not ok:
             continue
 
-        # primary figure id
         if figures:
             fid, title = figures[0]
             title = clean_title(title, fid, toc)
@@ -292,11 +307,9 @@ def main() -> int:
                 bt = clean_title(b, a, toc)
                 extras.append(f"{a}" + (f" {bt}" if bt else ""))
         else:
-            # anonymous large graphic page
             fid = f"p{i+1}"
             title = (name or "Graphic") + f" (PDF p.{i+1})"
             extras = []
-            # try keep chapter from footer
             if not ch:
                 ch, name = prev_ch, prev_name
 
@@ -307,11 +320,9 @@ def main() -> int:
             fname = f"fig_{fid.replace('-', '_')}.png"
         else:
             fname = f"page_{i+1:04d}.png"
-        # avoid overwrite when multiple pages share figure id (multi-sheet)
         dest_dir = fig_root / slug
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / fname
-        # Prefer existing multi-page filename if already rendered
         alt = dest_dir / f"fig_{fid.replace('-', '_')}_p{i+1:04d}.png"
         if skip_render and alt.is_file():
             dest = alt
@@ -340,17 +351,25 @@ def main() -> int:
         if (len(hits) % 25) == 0:
             print(f"  … {len(hits)} graphic pages (at PDF p.{i+1})")
 
-    # write per-chapter catalogs
     by_ch: dict[int, list[FigureHit]] = defaultdict(list)
     for h in hits:
         by_ch[h.chapter].append(h)
 
+    md_rel = ""
+    if toc_md and toc_md.is_file():
+        try:
+            md_rel = toc_md.relative_to(args.out).as_posix()
+        except ValueError:
+            md_rel = toc_md.as_posix()
+
     index_lines = [
-        "# CS844 手册 — 大图图录总索引",
+        f"# {manual_id} — 大图图录总索引",
         "",
         f"源 PDF：`{pdf_path.name}`",
-        f"图片目录：`figures/{manual_id}/`",
+        f"图片目录：`figures/manuals/{manual_id}/`",
         f"检出大图页：**{len(hits)}** / 扫描 {limit}",
+        "",
+        "> **读图约定**：模型按图录标题检索定位；装配/线路等详细读图交给人。",
         "",
         "| 章 | 名称 | 大图页数 | 图录 |",
         "|----|------|----------|------|",
@@ -359,7 +378,6 @@ def main() -> int:
     for ch in sorted(by_ch.keys()):
         rows = by_ch[ch]
         name = rows[0].chapter_name
-        slug = slug_chapter(ch, name)
         cat_name = f"ch{ch:02d}_figures.md"
         cat_path = cat_root / cat_name
         lines = [
@@ -372,7 +390,11 @@ def main() -> int:
         ]
         for h in rows:
             title = h.title.replace("|", "\\|")
-            img = f"[`{Path(h.image_rel).name}`](../{h.image_rel})" if h.image_rel else ""
+            # catalogs/manuals/<id>/chXX.md → figures/manuals/<id>/...
+            img = ""
+            if h.image_rel:
+                link = Path("../../../") / h.image_rel
+                img = f"[`{Path(h.image_rel).name}`]({link.as_posix()})"
             lines.append(
                 f"| {h.figure_id} | {title} | {h.pdf_page} | {img} | {h.reason} |"
             )
@@ -383,12 +405,19 @@ def main() -> int:
         index_lines.append(
             f"| {ch} | {name} | {len(rows)} | [`{cat_name}`]({cat_name}) |"
         )
-        print(f"catalog ch{ch:02d}: {len(rows)} -> {cat_path.name}")
+        print(f"catalog ch{ch:02d}: {len(rows)} -> {cat_path.relative_to(args.out)}")
 
-    index_lines.extend(["", "## 使用说明", "",
-        "- 装配/线路/大插图以 PNG 为准；正文说明仍见 `markdown/CS844_Instruction_Manual_v3.3_2024-06.md`。",
-        "- BaoClaw：先查本章图录图题，再打开对应图片（必要时视觉读图）。",
-        ""])
+    index_lines.extend(
+        [
+            "",
+            "## 使用说明",
+            "",
+            f"- 正文 Markdown：`{md_rel or '(provide --toc-md)'}`",
+            "- 模型：检索图录图题与正文；不要默认视觉读完全部 PNG。",
+            "- 人：对装配/布线/原理图打开对应 PNG 细读。",
+            "",
+        ]
+    )
     index_path = cat_root / "INDEX.md"
     index_path.write_text("\n".join(index_lines), encoding="utf-8")
 
@@ -397,8 +426,9 @@ def main() -> int:
         json.dumps([asdict(h) for h in hits], ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print(f"Wrote {index_path}")
-    print(f"Wrote {meta_path}")
+    rebuild_master_index(args.out / "catalogs" / "manuals")
+    print(f"Wrote {index_path.relative_to(args.out)}")
+    print(f"Wrote {meta_path.relative_to(args.out)}")
     print(f"Done: {len(hits)} graphic pages")
     return 0
 

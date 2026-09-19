@@ -1,6 +1,6 @@
 {
   "schema_version": "baoclaw-tools.v1",
-  "description": "C1 P0+P1 tools for Cornerstone 仪器智能体 (aligned with INTERFACE.md)",
+  "description": "C1 P0+P1 + A1 timeseries tools for Cornerstone 仪器智能体 (aligned with INTERFACE.md)",
   "orchestrator_base_url": "http://127.0.0.1:8090",
   "tools": [
     {
@@ -108,6 +108,133 @@
       },
       "http": { "method": "POST", "path": "/v1/tools/collect_instrument" },
       "agent_job_type": "collect"
+    },
+    {
+      "name": "get_timeseries_latest",
+      "description": "读取 Agent 长周期时序库中该仪器最新一次采集样本的点值（默认仅 gauge.* 仪表）。用于「现在压力/流量/温度多少」「最新 Widgets/Ambients」。不经 Bridge，仪器离线也可查历史最新点。",
+      "parameters": {
+        "type": "object",
+        "required": ["lab_id", "instrument_id"],
+        "properties": {
+          "lab_id": { "type": "string" },
+          "instrument_id": { "type": "string" },
+          "job_id": {
+            "type": "string",
+            "description": "可选。widgets=实时仪表(约10s)；ambients=环境(约5min)；省略=任意任务最新一条"
+          },
+          "gauges_only": {
+            "type": "boolean",
+            "default": true,
+            "description": "true 时优先返回 gauge.*；若无 gauge 则回退全部点"
+          }
+        },
+        "additionalProperties": false
+      },
+      "http": { "method": "POST", "path": "/v1/tools/get_timeseries_latest" },
+      "local": true
+    },
+    {
+      "name": "list_timeseries_metrics",
+      "description": "列出时序窗口内可用的 metric 名（如 gauge.Back_Pressure、ambient.Cabinet_Temperature）。查曲线前先用本工具确认指标名。",
+      "parameters": {
+        "type": "object",
+        "required": ["lab_id", "instrument_id"],
+        "properties": {
+          "lab_id": { "type": "string" },
+          "instrument_id": { "type": "string" },
+          "hours": { "type": "number", "default": 24, "description": "回看小时数；Ambients 可到 2160(90d)" },
+          "job_id": { "type": "string", "description": "可选 widgets / ambients" },
+          "gauges_only": { "type": "boolean", "default": false }
+        },
+        "additionalProperties": false
+      },
+      "http": { "method": "POST", "path": "/v1/tools/list_timeseries_metrics" },
+      "local": true
+    },
+    {
+      "name": "query_timeseries",
+      "description": "查询仪器长周期时序：采集统计、最近样本、可选某 metric 的摘要(min/max/avg/last)与降采样曲线。用于趋势、波动、近几小时/几天变化。",
+      "parameters": {
+        "type": "object",
+        "required": ["lab_id", "instrument_id"],
+        "properties": {
+          "lab_id": { "type": "string" },
+          "instrument_id": { "type": "string" },
+          "hours": { "type": "number", "default": 24 },
+          "job_id": { "type": "string", "description": "可选 widgets / ambients" },
+          "metric": {
+            "type": "string",
+            "description": "可选。传入则返回 series_summary + 降采样 series；可先 list_timeseries_metrics"
+          },
+          "sample_limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 },
+          "series_points": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 200,
+            "default": 60,
+            "description": "降采样后返回的曲线点数上限"
+          }
+        },
+        "additionalProperties": false
+      },
+      "http": { "method": "POST", "path": "/v1/tools/query_timeseries" },
+      "local": true
+    },
+    {
+      "name": "get_timeseries_sample",
+      "description": "按 sample_id 读取某次时序采集的全部点值。sample_id 来自 query_timeseries 返回的 samples[].id。",
+      "parameters": {
+        "type": "object",
+        "required": ["lab_id", "instrument_id", "sample_id"],
+        "properties": {
+          "lab_id": { "type": "string" },
+          "instrument_id": { "type": "string" },
+          "sample_id": { "type": "integer" }
+        },
+        "additionalProperties": false
+      },
+      "http": { "method": "POST", "path": "/v1/tools/get_timeseries_sample" },
+      "local": true
+    },
+    {
+      "name": "post_operator_notice",
+      "description": "向仪器侧 Bridge 操作员对话框下发运维/检修建议（只展示与确认，不写仪器）。用于智宝或编排把结论推给现场人员。severity=reject|maintain 会置顶弹窗。",
+      "parameters": {
+        "type": "object",
+        "required": ["lab_id", "instrument_id", "title", "message"],
+        "properties": {
+          "lab_id": { "type": "string" },
+          "instrument_id": { "type": "string" },
+          "title": { "type": "string", "description": "短标题" },
+          "message": { "type": "string", "description": "给操作/检修人员看的正文" },
+          "severity": {
+            "type": "string",
+            "enum": ["info", "review", "reject", "maintain"],
+            "default": "info"
+          },
+          "source": {
+            "type": "string",
+            "enum": ["zhibao", "orchestrator", "agent_rule", "manual"],
+            "default": "zhibao"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {},
+            "description": "可选依据（规则路径、snapshot_id 等）"
+          },
+          "actions": {
+            "type": "array",
+            "items": {},
+            "description": "可选文案级步骤，不自动执行"
+          },
+          "require_ack": { "type": "boolean", "default": true },
+          "notice_id": { "type": "string", "description": "可选；省略则自动生成（幂等键）" },
+          "timeout_s": { "type": "integer", "default": 30 }
+        },
+        "additionalProperties": false
+      },
+      "http": { "method": "POST", "path": "/v1/tools/post_operator_notice" },
+      "agent_job_type": "operator_notice"
     }
   ]
 }

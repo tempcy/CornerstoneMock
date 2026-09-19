@@ -1,6 +1,6 @@
 # Cornerstone 远程控制（Python CLI + Bridge + Web）
 
-**当前版本：0.1.16**（变更见 [CHANGELOG.md](CHANGELOG.md)）
+**当前版本：0.1.17**（变更见 [CHANGELOG.md](CHANGELOG.md)；安装包版本规则见 [installer/README.md](installer/README.md)）
 
 后续开发路线图见 [PLAN.md](PLAN.md)（与 [项目汇报](docs/Cornerstone项目汇报.md) 对齐）。
 
@@ -10,7 +10,7 @@
 - `**CornerstoneBridge/`**：`cornerstone-bridge`（TCP 网关、XML 解析、`/api/`* REST）；`cornerstone-bridge-ui`（可选 PySide6 托盘控制台，见 `[ui]` 额外依赖）。
 - `**CornerstoneWeb/`**：`cornerstone-web`（静态页 + 将 `/api/`* 代理到 Bridge）；`cornerstone-web-dev` 一键起 Bridge + Web。
 - `**CornerstoneQueue/`**：WinUI 3 桌面悬浮窗（缓存样品队列，HTTP 调 Bridge REST；可选仪器 UI 自动点击确认）。
-- `**CornerstoneAgent/`**（规划）：边缘 Agent（采集、规则、信息窗口）+ 公司内网仪器智能体与知识库；详见 [CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)、[ENTERPRISE.md](CornerstoneAgent/ENTERPRISE.md) 与 [PLAN.md](PLAN.md)。
+- `**CornerstoneAgent/`**：边缘 Agent（A0 编排 + P0/P1 查数 + **A1 SQLite 时序**）；规则/信息窗口见 [CornerstoneAgent/AGENT.md](CornerstoneAgent/AGENT.md)、[ENTERPRISE.md](CornerstoneAgent/ENTERPRISE.md) 与 [PLAN.md](PLAN.md)。
 
 下文所述 **Python 版通信内核** 与配套工具位于上述三个子目录中，用于替代/复用原客户端中的核心通信逻辑：
 
@@ -29,7 +29,7 @@
 | **Bridge UI** | `cornerstone-bridge-ui`           | 桌面控制台（系统托盘）：配置、日志（级别筛选/智能滚动）、连接/队列监控、服务启停；连 Bridge REST API。      |
 | **Web**       | `cornerstone-web`                 | 静态 SPA；`/api/`* 反向代理到 Bridge。                          |
 | **Queue**     | `CornerstoneQueue`（VS 生成 exe）     | 精简悬浮窗：队列查看/发送、状态一行、连 Bridge `:8081`；可选 FlaUI 自动点击仪器确认。 |
-| **Agent**（规划） | `cornerstone-agent`（待实现）         | 长/短期仪器参数采集、规则建议、云端 LLM 信息窗口；经 Bridge / CLI / 日志 / UI 检查取数。 |
+| **Agent** | `cornerstone-agent` | 边缘编排 + P0/P1 查数 + A1 长周期时序（SQLite）；经 Bridge REST 取数。 |
 | **本地开发**      | `cornerstone-web-dev` / `dev.ps1` | 同进程启动 Bridge + Web（读 Bridge + Web 两份配置，或兼容旧版单文件）。      |
 
 

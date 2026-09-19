@@ -193,6 +193,12 @@ class GatewayHub:
             )
             self._persist_add_samples_queue()
 
+        from .operator_notices import OperatorNoticeStore, default_notices_persist_path
+
+        self._operator_notices = OperatorNoticeStore(
+            default_notices_persist_path(self._config_file_path)
+        )
+
         self._upstream_reader_task: Optional[asyncio.Task[None]] = None
         self._upstream_heartbeat_task: Optional[asyncio.Task[None]] = None
         self._upstream_reconnect_task: Optional[asyncio.Task[None]] = None
@@ -2551,3 +2557,53 @@ class GatewayHub:
 
     async def compac_send_queued(self, ids: set[str]) -> Dict[str, Any]:
         return await self._compac.send_queued(ids)
+
+    # --- 操作员建议下行（Agent / 智宝 → Bridge UI）---
+
+    def operator_notice_upsert(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+        from .operator_notices import OperatorNotice
+
+        notice = OperatorNotice.from_dict(raw)
+        if notice is None:
+            return {"ok": False, "error": "缺少 title/message"}
+        stored, created = self._operator_notices.upsert(notice)
+        return {
+            "ok": True,
+            "created": created,
+            "notice": stored.to_public_dict(),
+        }
+
+    def operator_notices_list(
+        self, *, status: str = "", pending_only: bool = False
+    ) -> Dict[str, Any]:
+        items = self._operator_notices.list(
+            status=status or None,
+            pending_only=pending_only,
+        )
+        return {
+            "ok": True,
+            "items": [n.to_public_dict() for n in items],
+            "pendingCount": len(self._operator_notices.list(pending_only=True)),
+            "popupIds": self._operator_notices.pending_popup_ids(),
+        }
+
+    def operator_notice_get(self, notice_id: str) -> Dict[str, Any]:
+        n = self._operator_notices.get(notice_id)
+        if n is None:
+            return {"ok": False, "error": "notice 不存在"}
+        return {"ok": True, "notice": n.to_public_dict()}
+
+    def operator_notice_ack(
+        self,
+        notice_id: str,
+        *,
+        action: str = "acked",
+        acked_by: str = "",
+        note: str = "",
+    ) -> Dict[str, Any]:
+        n = self._operator_notices.ack(
+            notice_id, action=action, acked_by=acked_by, note=note
+        )
+        if n is None:
+            return {"ok": False, "error": "notice 不存在"}
+        return {"ok": True, "notice": n.to_public_dict()}
