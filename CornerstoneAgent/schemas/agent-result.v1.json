@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-result.v1.json",
+  "title": "Cornerstone Agent Job Result",
+  "type": "object",
+  "required": ["schema_version", "job_id", "type", "status", "finished_at", "data"],
+  "properties": {
+    "schema_version": { "const": "agent-result.v1" },
+    "job_id": { "type": "string" },
+    "type": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "error", "timeout", "rejected", "duplicate"]
+    },
+    "finished_at": { "type": "string" },
+    "agent_id": { "type": "string" },
+    "instrument_id": { "type": "string" },
+    "bridge_reachable": { "type": "boolean" },
+    "error": {
+      "type": ["object", "null"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    },
+    "data": {},
+    "meta": { "type": "object" }
+  },
+  "additionalProperties": true
+}

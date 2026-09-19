@@ -7,7 +7,7 @@ def test_empty_array_literals_ignored() -> None:
     assert _parse_host_list("[]") == []
     assert _parse_host_list('["[]"]') == []
     assert _parse_host_list(["[]"]) == []
-    assert _parse_host_list(["10.50.10.11", "[]"]) == ["10.50.10.11"]
+    assert _parse_host_list(["192.0.2.11", "[]"]) == ["192.0.2.11"]
 
 
 def test_json_array_string() -> None:
@@ -18,5 +18,5 @@ def test_json_array_string() -> None:
 
 
 def test_normal_hosts() -> None:
-    assert _parse_host_list("10.50.10.11") == ["10.50.10.11"]
-    assert _parse_host_list(["10.50.10.11", "10.50.10.11"]) == ["10.50.10.11"]
+    assert _parse_host_list("192.0.2.11") == ["192.0.2.11"]
+    assert _parse_host_list(["192.0.2.11", "192.0.2.11"]) == ["192.0.2.11"]

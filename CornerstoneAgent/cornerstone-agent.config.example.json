@@ -1,0 +1,30 @@
+{
+  "identity": {
+    "org_id": "acme",
+    "lab_id": "lab-local-01",
+    "instrument_id": "CS-LOCAL-01",
+    "agent_id": ""
+  },
+  "bridge": {
+    "base_url": "http://127.0.0.1:8081",
+    "timeout_s": 60
+  },
+  "instruments": [
+    {
+      "instrument_id": "CS-LOCAL-01",
+      "agent_id": "",
+      "bridge_url": "http://127.0.0.1:8081"
+    }
+  ],
+  "orchestrator": {
+    "listen_host": "127.0.0.1",
+    "listen_port": 8090,
+    "registry_path": "agent_registry.json",
+    "heartbeat_interval_s": 30,
+    "online_ttl_s": 90,
+    "embed_local_agent": true
+  },
+  "privacy": {
+    "redact_sample_names": true
+  }
+}

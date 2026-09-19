@@ -1,4 +1,8 @@
-"""短时探测上游 190.2.96.210:12345 的 TCP/inner 解包（需网络可达）。"""
+"""短时探测上游 TCP/inner 解包（需网络可达）。
+
+用法: python probe_upstream_recv.py [host] [port]
+默认连本机 127.0.0.1:12345；现场地址请用参数传入，勿写进仓库。
+"""
 from __future__ import annotations
 
 import asyncio
@@ -12,8 +16,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from cornerstone_bridge.protocol import decode_frame_payload_bytes, validate_frame_length
 from cornerstone_bridge.upstream_framing import UpstreamRecvBuffer
 
-HOST = "190.2.96.210"
-PORT = 12345
+HOST = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
+PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 12345
 ENC = "utf-16-le"
 PROBE_SEC = 8.0
 

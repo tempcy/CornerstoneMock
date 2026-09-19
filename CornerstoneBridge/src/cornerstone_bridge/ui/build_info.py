@@ -11,7 +11,12 @@ def _candidate_build_info_paths() -> list[Path]:
     if not getattr(sys, "frozen", False):
         return []
     exe_dir = Path(sys.executable).resolve().parent
-    return [exe_dir / "build-info.json", exe_dir.parent / "build-info.json"]
+    # {app}/Bridge/cornerstone-bridge-ui.exe → {app}/build-info.json
+    return [
+        exe_dir / "build-info.json",
+        exe_dir.parent / "build-info.json",
+        exe_dir.parent.parent / "build-info.json",
+    ]
 
 
 def _format_built_at(iso: str) -> str:
@@ -51,3 +56,29 @@ def packaging_time_label() -> str:
         ts = build_id[:14]
         return f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]} {ts[8:10]}:{ts[10:12]}:{ts[12:14]} UTC"
     return ""
+
+
+def package_version_label() -> str:
+    """
+    窗口标题用版本号。
+
+    安装包优先读 ``build-info.json``（与 Inno / VERSION 一致），避免 PyInstaller
+    打进旧的 ``importlib.metadata``（venv 里 editable 安装失败时会残留旧版）。
+    """
+    info = load_build_info()
+    from_build = str(info.get("version") or "").strip()
+    if from_build:
+        return from_build
+    try:
+        from cornerstone_bridge import __version__ as pkg_ver
+
+        if pkg_ver:
+            return str(pkg_ver).strip()
+    except Exception:
+        pass
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        return version("cornerstone-bridge")
+    except Exception:
+        return ""

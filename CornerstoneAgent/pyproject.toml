@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cornerstone-agent"
+version = "0.2.0"
+description = "Cornerstone 边缘 Agent + C1 POC 编排（注册表 / typed job / P0 tools）。"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "LECO / Cornerstone Agent" }]
+dependencies = []
+
+[project.scripts]
+cornerstone-agent = "cornerstone_agent.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cornerstone_agent = ["py.typed", "ui_static/*"]

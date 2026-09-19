@@ -126,6 +126,19 @@ def _upstream_success_message_ok(em: str) -> bool:
     return em.strip().rstrip(".").lower() == "success"
 
 
+def _upstream_rq_error_code_ok(ec: Optional[str]) -> bool:
+    """
+    RQ / 只读查询类应答的 ErrorCode 是否视为成功。
+
+    Cornerstone Commands 8.x 常带 ``ErrorCode="0"``；6.x（如 ON836 2.10）成功时往往
+    **省略**该属性。空 / 缺失与 ``0`` 同等成功；其它非空码（如 5=未授权）仍为失败。
+    """
+    if ec is None:
+        return True
+    s = str(ec).strip()
+    return s == "" or s == "0"
+
+
 def _upstream_heartbeat_response_ok(resp: Optional[str]) -> bool:
     if not resp or not (resp or "").strip().startswith("<"):
         return False
@@ -136,7 +149,7 @@ def _upstream_heartbeat_response_ok(resp: Optional[str]) -> bool:
     if _xml_local_tag(root.tag).lower() != "heartbeat":
         return False
     ec = _upstream_xml_field_from_root(root, "ErrorCode")
-    return ec == "" or ec == "0"
+    return _upstream_rq_error_code_ok(ec)
 
 
 def _upstream_logon_response_ok(resp: Optional[str]) -> bool:

@@ -1490,9 +1490,23 @@ class GatewayHub:
                 self._record_upstream_command_failure(f"web_logon:{e}")
                 return False, str(e)
             if _upstream_logon_establishes_session(resp):
-                if _upstream_xml_error_code(resp) == "2":
+                ec = _upstream_xml_error_code(resp)
+                if ec == "2":
+                    # ErrorCode=2 在部分机型上表示「他处已登录/本连接未真正授权」。
+                    # 必须用需登录的 RQ 探针确认，避免假阳性导致后续 Status/Sets 全是 ErrorCode=5。
+                    probe = await self._probe_upstream_session_authenticated()
+                    if not probe:
+                        self._upstream_session_authenticated = False
+                        self._record_upstream_command_failure("web_logon_ec2_unusable")
+                        return (
+                            False,
+                            "上游 Logon 返回 ErrorCode=2，但 RQ 探针仍要求登录（会话可能已被其他 "
+                            "Bridge/客户端占用）。请让本机 Agent 连接已登录的 Bridge REST(:8081)/"
+                            "TCP(:54321) 复用账号，勿再直连仪器 :12345 抢会话。"
+                            f" 原始应答: {(resp or '')[:400]}",
+                        )
                     _log.info(
-                        "web upstream Logon: instrument already authenticated (ErrorCode=2); reusing session"
+                        "web upstream Logon: ErrorCode=2 and RQ probe ok; reusing session"
                     )
                 self._upstream_session_authenticated = True
                 self._logon_seen_upstream_success = True
@@ -1500,6 +1514,37 @@ class GatewayHub:
                 return True, ""
             self._record_upstream_command_failure("web_logon_rejected")
             return False, f"上游 Logon 未成功: {(resp or '')[:800]}"
+
+    async def _probe_upstream_session_authenticated(self) -> bool:
+        """Logon ErrorCode=2 后，发一条需登录的轻量 RQ 确认本连接是否真能发令。"""
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[str] = loop.create_future()
+        probe_cookie = secrets.token_hex(16)
+        payload = self._inject_cookie_culture("<RemoteControlState/>", probe_cookie)
+        await self._register(probe_cookie, _FutureWaiter(fut))
+        try:
+            await self._ensure_upstream()
+            uw = self._upstream_writer
+            assert uw is not None
+            async with self._write_upstream_lock:
+                log_gateway_xml(_log, "web upstream OUT", payload, web_rq=True)
+                uw.write(_frame(payload, self.encoding))
+                await uw.drain()
+            resp = await asyncio.wait_for(fut, timeout=30.0)
+        except Exception as e:
+            async with self._cookie_lock:
+                self._cookie_to_target.pop(probe_cookie, None)
+            _log.warning("upstream Logon EC=2 probe failed: %s", e)
+            return False
+        ec = _upstream_xml_error_code(resp)
+        ok = _upstream_rq_error_code_ok(ec)
+        if not ok:
+            _log.warning(
+                "upstream Logon EC=2 probe not usable: ec=%s preview=%s",
+                ec,
+                (resp or "")[:200],
+            )
+        return ok
 
     async def _register(self, cookie: str, target: Union[asyncio.StreamWriter, _FutureWaiter]) -> None:
         if not cookie:
@@ -1581,11 +1626,14 @@ class GatewayHub:
             root = ET.fromstring(r)
         except ET.ParseError:
             return {"ok": False, "error": "应答非合法 XML", "xml": r[:4000], "rootTag": ""}
-        ec = (root.attrib.get("ErrorCode") or "").strip()
-        if ec != "0":
+        # Commands 6.x 成功时常省略 ErrorCode；与 Heartbeat / RemoteControlState 一致：
+        # 空/缺失/"0" → 成功；显式非 0 → 失败。
+        ec = _upstream_xml_field_from_root(root, "ErrorCode")
+        if not _upstream_rq_error_code_ok(ec):
+            em = _upstream_xml_field_from_root(root, "ErrorMessage")
             return {
                 "ok": False,
-                "error": f"{root.tag} ErrorCode={ec} {root.attrib.get('ErrorMessage', '')}".strip(),
+                "error": f"{root.tag} ErrorCode={ec} {em}".strip(),
                 "xml": r[:8000],
                 "rootTag": root.tag,
             }

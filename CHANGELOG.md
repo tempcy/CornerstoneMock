@@ -4,6 +4,41 @@
 
 ---
 
+## 0.1.16
+
+**定位**：Bridge 兼容 ON836（Commands 6.x）小写 Sets XML；Logon `ErrorCode=2` 增加会话探针。
+
+### Bridge
+
+- **Sets / SystemParameters 解析**：本地标签大小写不敏感（`<sets>`/`<set>`/`<headerFields>`/`<field>` 与 CS844 的 PascalCase 同等处理）；无 `Id` 时用 `label` 作为字段键。修复 GO6/GO7 REST `items=[]`、`sections=[]`。
+- **Logon ErrorCode=2**：不再直接视为「他处已登录、本连接可复用」；先发 `RemoteControlState` 探针，RQ 仍要求登录则拒绝，避免后续查询全是未授权。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.16 |
+| cornerstone-web | 0.1.16 |
+| cornerstone-cli | 0.1.16 |
+
+---
+
+## 0.1.15
+
+**定位**：Bridge 兼容 Cornerstone Commands 6.x（ON836）查询应答无 `ErrorCode` 属性。
+
+### Bridge
+
+- **RQ 成败判定**：`instrument_rq` 将根上 **空 / 缺失** 的 `ErrorCode` 与 `"0"` 同等视为成功（对齐 Heartbeat / RemoteControlState）；显式非 0（如未授权 `5`）仍失败。修复 GO6/GO7（Program 2.10 / Commands 6.1）经 REST 查 `system-parameters` / `status` / `sets` 时 `ok=false` 但 `rawPreview` 有正文的问题。
+- **解析**：ErrorCode / ErrorMessage 同时支持根属性与同名子元素。
+- **控制台标题**：版本优先读安装目录 `build-info.json`（与 `VERSION` 一致），避免 PyInstaller 打入过期的 `importlib.metadata`；打包脚本校验 metadata 与 VERSION 对齐。
+
+| 包 | 版本 |
+| --- | --- |
+| cornerstone-bridge | 0.1.15 |
+| cornerstone-web | 0.1.15 |
+| cornerstone-cli | 0.1.15 |
+
+---
+
 ## 0.1.14
 
 **定位**：Queue 列宽拖拽与 Windows 贴边吸附禁用。

@@ -48,11 +48,35 @@ ehthumbs.db
 # Local / scratch
 /68
 
-# 本机配置（保留 *.example.toml / *.example.json）
+# 本机配置（含现场 IP / 口令；保留 *.example.toml / *.example.json）
 CornerstoneBridge/cornerstone-bridge.config.toml
 CornerstoneBridge/cornerstone-bridge.config.json
 CornerstoneWeb/cornerstone-web.config.json
 CornerstoneWeb/cornerstone-web.config.toml
+CornerstoneAgent/cornerstone-agent.config*.json
+!CornerstoneAgent/cornerstone-agent.config.example.json
+CornerstoneAgent/agent_registry.json
+CornerstoneAgent/agent_registry.json.tmp
+
+# BaoClaw 本机配置与运行时（编排 URL、会话、向量库）
+BaoClaw/skill.json
+BaoClaw/.skill.json.lock
+BaoClaw/chats.json
+BaoClaw/jobs.json
+BaoClaw/file_store/
+BaoClaw/.reme_store_v1
+BaoClaw/memory_file_metadata.json
+
+# 现场地址对照台账（保留 local-hosts.example.md）
+docs/local-hosts.md
+
+# 临时凭据 / SSO 会话
+_tmp_*
+zhibao_captcha.jpg
+
+# 运行日志（可能含现场 IP）
+*.log
+CornerstoneBridge/logs/
 
 # 安装包构建产物（build-release.ps1 / ISCC）
 installer/staging/

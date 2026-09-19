@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Cornerstone Agent</title>
+  <link rel="stylesheet" href="/ui/styles.css"/>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">Cornerstone <span class="accent">Agent</span></div>
+      <div class="topbar-meta">
+        <span id="hdr-lab" class="meta-pill">—</span>
+        <span id="hdr-ver" class="meta-muted">—</span>
+      </div>
+      <div class="topbar-right">
+        <span id="hdr-level" class="level-pill level-unknown" title="总览状态">● —</span>
+      </div>
+    </div>
+    <nav class="main-nav" role="navigation" aria-label="主导航">
+      <button type="button" class="nav-top active" data-view="status">状态</button>
+      <button type="button" class="nav-top" data-view="config">配置</button>
+    </nav>
+  </header>
+
+  <main id="view-status" class="view">
+    <section class="summary-bar" id="summary-bar" aria-label="总览">
+      <div class="sum-item"><span class="sum-label">编排</span><strong id="sum-orch">—</strong></div>
+      <div class="sum-item"><span class="sum-label">在线</span><strong id="sum-online">—</strong></div>
+      <div class="sum-item"><span class="sum-label">Bridge</span><strong id="sum-bridge">—</strong></div>
+      <div class="sum-item"><span class="sum-label">心跳</span><strong id="sum-hb">—</strong></div>
+      <div class="sum-item"><span class="sum-label">TTL</span><strong id="sum-ttl">—</strong></div>
+      <div class="sum-item"><span class="sum-label">运行</span><strong id="sum-uptime">—</strong></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-toolbar">
+        <h1 class="panel-title">仪器</h1>
+        <div class="toolbar-actions">
+          <label class="check"><input type="checkbox" id="auto-refresh" checked/> 自动刷新</label>
+          <button type="button" id="btn-ping-all" class="btn">全部探测</button>
+          <button type="button" id="btn-refresh" class="btn primary">刷新</button>
+        </div>
+      </div>
+      <div id="status-banner" class="banner hidden"></div>
+      <div class="table-wrap">
+        <table class="data-table" id="inst-table">
+          <thead>
+            <tr>
+              <th class="col-dot"></th>
+              <th>仪器</th>
+              <th>agent_id</th>
+              <th>Bridge</th>
+              <th>last_seen</th>
+              <th>能力</th>
+              <th class="col-act">操作</th>
+            </tr>
+          </thead>
+          <tbody id="inst-tbody"></tbody>
+        </table>
+      </div>
+      <p id="status-meta" class="meta-line"></p>
+    </section>
+  </main>
+
+  <main id="view-config" class="view hidden">
+    <section class="panel">
+      <div class="panel-toolbar">
+        <h1 class="panel-title">配置 <span class="badge">只读</span></h1>
+        <div class="toolbar-actions">
+          <button type="button" id="btn-cfg-refresh" class="btn">刷新</button>
+          <button type="button" id="btn-cfg-copy" class="btn">复制 JSON</button>
+        </div>
+      </div>
+      <div id="config-banner" class="banner hidden"></div>
+      <p class="hint">P0 仅展示当前运行配置；保存/热更新将在后续版本提供。修改请编辑配置文件后经计划任务重启编排。</p>
+
+      <div class="cfg-grid">
+        <div class="cfg-card">
+          <h2>实验室身份</h2>
+          <dl id="cfg-identity" class="kv"></dl>
+        </div>
+        <div class="cfg-card">
+          <h2>默认 Bridge</h2>
+          <dl id="cfg-bridge" class="kv"></dl>
+        </div>
+        <div class="cfg-card">
+          <h2>编排</h2>
+          <dl id="cfg-orch" class="kv"></dl>
+        </div>
+        <div class="cfg-card">
+          <h2>隐私</h2>
+          <dl id="cfg-privacy" class="kv"></dl>
+        </div>
+      </div>
+
+      <div class="cfg-card cfg-card-wide">
+        <h2>instruments[]</h2>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>instrument_id</th>
+                <th>agent_id</th>
+                <th>lab_id</th>
+                <th>bridge_url</th>
+              </tr>
+            </thead>
+            <tbody id="cfg-inst-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <p id="config-meta" class="meta-line"></p>
+      <pre id="cfg-json" class="json-block" hidden></pre>
+    </section>
+  </main>
+
+  <footer class="footer-bar">
+    <span id="ft-listen">—</span>
+    <span class="footer-sep">·</span>
+    <span id="ft-config" title="配置文件">—</span>
+  </footer>
+
+  <script src="/ui/app.js"></script>
+</body>
+</html>

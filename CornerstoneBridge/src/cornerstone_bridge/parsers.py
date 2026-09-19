@@ -289,13 +289,13 @@ def _parse_system_parameters(resp_xml: str) -> Tuple[Dict[str, Any], str]:
         return {}, f"XML 解析失败: {e}"
 
     outer: Optional[ET.Element] = None
-    if _xml_local_tag(root.tag) == "SystemParameters":
+    if _xml_local_tag_eq(root.tag, "SystemParameters"):
         outer = root
-    elif _xml_local_tag(root.tag) == "CornerstoneMessage":
+    elif _xml_local_tag_eq(root.tag, "CornerstoneMessage"):
         outer = _first_child_by_local(root, "SystemParameters")
     if outer is None:
         for el in root.iter():
-            if _xml_local_tag(el.tag) == "SystemParameters":
+            if _xml_local_tag_eq(el.tag, "SystemParameters"):
                 outer = el
                 break
     if outer is None:
@@ -308,12 +308,15 @@ def _parse_system_parameters(resp_xml: str) -> Tuple[Dict[str, Any], str]:
 
     fields_by_id: Dict[str, Dict[str, Any]] = {}
     for ch in outer:
-        if _xml_local_tag(ch.tag) != "Field":
+        if not _xml_local_tag_eq(ch.tag, "Field"):
             continue
         fid = (ch.attrib.get("Id") or ch.attrib.get("id") or "").strip()
+        label_en = html.unescape((ch.attrib.get("Label") or ch.attrib.get("label") or "").strip())
+        # ON836 system-parameters 常无 Id，仅有 label
+        if not fid:
+            fid = label_en
         if not fid:
             continue
-        label_en = html.unescape((ch.attrib.get("Label") or ch.attrib.get("label") or "").strip())
         display = (ch.text or "").strip()
         raw = (ch.attrib.get("RawValue") or ch.attrib.get("rawValue") or "").strip()
         units = (ch.attrib.get("Units") or ch.attrib.get("units") or "").strip()
@@ -945,24 +948,30 @@ def _xml_local_tag(tag: Any) -> str:
     return tag
 
 
+def _xml_local_tag_eq(tag: Any, name: str) -> bool:
+    """本地标签名大小写不敏感比较（Commands 6.x 常为 ``set``/``field``，8.x 为 ``Set``/``Field``）。"""
+    return _xml_local_tag(tag).lower() == (name or "").lower()
+
+
 def _first_child_by_local(root: ET.Element, local: str) -> Optional[ET.Element]:
+    """按本地标签名查找直接子节点（大小写不敏感）。"""
+    want = (local or "").lower()
     for ch in root:
-        if _xml_local_tag(ch.tag) == local:
+        if _xml_local_tag(ch.tag).lower() == want:
             return ch
     return None
 
 
 def _find_sets_container(root: ET.Element) -> ET.Element:
-    """在应答根节点下定位 ``<Sets>``（支持默认命名空间、``CornerstoneMessage`` 包裹）。"""
-    lt = _xml_local_tag(root.tag)
-    if lt == "Sets":
+    """在应答根节点下定位 ``<Sets>``/``<sets>``（支持默认命名空间、``CornerstoneMessage`` 包裹）。"""
+    if _xml_local_tag_eq(root.tag, "Sets"):
         return root
-    if lt == "CornerstoneMessage":
+    if _xml_local_tag_eq(root.tag, "CornerstoneMessage"):
         inner = _first_child_by_local(root, "Sets")
         if inner is not None:
             return inner
     for el in root.iter():
-        if _xml_local_tag(el.tag) == "Sets":
+        if _xml_local_tag_eq(el.tag, "Sets"):
             return el
     return root
 
@@ -988,11 +997,11 @@ def _element_text(el: Optional[ET.Element]) -> str:
 
 
 def _sets_list_parent(outer: ET.Element) -> ET.Element:
-    """仪器常见：外层 ``<Sets>`` 内含元数据，真正的列表在子元素 ``<Sets>`` 下。"""
+    """仪器常见：外层 ``<Sets>`` 内含元数据，真正的列表在子元素 ``<Sets>``/``<sets>`` 下。"""
     inner = _first_child_by_local(outer, "Sets")
     if inner is not None:
         for ch in inner:
-            if _xml_local_tag(ch.tag) == "Set":
+            if _xml_local_tag_eq(ch.tag, "Set"):
                 return inner
     return outer
 
@@ -1004,7 +1013,7 @@ def _parse_sets_analyte_defs(outer: ET.Element) -> List[Dict[str, str]]:
     if box is None:
         return out
     for ch in box:
-        if _xml_local_tag(ch.tag) != "Analyte":
+        if not _xml_local_tag_eq(ch.tag, "Analyte"):
             continue
         label = (ch.attrib.get("Label") or ch.attrib.get("label") or "").strip()
         key = (ch.text or "").strip()
@@ -1026,7 +1035,7 @@ def _set_row_avg_for_analyte(fields: Dict[str, str], avg_registry_id: str, eleme
 
 
 def _parse_one_set_row(s: ET.Element, analyte_defs: List[Dict[str, str]]) -> Dict[str, Any]:
-    """解析单个 ``<Set>``：支持 ``Key`` 属性、子元素 ``<Key>``/``<SetId>``，以及 ``<HeaderFields>`` 下的 ``<Field>``。"""
+    """解析单个 ``<Set>``/``<set>``：Key、HeaderFields/headerFields 下的 Field/field。"""
     key = (s.attrib.get("Key") or s.attrib.get("key") or "").strip()
     if not key:
         key = _element_text(_first_child_by_local(s, "Key"))
@@ -1035,9 +1044,12 @@ def _parse_one_set_row(s: ET.Element, analyte_defs: List[Dict[str, str]]) -> Dic
 
     fields: Dict[str, str] = {}
     hf = _first_child_by_local(s, "HeaderFields")
-    field_nodes: List[ET.Element] = list(hf) if hf is not None else [ch for ch in s if _xml_local_tag(ch.tag) == "Field"]
+    if hf is not None:
+        field_nodes: List[ET.Element] = list(hf)
+    else:
+        field_nodes = [ch for ch in s if _xml_local_tag_eq(ch.tag, "Field")]
     for f in field_nodes:
-        if _xml_local_tag(f.tag) != "Field":
+        if not _xml_local_tag_eq(f.tag, "Field"):
             continue
         fid = (f.attrib.get("Id") or f.attrib.get("id") or "").strip()
         reg = (f.attrib.get("RegistryId") or f.attrib.get("registryId") or "").strip()
@@ -1131,7 +1143,7 @@ def _parse_sets_response(resp_xml: str) -> Tuple[List[Dict[str, Any]], List[Dict
     list_parent = _sets_list_parent(outer)
     rows: List[Dict[str, Any]] = []
     for s in list_parent:
-        if _xml_local_tag(s.tag) != "Set":
+        if not _xml_local_tag_eq(s.tag, "Set"):
             continue
         rows.append(_parse_one_set_row(s, analyte_defs))
     win = _parse_sets_window_from_outer(outer)
