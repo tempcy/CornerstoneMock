@@ -49,6 +49,14 @@ flowchart LR
 
 `context` 中填写：`chat_task_id`、`trace_id`、`snapshot_id`（来自实验室 tool 回传，**不**把快照文件拷到公司侧）。
 
+#### 过渡方案：`/chat-modern` 的 `follow_ups` 芯片（2026-09）
+
+Agent 控制台 iframe **不支持**；仅智宝 **兼容 AI 对话页** `/chat-modern` 会把助手回复末尾的
+
+`{"follow_ups":["有用","需改进",...]}`（最多 5 条）渲成可点芯片。点击后文案作为新用户消息发回。
+
+规范见工作区 `AGENTS.md`「智宝 modern 页反馈芯片」。点选后的入库仍走上表 `chat_rating` / `case_closure`（有 `feedback_tool.py` 时）；无写权限则只做对话确认。
+
 ### 2. Bridge 运维建议 ack（`channel=bridge_ui`）
 
 机房路径：`post_operator_notice` → Bridge ack → Agent `operator_notices.jsonl`。
