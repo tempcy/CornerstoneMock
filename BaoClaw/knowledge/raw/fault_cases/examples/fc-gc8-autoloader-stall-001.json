@@ -1,0 +1,86 @@
+{
+  "schema_version": "fault-case.v1",
+  "case_id": "fc-gc8-autoloader-stall-001",
+  "title": "CS844 自动进样机械手中途卡死 / 报警不动作",
+  "status": "verified",
+  "instrument": {
+    "model": "CS844",
+    "instrument_id": "GC3",
+    "lab_id": "lab-2lg",
+    "location": "二炼钢"
+  },
+  "symptoms": [
+    "进样机械手报警或不动作",
+    "水平移动中途卡死",
+    "偶发落坩埚、初始化失败"
+  ],
+  "symptom_tags": ["机械手卡死", "自动进样", "进样报警", "碳硫"],
+  "diagnostics": [
+    {
+      "step": 1,
+      "check": "确认 Cornerstone 以正确用户帐户登录（非来宾帐户）",
+      "expected": "USER 帐户可正常初始化机械手",
+      "if_abnormal": "切换帐户后重试初始化"
+    },
+    {
+      "step": 2,
+      "check": "检查转盘/水平导轨是否有试样颗粒、助熔剂残留阻碍",
+      "expected": "导轨清洁，无颗粒卡阻",
+      "if_abnormal": "清洁后重试；检查初始位置传感器是否松动"
+    },
+    {
+      "step": 3,
+      "check": "解体维护导轨、滑轮、丝杆；检查 SL10 控制板保险丝与 IC",
+      "expected": "动作顺畅，无异常温升或烧毁痕迹",
+      "if_abnormal": "更换控制板或索赔；检查外壳间隙是否进助熔剂颗粒"
+    },
+    {
+      "step": 4,
+      "check": "检查 X 轴电机挡片、气缸气路管、夹钳气缸螺母",
+      "expected": "无变形挡片、无破裂气管、紧固件完好",
+      "if_abnormal": "削平变形挡片或更换气路管/紧固件"
+    }
+  ],
+  "root_cause": "多为导轨磨损+颗粒污染、传感器松动，或 SL10 控制板/保险丝故障；少数为气路管破裂、活塞紧固件脱落。",
+  "resolution": {
+    "actions": [
+      "清洁导轨与转盘残留颗粒",
+      "给油、调整滑轮支撑与机械手零位",
+      "更换破裂气路管或修复控制板（保内索赔优先）",
+      "用泥灰等方式封堵控制板区域间隙，防止助熔剂进入"
+    ],
+    "parts": [
+      "SL10 进样控制板（索赔件）",
+      "0.2A 保险丝",
+      "动力气/气路管（操作方备件）"
+    ]
+  },
+  "prevention": "维护炉头与进样区域时避免助熔剂大量散落；定期给油导轨；发现偶发卡死时优先清洁而非直接换板。",
+  "evidence": {
+    "sources": [
+      {
+        "kind": "anomaly_calendar",
+        "ref": "weekly_report_gas_pre2019.json / 2017-W18",
+        "date": "2017-05-02"
+      },
+      {
+        "kind": "anomaly_calendar",
+        "ref": "wps_rili_chemical_gas_events_2025-2026.json",
+        "date": "2025-01-03"
+      }
+    ],
+    "manual_refs": [
+      {
+        "manual_id": "CS844_Instruction_Manual_v3.3_2024-06",
+        "chapter": "Autoloader",
+        "figure": "Figure 2-xx"
+      }
+    ]
+  },
+  "metadata": {
+    "created_at": "2026-08-30T10:00:00+08:00",
+    "verified_by": "knowledge-curator",
+    "verified_at": "2026-08-30T10:00:00+08:00",
+    "tier": "P1"
+  }
+}

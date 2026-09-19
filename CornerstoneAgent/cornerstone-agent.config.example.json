@@ -26,5 +26,32 @@
   },
   "privacy": {
     "redact_sample_names": true
+  },
+  "timeseries": {
+    "enabled": true,
+    "db_path": "agent_timeseries.sqlite3",
+    "timeout_s": 90,
+    "jobs": [
+      {
+        "id": "widgets",
+        "enabled": true,
+        "label": "实时仪表 Widgets",
+        "endpoints": ["status-widgets"],
+        "interval_s": 10,
+        "retention_days": 3,
+        "scope": "all",
+        "instrument_ids": []
+      },
+      {
+        "id": "ambients",
+        "enabled": true,
+        "label": "环境 Ambients",
+        "endpoints": ["ambients"],
+        "interval_s": 300,
+        "retention_days": 90,
+        "scope": "all",
+        "instrument_ids": []
+      }
+    ]
   }
 }

@@ -64,8 +64,14 @@ class UiApiTests(unittest.TestCase):
             self.assertEqual(go7["bridge_url"], "http://192.0.2.11:8080")
 
             cfg_view = build_config_view(cfg)
-            self.assertTrue(cfg_view["read_only"])
+            self.assertFalse(cfg_view["read_only"])
             self.assertEqual(len(cfg_view["instruments"]), 2)
+            catalog = cfg_view.get("catalog") or []
+            aliases = {c["alias"] for c in catalog}
+            self.assertIn("status-widgets", aliases)
+            self.assertIn("ambients", aliases)
+            jobs = (cfg_view.get("timeseries") or {}).get("jobs") or []
+            self.assertEqual({j["id"] for j in jobs}, {"widgets", "ambients"})
 
 
 if __name__ == "__main__":

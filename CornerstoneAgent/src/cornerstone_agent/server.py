@@ -10,29 +10,62 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import __version__
-from .config import AgentConfig
+from .collector import TimeseriesScheduler, collect_once
+from .config import AgentConfig, _parse_timeseries, save_timeseries_config
 from .dispatcher import ToolDispatcher
 from .envelopes import make_uplink
 from .registry import DEFAULT_CAPABILITIES, AgentRegistry
-from .ui_api import build_config_view, build_overview, ping_instrument
+from .timeseries import TimeseriesStore
+from .operator_notices import OperatorNoticeAudit
+from .ui_api import build_config_view, build_overview, ping_instrument, resolve_bridge_url
 
 UI_STATIC_DIR = Path(__file__).resolve().parent / "ui_static"
 
 
 def _resolve_snapshot_dir(cfg: AgentConfig) -> str:
-    raw = (cfg.orchestrator.snapshot_dir or "acquisition_snapshots").strip()
-    p = Path(raw)
-    if not p.is_absolute():
-        base = Path(cfg.config_path).resolve().parent if cfg.config_path else Path.cwd()
-        p = base / p
-    return str(p)
+    return str(cfg.resolve_data_path(cfg.orchestrator.snapshot_dir, "acquisition_snapshots"))
+
+
+def _resolve_timeseries_db(cfg: AgentConfig) -> str:
+    return str(cfg.resolve_data_path(cfg.timeseries.db_path, "agent_timeseries.sqlite3"))
+
+
+def _resolve_notice_audit_path(cfg: AgentConfig) -> str:
+    return str(cfg.resolve_data_path("operator_notices.jsonl", "operator_notices.jsonl"))
+
+
+def _qs_str(qs: dict[str, list[str]], key: str) -> str:
+    raw = (qs.get(key) or [""])[0]
+    return str(raw or "").strip()
+
+
+def _qs_float(qs: dict[str, list[str]], key: str, default: float) -> float:
+    raw = (qs.get(key) or [None])[0]
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
 
 
 class OrchestratorState:
-    def __init__(self, cfg: AgentConfig, registry: AgentRegistry, dispatcher: ToolDispatcher):
+    def __init__(
+        self,
+        cfg: AgentConfig,
+        registry: AgentRegistry,
+        dispatcher: ToolDispatcher,
+        *,
+        timeseries: TimeseriesStore | None = None,
+        scheduler: TimeseriesScheduler | None = None,
+        notice_audit: OperatorNoticeAudit | None = None,
+    ):
         self.cfg = cfg
         self.registry = registry
         self.dispatcher = dispatcher
+        self.timeseries = timeseries
+        self.scheduler = scheduler
+        self.notice_audit = notice_audit
         self.started_at = time.time()
 
 
@@ -111,6 +144,65 @@ def make_handler(state: OrchestratorState):
             self._send(200, data, ctype)
             return True
 
+        def _save_timeseries_jobs(self, body: dict[str, Any]) -> None:
+            raw_ts = dict(body.get("timeseries") or body)
+            if "jobs" not in raw_ts:
+                self._send_json({"ok": False, "error": "jobs required"}, status=400)
+                return
+            raw_ts.setdefault("enabled", state.cfg.timeseries.enabled)
+            raw_ts.setdefault("db_path", state.cfg.timeseries.db_path)
+            raw_ts.setdefault("timeout_s", state.cfg.timeseries.timeout_s)
+            try:
+                new_ts = _parse_timeseries(raw_ts)
+            except Exception as e:  # noqa: BLE001
+                self._send_json(
+                    {"ok": False, "error": "invalid_timeseries", "message": str(e)},
+                    status=400,
+                )
+                return
+            new_ts.db_path = state.cfg.timeseries.db_path
+            try:
+                save_timeseries_config(state.cfg, new_ts)
+            except FileNotFoundError as e:
+                self._send_json({"ok": False, "error": "config_missing", "message": str(e)}, status=400)
+                return
+            except OSError as e:
+                self._send_json({"ok": False, "error": "config_write_failed", "message": str(e)}, status=500)
+                return
+            state.cfg.timeseries = new_ts
+            if state.scheduler is not None:
+                state.scheduler.reload(state.cfg)
+            elif new_ts.enabled and state.timeseries is not None:
+                state.scheduler = TimeseriesScheduler(
+                    state.cfg, state.timeseries, registry=state.registry
+                )
+                state.scheduler.start()
+            self._send_json(
+                {
+                    "ok": True,
+                    "timeseries": {
+                        "enabled": new_ts.enabled,
+                        "db_path": new_ts.db_path,
+                        "timeout_s": new_ts.timeout_s,
+                        "jobs": [j.to_mapping() for j in new_ts.jobs],
+                    },
+                    "reloaded": True,
+                }
+            )
+
+        def do_PUT(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            path = parsed.path
+            try:
+                body = self._read_json()
+            except (ValueError, json.JSONDecodeError) as e:
+                self._send_json({"ok": False, "error": "invalid_json", "message": str(e)}, status=400)
+                return
+            if path in ("/api/ui/timeseries/jobs", "/api/ui/timeseries/config"):
+                self._save_timeseries_jobs(body)
+                return
+            self._send_json({"ok": False, "error": "not_found", "path": path}, status=404)
+
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             path = parsed.path
@@ -144,17 +236,140 @@ def make_handler(state: OrchestratorState):
                 return
 
             if path == "/api/ui/overview":
+                last_tick = None
+                if state.scheduler is not None:
+                    last_tick = state.scheduler.last_tick
                 self._send_json(
                     build_overview(
                         state.cfg,
                         state.registry,
                         started_at=state.started_at,
+                        timeseries_store=state.timeseries,
+                        timeseries_last_tick=last_tick,
                     )
                 )
                 return
 
+            if path == "/api/ui/timeseries/metrics":
+                if state.timeseries is None:
+                    self._send_json({"ok": False, "error": "timeseries_disabled"}, status=503)
+                    return
+                iid = (qs.get("instrument_id") or [""])[0].strip()
+                hours = _qs_float(qs, "hours", 24.0)
+                job_id = _qs_str(qs, "job_id") or None
+                if not iid:
+                    self._send_json({"ok": False, "error": "instrument_id required"}, status=400)
+                    return
+                self._send_json(
+                    {
+                        "ok": True,
+                        "instrument_id": iid,
+                        "hours": hours,
+                        "job_id": job_id or "",
+                        "metrics": state.timeseries.list_metrics(iid, hours=hours, job_id=job_id),
+                    }
+                )
+                return
+
+            if path == "/api/ui/timeseries/export.csv":
+                if state.timeseries is None:
+                    self._send_json({"ok": False, "error": "timeseries_disabled"}, status=503)
+                    return
+                iid = (qs.get("instrument_id") or [""])[0].strip()
+                hours = _qs_float(qs, "hours", 24.0)
+                metric = (qs.get("metric") or [""])[0].strip() or None
+                job_id = _qs_str(qs, "job_id") or None
+                if not iid:
+                    self._send_json({"ok": False, "error": "instrument_id required"}, status=400)
+                    return
+                csv_body = state.timeseries.export_csv(iid, hours=hours, metric=metric, job_id=job_id)
+                raw = csv_body.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Length", str(len(raw)))
+                self.send_header(
+                    "Content-Disposition",
+                    f'attachment; filename="{iid}-timeseries.csv"',
+                )
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(raw)
+                return
+
+            if path == "/api/ui/timeseries/sample":
+                if state.timeseries is None:
+                    self._send_json({"ok": False, "error": "timeseries_disabled"}, status=503)
+                    return
+                raw_id = (qs.get("sample_id") or [""])[0].strip()
+                try:
+                    sid = int(raw_id)
+                except ValueError:
+                    self._send_json({"ok": False, "error": "sample_id required"}, status=400)
+                    return
+                bundle = state.timeseries.sample_values(sid)
+                if not bundle.get("sample"):
+                    self._send_json({"ok": False, "error": "sample_not_found"}, status=404)
+                    return
+                self._send_json({"ok": True, **bundle})
+                return
+
+            if path == "/api/ui/timeseries":
+                if state.timeseries is None:
+                    self._send_json({"ok": False, "error": "timeseries_disabled"}, status=503)
+                    return
+                iid = (qs.get("instrument_id") or [""])[0].strip()
+                hours = _qs_float(qs, "hours", 24.0)
+                metric = (qs.get("metric") or [""])[0].strip()
+                job_id = _qs_str(qs, "job_id") or None
+                if not iid:
+                    self._send_json({"ok": False, "error": "instrument_id required"}, status=400)
+                    return
+                latest = state.timeseries.latest_values(iid, job_id=job_id)
+                jobs = [j.to_mapping() for j in state.cfg.timeseries.jobs]
+                payload: dict[str, Any] = {
+                    "ok": True,
+                    "instrument_id": iid,
+                    "hours": hours,
+                    "job_id": job_id or "",
+                    "stats": state.timeseries.sample_stats(iid, hours=hours, job_id=job_id),
+                    "samples": state.timeseries.list_samples(iid, hours=hours, limit=200, job_id=job_id),
+                    "metrics": state.timeseries.list_metrics(iid, hours=hours, job_id=job_id),
+                    "latest": latest,
+                    "interval_s": state.cfg.timeseries.interval_s,
+                    "enabled": state.cfg.timeseries.enabled,
+                    "jobs": jobs,
+                }
+                if metric:
+                    payload["metric"] = metric
+                    payload["series"] = state.timeseries.query_series(
+                        iid, metric, hours=hours, job_id=job_id
+                    )
+                self._send_json(payload)
+                return
+
             if path == "/api/ui/config":
                 self._send_json(build_config_view(state.cfg))
+                return
+
+            if path == "/api/ui/operator-notices":
+                audit = state.notice_audit
+                if audit is None:
+                    self._send_json({"ok": True, "items": [], "pendingCount": 0})
+                    return
+                pending_only = (qs.get("pending_only") or ["false"])[0].lower() in (
+                    "1",
+                    "true",
+                    "yes",
+                )
+                try:
+                    limit = int((qs.get("limit") or ["100"])[0])
+                except ValueError:
+                    limit = 100
+                items = audit.list(pending_only=pending_only, limit=limit)
+                pending = len(audit.list(pending_only=True, limit=500))
+                self._send_json(
+                    {"ok": True, "items": items, "pendingCount": pending}
+                )
                 return
 
             if path == "/v1/instruments":
@@ -193,6 +408,134 @@ def make_handler(state: OrchestratorState):
                 out = ping_instrument(state.cfg, state.registry, instrument_id)
                 status = 200 if out.get("ok") else 404
                 self._send_json(out, status=status)
+                return
+
+            if path == "/api/ui/timeseries/collect-once":
+                if state.timeseries is None:
+                    self._send_json({"ok": False, "error": "timeseries_disabled"}, status=503)
+                    return
+                instrument_id = str(body.get("instrument_id") or "").strip()
+                if not instrument_id:
+                    self._send_json({"ok": False, "error": "instrument_id required"}, status=400)
+                    return
+                from .bridge_client import BridgeClient
+
+                url = resolve_bridge_url(state.cfg, state.registry, instrument_id)
+                if not url:
+                    self._send_json(
+                        {
+                            "ok": False,
+                            "error": "instrument_not_found",
+                            "instrument_id": instrument_id,
+                        },
+                        status=404,
+                    )
+                    return
+                lab_id = state.cfg.identity.lab_id
+                agent_id = ""
+                for ep in state.cfg.local_instruments():
+                    if ep.instrument_id == instrument_id:
+                        lab_id = ep.lab_id
+                        agent_id = ep.agent_id
+                        break
+                job_id = str(body.get("job_id") or "").strip()
+                jobs = []
+                if job_id:
+                    job = state.cfg.timeseries.job_by_id(job_id)
+                    if job is None:
+                        self._send_json(
+                            {"ok": False, "error": "unknown_job", "job_id": job_id},
+                            status=400,
+                        )
+                        return
+                    jobs = [job]
+                else:
+                    jobs = [
+                        j
+                        for j in state.cfg.timeseries.enabled_jobs()
+                        if j.matches_instrument(instrument_id)
+                    ]
+                if not jobs:
+                    self._send_json(
+                        {
+                            "ok": False,
+                            "error": "no_matching_job",
+                            "instrument_id": instrument_id,
+                        },
+                        status=400,
+                    )
+                    return
+                timeout = min(float(state.cfg.timeseries.timeout_s), state.cfg.bridge.timeout_s)
+                results = []
+                for job in jobs:
+                    out = collect_once(
+                        bridge=BridgeClient(url, timeout_s=timeout),
+                        store=state.timeseries,
+                        instrument_id=instrument_id,
+                        lab_id=lab_id,
+                        agent_id=agent_id,
+                        endpoints=job.endpoints,
+                        job_id=job.id,
+                    )
+                    results.append(out)
+                ok = all(r.get("ok") for r in results)
+                first = results[0]
+                self._send_json(
+                    {
+                        "ok": ok,
+                        "instrument_id": instrument_id,
+                        "point_count": sum(int(r.get("point_count") or 0) for r in results),
+                        "duration_ms": sum(int(r.get("duration_ms") or 0) for r in results),
+                        "error": "" if ok else (first.get("error") or "collect failed"),
+                        "results": results,
+                    },
+                    status=200 if ok else 502,
+                )
+                return
+
+            if path in ("/api/ui/timeseries/jobs", "/api/ui/timeseries/config"):
+                self._save_timeseries_jobs(body)
+                return
+
+            if path == "/api/ui/operator-notices/sync":
+                # 从指定仪器 Bridge 拉取 inbox，回写本地 ack 审计
+                audit = state.notice_audit
+                if audit is None:
+                    self._send_json({"ok": False, "error": "notice_audit_unavailable"}, status=503)
+                    return
+                lab_id = str(body.get("lab_id") or "").strip()
+                instrument_id = str(body.get("instrument_id") or "").strip()
+                if not lab_id or not instrument_id:
+                    self._send_json(
+                        {"ok": False, "error": "lab_id and instrument_id required"},
+                        status=400,
+                    )
+                    return
+                url = resolve_bridge_url(state.cfg, state.registry, instrument_id)
+                if not url:
+                    self._send_json({"ok": False, "error": "bridge_url_not_found"}, status=404)
+                    return
+                try:
+                    from .bridge_client import BridgeClient, BridgeError
+
+                    client = BridgeClient(url, timeout_s=15.0)
+                    data = client.get_json("/api/operator-notices")
+                    items = list((data or {}).get("items") or [])
+                    updated = audit.sync_from_bridge_items(items)
+                    self._send_json(
+                        {
+                            "ok": True,
+                            "bridge_ok": bool((data or {}).get("ok", True)),
+                            "synced": updated,
+                            "bridge_count": len(items),
+                            "pendingCount": len(audit.list(pending_only=True, limit=500)),
+                        }
+                    )
+                except BridgeError as e:
+                    self._send_json(
+                        {"ok": False, "error": "bridge_error", "message": str(e)},
+                        status=502,
+                    )
                 return
 
             if path == "/v1/agents/register":
@@ -273,8 +616,10 @@ def make_handler(state: OrchestratorState):
                 status = 200 if out.get("ok") else 400
                 err = (out.get("error") or {}) if isinstance(out.get("error"), dict) else {}
                 code = err.get("code")
-                if code in ("instrument_not_found", "agent_offline"):
+                if code in ("instrument_not_found", "agent_offline", "sample_not_found"):
                     status = 404
+                if code == "timeseries_disabled":
+                    status = 503
                 self._send_json(out, status=status)
                 return
 
@@ -301,12 +646,21 @@ def create_server(cfg: AgentConfig) -> tuple[ThreadingHTTPServer, OrchestratorSt
         cfg.orchestrator.registry_path,
         online_ttl_s=cfg.orchestrator.online_ttl_s,
     )
+    ts_store: TimeseriesStore | None = None
+    if cfg.timeseries.enabled:
+        ts_store = TimeseriesStore(_resolve_timeseries_db(cfg))
+    notice_audit = OperatorNoticeAudit(_resolve_notice_audit_path(cfg))
     dispatcher = ToolDispatcher(
         registry,
         redact_sample_names=cfg.privacy.redact_sample_names,
         snapshot_dir=_resolve_snapshot_dir(cfg),
+        timeseries_store=ts_store,
+        timeseries_cfg=cfg.timeseries if cfg.timeseries.enabled else None,
+        notice_audit=notice_audit,
     )
-    state = OrchestratorState(cfg, registry, dispatcher)
+    state = OrchestratorState(
+        cfg, registry, dispatcher, timeseries=ts_store, notice_audit=notice_audit
+    )
     handler = make_handler(state)
     server = ThreadingHTTPServer(
         (cfg.orchestrator.listen_host, cfg.orchestrator.listen_port),
@@ -348,13 +702,17 @@ class LocalAgentHeartbeater:
             print(f"[agent] heartbeat tick failed: {exc}")
 
     def _tick_inner(self, *, force_register: bool) -> None:
-        from .bridge_client import BridgeClient
+        from .bridge_client import BridgeClient, extract_bridge_version
 
         cfg = self.state.cfg
-        versions = {"agent": __version__}
         for ep in cfg.local_instruments():
             bridge = BridgeClient(ep.bridge_url, timeout_s=min(10.0, cfg.bridge.timeout_s))
-            reachable = bridge.ping()
+            reachable, status = bridge.probe_status()
+            versions = {"agent": __version__}
+            # Bridge 版本为可选；旧包无字段时不写入，不阻断心跳
+            bv = extract_bridge_version(status)
+            if bv:
+                versions["bridge"] = bv
             if force_register or self.state.registry.get(ep.agent_id) is None:
                 rec = self.state.registry.register(
                     agent_id=ep.agent_id,
@@ -390,6 +748,17 @@ def serve_forever(cfg: AgentConfig) -> None:
     if cfg.orchestrator.embed_local_agent:
         heart = LocalAgentHeartbeater(state)
         heart.start()
+    if state.timeseries is not None and cfg.timeseries.enabled:
+        state.scheduler = TimeseriesScheduler(cfg, state.timeseries, registry=state.registry)
+        state.scheduler.start()
+        print(
+            f"[ts] scheduler jobs="
+            + ",".join(
+                f"{j.id}:{int(j.interval_s)}s/{j.retention_days}d"
+                for j in cfg.timeseries.enabled_jobs()
+            )
+            + f" db={_resolve_timeseries_db(cfg)}"
+        )
     host, port = cfg.orchestrator.listen_host, cfg.orchestrator.listen_port
     print(f"[orch] listening http://{host}:{port}/  config={cfg.config_path}")
     print(
@@ -403,4 +772,8 @@ def serve_forever(cfg: AgentConfig) -> None:
     finally:
         if heart:
             heart.stop()
+        if state.scheduler:
+            state.scheduler.stop()
+        if state.timeseries:
+            state.timeseries.close()
         server.server_close()

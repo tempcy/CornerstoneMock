@@ -12,6 +12,7 @@ ENDPOINT_SPECS: Dict[str, Tuple[str, Dict[str, Any]]] = {
     "automation-status": ("/api/instrument/automation-status", {}),
     "instrument-info": ("/api/instrument/instrument-info", {}),
     "status-check": ("/api/diagnostic/status-check", {}),
+    "status-widgets": ("/api/instrument/status-widgets", {}),
     "digital-io": ("/api/diagnostic/digital-io", {}),
     "ambients": ("/api/environment/ambients", {}),
     "sets": ("/api/instrument/sets", {"number": 10, "start_at": -1, "filter_key": "0"}),
@@ -35,6 +36,106 @@ PROFILE_ENDPOINTS: Dict[str, List[str]] = {
 
 # 需要 set_key 的别名
 _SET_KEY_ENDPOINTS = frozenset({"set-stats", "set-reps"})
+
+# 采集清单：与 CLI tcp 查询命令 / Bridge 只读 GET 对齐
+_QUERY_META: Dict[str, Dict[str, Any]] = {
+    "status": {
+        "command": "status",
+        "xml": "<Status/>",
+        "label": "连接与队列状态",
+        "timeseries_ok": True,
+    },
+    "status-widgets": {
+        "command": "status",
+        "xml": '<Status IncludeGauges="true"/>',
+        "label": "实时仪表 Widgets",
+        "timeseries_ok": True,
+    },
+    "ambients": {
+        "command": "ambients",
+        "xml": "<Ambients/>",
+        "label": "环境 Ambients",
+        "timeseries_ok": True,
+    },
+    "system-parameters": {
+        "command": "system-parameters",
+        "xml": "<SystemParameters/>",
+        "label": "系统参数",
+        "timeseries_ok": True,
+    },
+    "status-check": {
+        "command": "status",
+        "xml": '<Status IncludeSystemCheckResults="true"/>',
+        "label": "系统检查 / 漏气",
+        "timeseries_ok": True,
+    },
+    "counters": {
+        "command": "counters",
+        "xml": "<Counters/>",
+        "label": "Counters",
+        "timeseries_ok": True,
+    },
+    "automation-status": {
+        "command": "automation-status",
+        "xml": "<AutomationStatus/>",
+        "label": "自动化状态",
+        "timeseries_ok": False,
+    },
+    "instrument-info": {
+        "command": "instrument-info",
+        "xml": "<InstrumentInfo/>",
+        "label": "仪器信息",
+        "timeseries_ok": False,
+    },
+    "digital-io": {
+        "command": "solenoids / switches",
+        "xml": "<Solenoids/> / <Switches/>",
+        "label": "数字 IO",
+        "timeseries_ok": False,
+    },
+    "sets": {
+        "command": "sets",
+        "xml": "<Sets/>",
+        "label": "分析 Set 列表",
+        "timeseries_ok": False,
+    },
+    "set-stats": {
+        "command": "set-stats",
+        "xml": "<SetStats/>",
+        "label": "Set 统计",
+        "timeseries_ok": False,
+    },
+    "set-reps": {
+        "command": "set-reps",
+        "xml": "<SetReps/>",
+        "label": "Set 重复样",
+        "timeseries_ok": False,
+    },
+    "queue": {
+        "command": "queue",
+        "xml": "",
+        "label": "分析队列",
+        "timeseries_ok": False,
+    },
+}
+
+
+def list_query_catalog() -> List[Dict[str, Any]]:
+    """可配置采集项：来自白名单查询命令。"""
+    out: List[Dict[str, Any]] = []
+    for alias, (path, _q) in ENDPOINT_SPECS.items():
+        meta = _QUERY_META.get(alias) or {}
+        out.append(
+            {
+                "alias": alias,
+                "command": str(meta.get("command") or alias),
+                "xml": str(meta.get("xml") or ""),
+                "rest": path,
+                "label": str(meta.get("label") or alias),
+                "timeseries_ok": bool(meta.get("timeseries_ok", False)),
+            }
+        )
+    return out
 
 
 def resolve_endpoint_aliases(profile: str, endpoints: Optional[Sequence[str]]) -> List[str]:

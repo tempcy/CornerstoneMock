@@ -7,7 +7,8 @@ from typing import Any
 
 from . import __version__
 from .bridge_client import BridgeClient
-from .config import AgentConfig
+from .collect import list_query_catalog
+from .config import AgentConfig, timeseries_to_mapping
 from .registry import AgentRegistry
 
 
@@ -26,6 +27,8 @@ def build_overview(
     registry: AgentRegistry,
     *,
     started_at: float,
+    timeseries_store: Any = None,
+    timeseries_last_tick: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     now = time.time()
     configured = {
@@ -68,6 +71,17 @@ def build_overview(
     instruments = sorted(by_id.values(), key=lambda r: str(r.get("instrument_id") or ""))
     for row in instruments:
         row.setdefault("configured", row.get("instrument_id") in configured)
+        iid = str(row.get("instrument_id") or "")
+        if timeseries_store is not None and iid:
+            latest = timeseries_store.latest_sample(iid)
+            if latest:
+                row["timeseries_last_ts"] = latest.get("ts")
+                row["timeseries_last_ok"] = bool(latest.get("ok"))
+                row["timeseries_last_points"] = latest.get("point_count")
+            else:
+                row["timeseries_last_ts"] = ""
+                row["timeseries_last_ok"] = None
+                row["timeseries_last_points"] = 0
 
     total = len(instruments)
     online = sum(1 for r in instruments if r.get("online"))
@@ -90,6 +104,14 @@ def build_overview(
             "embed_local_agent": cfg.orchestrator.embed_local_agent,
             "registry_path": cfg.orchestrator.registry_path,
             "snapshot_dir": cfg.orchestrator.snapshot_dir,
+            "timeseries": {
+                "enabled": cfg.timeseries.enabled,
+                "interval_s": cfg.timeseries.interval_s,
+                "retention_days": cfg.timeseries.retention_days,
+                "db_path": cfg.timeseries.db_path,
+                "jobs": [j.to_mapping() for j in cfg.timeseries.jobs],
+                "last_tick": timeseries_last_tick or {},
+            },
         },
         "identity": {
             "org_id": cfg.identity.org_id,
@@ -122,7 +144,7 @@ def build_config_view(cfg: AgentConfig) -> dict[str, Any]:
     ]
     return {
         "ok": True,
-        "read_only": True,
+        "read_only": False,
         "config_path": cfg.config_path,
         "identity": {
             "org_id": cfg.identity.org_id,
@@ -144,9 +166,11 @@ def build_config_view(cfg: AgentConfig) -> dict[str, Any]:
             "online_ttl_s": cfg.orchestrator.online_ttl_s,
             "embed_local_agent": cfg.orchestrator.embed_local_agent,
         },
+        "timeseries": timeseries_to_mapping(cfg.timeseries),
         "privacy": {
             "redact_sample_names": cfg.privacy.redact_sample_names,
         },
+        "catalog": list_query_catalog(),
     }
 
 
@@ -189,8 +213,11 @@ def ping_instrument(
             "instrument_id": instrument_id,
             "message": "no bridge_url for instrument",
         }
+    from .bridge_client import extract_bridge_version
+
     client = BridgeClient(url, timeout_s=min(10.0, cfg.bridge.timeout_s))
-    reachable = client.ping()
+    reachable, status = client.probe_status()
+    bv = extract_bridge_version(status)
     agent_public: dict[str, Any] | None = None
     iid = instrument_id.strip()
     for row in registry.list_instruments(online_only=False):
@@ -198,14 +225,24 @@ def ping_instrument(
             continue
         aid = str(row.get("agent_id") or "")
         if aid:
-            rec = registry.heartbeat(aid, bridge_reachable=reachable)
+            versions = None
+            if bv:
+                # 合并写入 bridge，保留已有 agent 等字段
+                existing = registry.get(aid)
+                merged = dict(existing.versions) if existing else {}
+                merged["bridge"] = bv
+                versions = merged
+            rec = registry.heartbeat(aid, bridge_reachable=reachable, versions=versions)
             if rec is not None:
                 agent_public = rec.to_public(online=registry.is_online(rec))
         break
-    return {
+    out: dict[str, Any] = {
         "ok": True,
         "instrument_id": iid,
         "bridge_url": url,
         "bridge_reachable": reachable,
         "agent": agent_public,
     }
+    if bv:
+        out["bridge_version"] = bv
+    return out

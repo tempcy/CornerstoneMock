@@ -12,7 +12,7 @@
 
 #define MyAppName "Cornerstone Mock"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.2"
+  #define MyAppVersion "0.1.17"
 #endif
 #ifndef MyBuildId
   #define MyBuildId "dev"

@@ -14,6 +14,17 @@ from .hub_types import PendingAddSamples
 from .bridge_logging import get_log_verbose_gateway, set_console_log_level, set_log_verbose_gateway
 from .protocol import _async_close_stream_writer, _safe_stream_drain
 
+
+def _bridge_package_version() -> str:
+    """返回 Bridge 安装包版本；失败时返回空串（调用方应视为可选字段）。"""
+    try:
+        from cornerstone_bridge import __version__ as ver
+
+        return str(ver or "").strip()
+    except Exception:  # noqa: BLE001 — 版本仅供展示，不得影响 API
+        return ""
+
+
 async def _http_send(
     writer: asyncio.StreamWriter,
     status: int,
@@ -422,6 +433,10 @@ async def handle_bridge_http(
                     "queueCount": hub._compac.state_snapshot().get("queueCount", 0),
                 },
             }
+            # 可选：Bridge 安装包版本；旧客户端忽略未知字段即可
+            bv = _bridge_package_version()
+            if bv:
+                st["bridgeVersion"] = bv
             await _http_send(
                 writer,
                 200,
@@ -492,6 +507,10 @@ async def handle_bridge_http(
                 "allowedQueryHosts": hub.allowed_query_hosts_snapshot(),
                 "configFile": str(hub._config_file_path) if hub._config_file_path else "",
             }
+            # 可选：Bridge 安装包版本；旧客户端忽略未知字段即可
+            bv = _bridge_package_version()
+            if bv:
+                mon["bridgeVersion"] = bv
             await _http_send(
                 writer,
                 200,
@@ -1036,6 +1055,92 @@ async def handle_bridge_http(
                 writer,
                 200,
                 json.dumps(out, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        # --- 操作员建议下行 inbox ---
+        if method == "GET" and path == "/api/operator-notices":
+            status_f = (qparams.get("status") or "").strip().lower()
+            pending_only = _q_bool(qparams, "pending_only", False) or status_f == "pending"
+            data = hub.operator_notices_list(
+                status="" if pending_only else status_f,
+                pending_only=pending_only,
+            )
+            await _http_send(
+                writer,
+                200,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "POST" and path == "/api/operator-notices":
+            try:
+                obj = json.loads(body.decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "无效 JSON"}, ensure_ascii=False).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+                return
+            if not isinstance(obj, dict):
+                await _http_send(
+                    writer,
+                    400,
+                    json.dumps({"ok": False, "error": "请求体须为 JSON 对象"}, ensure_ascii=False).encode(
+                        "utf-8"
+                    ),
+                    "application/json; charset=utf-8",
+                )
+                return
+            data = hub.operator_notice_upsert(obj)
+            code = 200 if data.get("ok") else 400
+            await _http_send(
+                writer,
+                code,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
+            return
+
+        if method == "GET" and path.startswith("/api/operator-notices/"):
+            rest = path[len("/api/operator-notices/") :].strip("/")
+            if rest and "/" not in rest:
+                data = hub.operator_notice_get(rest)
+                code = 200 if data.get("ok") else 404
+                await _http_send(
+                    writer,
+                    code,
+                    json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                    "application/json; charset=utf-8",
+                )
+                return
+
+        if method == "POST" and path.startswith("/api/operator-notices/") and path.endswith("/ack"):
+            mid = path[len("/api/operator-notices/") : -len("/ack")].strip("/")
+            if not mid or "/" in mid:
+                await _http_send(writer, 404, b"Not Found", "text/plain; charset=utf-8")
+                return
+            try:
+                obj = json.loads(body.decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                obj = {}
+            if not isinstance(obj, dict):
+                obj = {}
+            data = hub.operator_notice_ack(
+                mid,
+                action=str(obj.get("action") or obj.get("status") or "acked"),
+                acked_by=str(obj.get("acked_by") or obj.get("ackedBy") or ""),
+                note=str(obj.get("note") or obj.get("ack_note") or obj.get("ackNote") or ""),
+            )
+            code = 200 if data.get("ok") else 404
+            await _http_send(
+                writer,
+                code,
+                json.dumps(data, ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8",
             )
             return

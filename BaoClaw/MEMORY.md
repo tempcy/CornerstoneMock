@@ -7,15 +7,16 @@ read_when:
 
 ## 工具设置
 
-### Cornerstone 仪器编排（C1，Agent **0.2.0**）
+### Cornerstone 仪器编排（C1 + A1，Agent **0.3.3**）
 
 - Orchestrator（公司侧入口）：`http://<PF_SENSE>:8090`（pfSense DNAT → DMZ `<AGENT_HOST>:8090`）
-- 健康检查：`GET /health` → `cornerstone-agent-orchestrator` / `version: 0.2.0`
+- 健康检查：`GET /health` → `cornerstone-agent-orchestrator` / `version: 0.3.3`
 - 边缘主机：`<AGENT_HOST>`（Win10 IoT）；代码 `C:\CornerstoneMock\CornerstoneAgent`
 - 持久化：计划任务 `CornerstoneAgent-Orchestrator`（登录自启，`--host 0.0.0.0 --port 8090`）
-- Skill：`cornerstone_instrument`
+- Skill：`cornerstone_instrument`（**0.3.0**，含 A1 时序 tools）
 - Tool schema：`skills/cornerstone_instrument/baoclaw-tools.v1.json`（与仓库 `CornerstoneAgent/schemas/baoclaw-tools.v1.json` 对齐）
 - 本机开发机起编排：`python -m cornerstone_agent run`（目录 `CornerstoneAgent/`）；生产以现场 Agent 为准
+- **0.3.3**：状态页展示可选 `bridge_version`；心跳 `versions.bridge` 可选；配置页去掉默认 Bridge 卡片
 
 ### 公司对话入口（智宝，原 BaoClaw 品牌）
 
@@ -56,7 +57,7 @@ read_when:
 | GO7 | `http://<GO7_IP>:8080` | **RC（含 RQ）** | ✅ |
 | GO9 | `http://<GO9_IP>:8080` | 查询可用 | ✅ |
 
-### 已实现工具（P0 + P1）
+### 已实现工具（P0 + P1 + A1 + D1）
 
 | 优先级 | BaoClaw tool | Agent job | 说明 |
 |--------|--------------|-----------|------|
@@ -65,8 +66,15 @@ read_when:
 | P0 | `get_analysis_sets` | `get_sets` | 近期 sets |
 | P0 | `get_set_reps` | `get_set_reps` | 指定 set 的 reps/stats |
 | P1 | `collect_instrument` | `collect` | profile → acquisition-snapshot + `snapshot_id` |
+| D1 | `post_operator_notice` | `operator_notice` | 推送到 Bridge 操作员对话框（只展示；reject/maintain 置顶） |
+| A1 | `get_timeseries_latest` | （编排本地 SQLite） | 最新采集点；`job_id=widgets\|ambients` |
+| A1 | `list_timeseries_metrics` | （编排本地） | 窗口内 metric 列表 |
+| A1 | `query_timeseries` | （编排本地） | 统计 + 样本 + 曲线摘要/降采样 |
+| A1 | `get_timeseries_sample` | （编排本地） | 按 sample_id 取点 |
 
 `collect` profile：`status_light` · `analysis_recent` · `troubleshoot` · `custom`（白名单 endpoint 别名）。
+
+时序任务默认：Widgets 约 10s / 保留 3 天；Ambients 约 5min / 保留 90 天。读库不经 Bridge，仪器短暂离线仍可查已入库点。
 
 写仪器（发样等）不开放；引导 Queue / Web。
 
@@ -91,14 +99,22 @@ read_when:
 - 2026-08-16：智宝门户/SSO/配置变更与迁移、chat-tasks 联调记录已存档 **`docs/智宝.md`**；经智宝 `CornerstoneMock` 对话实测六台亦全 PASS。
 - 小模型若只会乱 `curl`，优先让其严格按 skill 示例调用；编排 URL 固定为 DNAT `<PF_SENSE>:8090`。
 
+- 2026-08-30：告警/建议下行 D0–D2 落地——`post_operator_notice` → Agent → Bridge `/api/operator-notices` → 控制台「运维建议」页；ack 经 `/api/ui/operator-notices/sync` 回写审计。
+- 2026-09-06：智宝 **`/chat-modern`** 可用 `follow_ups` JSON 渲成反馈芯片（Agent 控制台不行）。规范见 `AGENTS.md`；过渡说明见 `knowledge/schemas/FEEDBACK.md`。
+
 ## 架构一句话
 
-智宝/BaoClaw = 对话大脑；CornerstoneAgent = 执行面；Bridge = 仪器数据面。三者不要角色颠倒。
+智宝/BaoClaw = 对话大脑；CornerstoneAgent = 执行面；Bridge = 仪器数据面 + **操作员建议展示面**。三者不要角色颠倒。
 
-## 知识库（MarkItDown）
+## 知识库（MarkItDown / C2 素材）
 
-- 工具：`markitdown==0.1.6`（Python 3.14 全局环境已装；文档类依赖已补）
-- 目录：`knowledge/raw/` → `py -3.14 knowledge/convert_docs.py` → `knowledge/markdown/`
-- CLI：`py -3.14 -m markitdown file.pdf -o knowledge/markdown/file.md`
-- 大图：`knowledge/extract_figures_by_chapter.py` → `figures/<手册名>/<章>/` + `catalogs/`（CS844 约 186 页；索引 `catalogs/INDEX.md`）
-- 说明：`knowledge/README.md`；依赖清单：`knowledge/requirements-markitdown.txt`
+- 工作流：`knowledge/README.md`、`convert_docs.py`、`extract_figures_by_chapter.py`
+- **分类**：`raw|markdown/{manuals,procedures,fault_cases,anomaly_calendar}/`；图录 `catalogs/manuals/<手册id>/`
+- **已处理说明书**：CS844（碳硫）、ON836（氧氮氢）正文 MD + 大图图录
+- **实用做法**：模型检索正文/图录定位；**详细读图交给人**（装配/线路/原理图）
+- **预留**：手顺书、故障案例（目录已建，待投料）
+- **异常日历**：多源已入库——事报表气体类周报（约 2016–2018）、群晖 ICS（约 2018–2022）、WPS「化学区域」（2020+ / 2025–2026 气体摘录）；见 `knowledge/raw|markdown/anomaly_calendar/`
+  - 可采集优先：**CS844 / ON(H)836**；日志多用代号（二炼钢 GC/GO、电炉 GC2–4/ON1–2、一炼钢 CS2–3/ON2/ONH2）或泛称（氧氮/碳硫/定氢/气体，或为 CS600/TC600 等）——**型号不明也保留作参考**
+  - 2014/2015 事报表加密未解；2012/2013 空表
+- 实时数据仍走 `cornerstone_instrument` → 编排，勿用手册代替状态/时序
+- CLI：`py -3.14 -m markitdown file.pdf -o knowledge/markdown/manuals/….md`

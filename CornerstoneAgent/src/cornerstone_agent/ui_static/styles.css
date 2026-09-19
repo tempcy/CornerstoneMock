@@ -226,8 +226,11 @@ body {
   font-weight: 500;
   font-size: 0.78rem;
 }
+.data-table tbody tr[data-sid] { cursor: pointer; }
+.data-table tbody tr[data-sid]:hover { background: #222228; }
+.data-table tbody tr.selected { background: #2a2618; }
 .col-dot { width: 1.5rem; }
-.col-act { width: 5.5rem; white-space: nowrap; }
+.col-act { width: 8.5rem; white-space: nowrap; }
 
 .dot {
   display: inline-block;
@@ -312,7 +315,146 @@ body {
   text-overflow: ellipsis;
 }
 
+.ts-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+.ts-filters label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.ts-filters select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.2rem 0.35rem;
+  max-width: 16rem;
+}
+
+.job-card {
+  border: 1px solid var(--border);
+  background: #121214;
+  padding: 0.7rem 0.8rem;
+  margin: 0.55rem 0;
+}
+.job-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.85rem;
+  align-items: center;
+  margin-bottom: 0.45rem;
+}
+.job-head label, .job-scope label, .job-inst label, .job-eps label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.job-card input[type="text"],
+.job-card input[type="number"] {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.2rem 0.35rem;
+  min-width: 5rem;
+}
+.job-eps, .job-inst {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.85rem;
+  margin: 0.35rem 0 0.15rem;
+}
+.job-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.35rem 0;
+}
+.job-cmd {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.chart-wrap {
+  margin: 0.75rem 0 1rem;
+  border: 1px solid var(--border);
+  background: #121214;
+  padding: 0.5rem;
+  position: relative;
+}
+#ts-chart { width: 100%; height: 220px; display: block; }
+#ts-chart-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0; }
+
+.ts-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+.ts-split .cfg-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ts-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+.ts-card-head h2 { margin: 0; }
+.ts-card-head label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.ts-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+.ts-caption {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-left: 0.35rem;
+}
+.ts-card-head select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.15rem 0.3rem;
+}
+.ts-scroll {
+  overflow: auto;
+  flex: 1;
+  height: calc(2.05rem + var(--ts-vis-rows, 10) * 2.15rem);
+  min-height: calc(2.05rem + 10 * 2.15rem);
+  max-height: calc(2.05rem + var(--ts-vis-rows, 10) * 2.15rem);
+  border: 1px solid var(--border);
+  background: #121214;
+}
+.ts-scroll thead th {
+  position: sticky;
+  top: 0;
+  background: #1a1a1e;
+  z-index: 1;
+}
+
+.hidden { display: none !important; }
+
 @media (max-width: 720px) {
   .sum-item { min-width: 4.5rem; }
   .url-cell { max-width: 8rem; }
+  .ts-split { grid-template-columns: 1fr; }
 }

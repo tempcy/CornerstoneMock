@@ -14,7 +14,9 @@ Handler = Callable[[BridgeClient, dict[str, Any], dict[str, Any]], dict[str, Any
 
 
 def _status_summary(status: dict[str, Any]) -> dict[str, Any]:
-    return {
+    from .bridge_client import extract_bridge_version
+
+    out: dict[str, Any] = {
         "bridge_ok": bool(status.get("ok", True)),
         "upstream_connected": bool(status.get("upstreamConnected")),
         "instrument_online": bool(status.get("instrumentOnline")),
@@ -27,6 +29,11 @@ def _status_summary(status: dict[str, Any]) -> dict[str, Any]:
             else "check_connection"
         ),
     }
+    # 可选字段：旧 Bridge 无 bridgeVersion 时不出现，不改变既有摘要语义
+    bv = extract_bridge_version(status)
+    if bv:
+        out["bridge_version"] = bv
+    return out
 
 
 def handle_get_status(bridge: BridgeClient, params: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
@@ -196,7 +203,84 @@ def handle_collect(bridge: BridgeClient, params: dict[str, Any], ctx: dict[str, 
     else:
         snapshot["persisted"] = False
 
+    ts_store = ctx.get("timeseries_store")
+    if ts_store is not None and duration_s <= 0:
+        try:
+            from .metrics import extract_points
+
+            pts = extract_points(snapshot.get("endpoints"))
+            ts_store.insert_sample(
+                instrument_id=str(ctx.get("instrument_id") or ""),
+                lab_id=str(ctx.get("lab_id") or ""),
+                agent_id=str(ctx.get("agent_id") or ""),
+                ok=True,
+                duration_ms=0,
+                points=pts,
+            )
+            snapshot["timeseries_ingested"] = True
+            snapshot["timeseries_points"] = len(pts)
+        except Exception as exc:  # noqa: BLE001 — 时序失败不影响 collect 主路径
+            snapshot["timeseries_ingested"] = False
+            snapshot["timeseries_error"] = str(exc)
+
     return snapshot
+
+
+def handle_operator_notice(
+    bridge: BridgeClient, params: dict[str, Any], ctx: dict[str, Any]
+) -> dict[str, Any]:
+    """将建议推送到 Bridge 操作员对话框（只展示，不写仪器）。"""
+    import uuid
+
+    title = str(params.get("title") or "").strip()
+    message = str(params.get("message") or "").strip()
+    if not title and not message:
+        raise ValueError("title or message is required")
+
+    severity = str(params.get("severity") or "info").strip().lower()
+    if severity not in ("info", "review", "reject", "maintain"):
+        severity = "info"
+    source = str(params.get("source") or "orchestrator").strip().lower()
+    if source not in ("agent_rule", "zhibao", "orchestrator", "manual"):
+        source = "orchestrator"
+
+    notice_id = str(params.get("notice_id") or params.get("noticeId") or uuid.uuid4())
+    payload: dict[str, Any] = {
+        "notice_id": notice_id,
+        "source": source,
+        "severity": severity,
+        "title": title or (message[:40] + ("…" if len(message) > 40 else "")),
+        "message": message or title,
+        "evidence": params.get("evidence") if isinstance(params.get("evidence"), list) else [],
+        "actions": params.get("actions") if isinstance(params.get("actions"), list) else [],
+        "require_ack": bool(params.get("require_ack", True)),
+        "lab_id": str(ctx.get("lab_id") or params.get("lab_id") or ""),
+        "instrument_id": str(ctx.get("instrument_id") or params.get("instrument_id") or ""),
+        "agent_id": str(ctx.get("agent_id") or ""),
+        "trace_id": str(params.get("trace_id") or ""),
+    }
+    if params.get("expires_at") is not None:
+        payload["expires_at"] = params.get("expires_at")
+
+    result = bridge.post_json("/api/operator-notices", payload)
+    if not isinstance(result, dict) or not result.get("ok"):
+        err = (result or {}).get("error") if isinstance(result, dict) else "bridge rejected notice"
+        raise BridgeError(str(err), status=400, body=result)
+
+    audit = ctx.get("notice_audit")
+    if audit is not None:
+        try:
+            audit.record_sent(payload, bridge_result=result)
+        except Exception:  # noqa: BLE001 — 审计失败不影响主路径
+            pass
+
+    return {
+        "notice_id": notice_id,
+        "bridge": result,
+        "delivered": True,
+        # 预留：本地规则引擎 A2 命中后可直接调用本 handler（同一管道）
+        "channel": "bridge_operator_dialog",
+    }
 
 
 HANDLERS: dict[str, Handler] = {
@@ -204,6 +288,7 @@ HANDLERS: dict[str, Handler] = {
     "get_sets": handle_get_sets,
     "get_set_reps": handle_get_set_reps,
     "collect": handle_collect,
+    "operator_notice": handle_operator_notice,
 }
 
 
@@ -215,6 +300,9 @@ def execute_job(
     instrument_id: str,
     redact_sample_names: bool = True,
     snapshot_dir: str | Path | None = None,
+    timeseries_store: Any = None,
+    lab_id: str = "",
+    notice_audit: Any = None,
 ) -> dict[str, Any]:
     started = time.time()
     job_type = str(job.get("type") or "")
@@ -230,9 +318,17 @@ def execute_job(
             meta={"duration_ms": int((time.time() - started) * 1000)},
         )
 
-    ctx: dict[str, Any] = {}
+    ctx: dict[str, Any] = {
+        "instrument_id": instrument_id,
+        "agent_id": agent_id,
+        "lab_id": lab_id,
+    }
     if snapshot_dir:
         ctx["snapshot_store"] = SnapshotStore(snapshot_dir)
+    if timeseries_store is not None:
+        ctx["timeseries_store"] = timeseries_store
+    if notice_audit is not None:
+        ctx["notice_audit"] = notice_audit
 
     try:
         reachable = True

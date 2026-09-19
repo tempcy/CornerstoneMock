@@ -1,0 +1,51 @@
+{
+  "schema_version": "kb-feedback.v1",
+  "feedback_id": "fb-20260830-demo-001",
+  "kind": "case_closure",
+  "source": {
+    "channel": "zhibao",
+    "chat_task_id": "demo-task-001",
+    "instance_code": "qwenpaw-mfg-025",
+    "agent_id": "CornerstoneMock",
+    "trace_id": "trc-demo-001",
+    "user_id": "080916"
+  },
+  "context": {
+    "lab_id": "lab-2lg",
+    "instrument_id": "GC8",
+    "model": "CS844",
+    "snapshot_id": "snap-demo-optional",
+    "case_ids_cited": ["fc-gc8-sulfur-tail-oxygun-001"]
+  },
+  "rating": { "useful": true, "score": 5 },
+  "outcome": "resolved",
+  "ai_summary": "建议先查氧枪流量并冲洗限流器",
+  "user_note": "演示数据：流量偏低，冲洗限流器后恢复",
+  "root_cause": "下氧枪限流器堵塞",
+  "actions_taken": ["冲洗下氧枪限流器"],
+  "params_before_after": [
+    { "name": "氧枪流量", "before": "0.3", "after": "0.85", "unit": "L/min" }
+  ],
+  "useful_refs": [
+    { "kind": "fault_case", "ref": "fc-gc8-sulfur-tail-oxygun-001", "helpful": true }
+  ],
+  "proposed_case": {
+    "schema_version": "fault-case.v1",
+    "case_id": "fc-gc8-demo-from-feedback-001",
+    "title": "演示：反馈晋升案例（硫拖尾 / 限流器）",
+    "status": "draft",
+    "instrument": {
+      "model": "CS844",
+      "instrument_id": "GC8",
+      "lab_id": "lab-2lg",
+      "location": "二炼钢"
+    },
+    "symptoms": ["硫拖尾", "氧枪流量约 0.3 L/min"],
+    "symptom_tags": ["硫拖尾", "氧枪流量偏低"],
+    "root_cause": "下氧枪限流器堵塞",
+    "resolution": {
+      "actions": ["冲洗下氧枪限流器", "复测标样"]
+    }
+  },
+  "created_at": "2026-08-30T12:00:00Z"
+}

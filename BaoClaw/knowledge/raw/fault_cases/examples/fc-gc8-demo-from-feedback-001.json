@@ -1,0 +1,34 @@
+{
+  "schema_version": "fault-case.v1",
+  "case_id": "fc-gc8-demo-from-feedback-001",
+  "title": "演示：反馈晋升案例（硫拖尾 / 限流器）",
+  "status": "verified",
+  "instrument": {
+    "model": "CS844",
+    "instrument_id": "GC8",
+    "lab_id": "lab-2lg",
+    "location": "二炼钢"
+  },
+  "symptoms": [
+    "硫拖尾",
+    "氧枪流量约 0.3 L/min"
+  ],
+  "symptom_tags": [
+    "硫拖尾",
+    "氧枪流量偏低"
+  ],
+  "root_cause": "下氧枪限流器堵塞",
+  "resolution": {
+    "actions": [
+      "冲洗下氧枪限流器",
+      "复测标样"
+    ]
+  },
+  "metadata": {
+    "feedback_ids": [
+      "fb-20260830-demo-001"
+    ],
+    "verified_at": "2026-08-30T12:14:33Z",
+    "verified_by": "demo"
+  }
+}
