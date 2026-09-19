@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cornerstone.local/schemas/kb-feedback.v1.json",
+  "title": "Knowledge Base Usage Feedback",
+  "description": "Feedback from chat sessions, operator-notice acks, and case closures. Feeds fault_cases and rules (C2+ / A2).",
+  "type": "object",
+  "required": ["schema_version", "feedback_id", "kind", "source", "created_at"],
+  "properties": {
+    "schema_version": { "const": "kb-feedback.v1" },
+    "feedback_id": {
+      "type": "string",
+      "minLength": 8,
+      "description": "UUID or ulid"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "chat_rating",
+        "case_closure",
+        "notice_ack",
+        "correction",
+        "escalation"
+      ],
+      "description": "chat_rating=有用/无用; case_closure=排故结案; notice_ack=Bridge建议确认; correction=纠正AI; escalation=转人工"
+    },
+    "source": {
+      "type": "object",
+      "required": ["channel"],
+      "properties": {
+        "channel": {
+          "type": "string",
+          "enum": ["zhibao", "bridge_ui", "orchestrator", "manual_import"]
+        },
+        "chat_task_id": {
+          "type": "string",
+          "description": "智宝 POST /api/chat-tasks/{instanceCode} 返回的任务 id"
+        },
+        "instance_code": {
+          "type": "string",
+          "description": "智宝实例，如 qwenpaw-mfg-025"
+        },
+        "agent_id": {
+          "type": "string",
+          "description": "智宝 agentId，如 CornerstoneMock"
+        },
+        "notice_id": {
+          "type": "string",
+          "description": "Bridge operator-notices noticeId; links D1 ack"
+        },
+        "trace_id": {
+          "type": "string",
+          "description": "贯通 BaoClaw session ↔ Agent job ↔ Bridge notice"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "SSO 用户 id 或工号（脱敏策略由编排配置）"
+        },
+        "user_display": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "lab_id": { "type": "string" },
+        "instrument_id": { "type": "string" },
+        "model": { "type": "string" },
+        "snapshot_id": { "type": "string" },
+        "rule_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "case_ids_cited": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "AI 回答中引用的 fault_case id"
+        },
+        "manual_refs_cited": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "rating": {
+      "type": "object",
+      "properties": {
+        "useful": { "type": "boolean" },
+        "score": { "type": "integer", "minimum": 1, "maximum": 5 }
+      },
+      "additionalProperties": false
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["resolved", "partial", "wrong", "escalated", "unknown"],
+      "description": "现场处置结果；wrong 对训练纠错尤其重要"
+    },
+    "ai_summary": {
+      "type": "string",
+      "description": "模型当时给出的建议摘要（编排侧写入）"
+    },
+    "user_note": {
+      "type": "string",
+      "description": "操作员自由文本补充"
+    },
+    "root_cause": {
+      "type": "string",
+      "description": "人工确认的根因（结案时填写）"
+    },
+    "actions_taken": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "params_before_after": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "before": { "type": "string" },
+          "after": { "type": "string" },
+          "unit": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "useful_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "ref"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["fault_case", "manual", "anomaly_calendar", "rule"]
+          },
+          "ref": { "type": "string" },
+          "helpful": { "type": "boolean", "default": true }
+        },
+        "additionalProperties": false
+      }
+    },
+    "proposed_case": {
+      "$comment": "Inline draft; promote via POST /v1/kb/feedback/{id}/promote",
+      "type": "object",
+      "description": "Subset of fault-case.v1 for auto-ingest queue"
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

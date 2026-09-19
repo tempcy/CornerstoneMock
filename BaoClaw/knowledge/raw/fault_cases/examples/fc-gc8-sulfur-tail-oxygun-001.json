@@ -1,0 +1,91 @@
+{
+  "schema_version": "fault-case.v1",
+  "case_id": "fc-gc8-sulfur-tail-oxygun-001",
+  "title": "CS844 硫元素拖尾 / 积分过长 — 氧枪流量不足",
+  "status": "verified",
+  "instrument": {
+    "model": "CS844",
+    "instrument_id": "GC3",
+    "lab_id": "lab-2lg",
+    "location": "二炼钢"
+  },
+  "symptoms": [
+    "硫数据不稳，积分时间过长",
+    "谱图拖尾，起峰慢",
+    "氧枪流量读数偏低（约 0.2–0.5 L/min，正常约 0.8–0.9）"
+  ],
+  "symptom_tags": ["硫拖尾", "氧枪流量偏低", "积分过长", "碳硫"],
+  "diagnostics": [
+    {
+      "step": 1,
+      "check": "查看环境参数中氧枪流量（Oxygen lance flow）",
+      "expected": "约 0.8–0.9 L/min（方法相关，以现场方法卡为准）",
+      "if_abnormal": "进入步骤 2，先不做高频/红外池更换"
+    },
+    {
+      "step": 2,
+      "check": "冲洗下氧枪限流器（1 L 限流器）",
+      "expected": "流量恢复至正常 band",
+      "if_abnormal": "检查氧枪密封圈、气管接头是否老化漏气"
+    },
+    {
+      "step": 3,
+      "check": "维护炉头：清扫刷、金属网罩、排尘管路",
+      "expected": "燃烧压力稳定，无额外漏气报警",
+      "if_abnormal": "参考炉头漏气类案例，检查燃烧管对中与密封圈"
+    }
+  ],
+  "root_cause": "下氧枪限流器堵塞或氧枪气路局部堵塞，导致燃烧氧不足、硫峰拖尾。",
+  "resolution": {
+    "actions": [
+      "冲洗下氧枪限流器",
+      "必要时更换氧枪密封圈或老化气管",
+      "维护炉头清扫刷与排尘管路后复测标样"
+    ],
+    "parts": ["氧枪密封圈（操作方备件）", "1 L 限流器（冲洗，通常不更换）"],
+    "params_changed": [
+      {
+        "name": "氧枪流量",
+        "before": "0.2",
+        "after": "0.8",
+        "unit": "L/min"
+      }
+    ]
+  },
+  "prevention": "炉头维护后确认无异物进入下氧枪；定期按方法卡检查氧枪流量，流量持续偏低时优先冲洗限流器而非调高频。",
+  "evidence": {
+    "sources": [
+      {
+        "kind": "anomaly_calendar",
+        "ref": "weekly_report_gas_pre2019.json / 2016-W52",
+        "date": "2016-12-31"
+      },
+      {
+        "kind": "anomaly_calendar",
+        "ref": "synology_ics_gas_events.json",
+        "date": "2019-06-24"
+      }
+    ],
+    "manual_refs": [
+      {
+        "manual_id": "CS844_Instruction_Manual_v3.3_2024-06",
+        "chapter": "Maintenance",
+        "section": "Oxygen lance / flow path"
+      }
+    ],
+    "metrics_at_fault": [
+      {
+        "metric": "oxygen_lance_flow",
+        "value": "0.2",
+        "unit": "L/min",
+        "window": "at_fault"
+      }
+    ]
+  },
+  "metadata": {
+    "created_at": "2026-08-30T10:00:00+08:00",
+    "verified_by": "knowledge-curator",
+    "verified_at": "2026-08-30T10:00:00+08:00",
+    "tier": "P1"
+  }
+}

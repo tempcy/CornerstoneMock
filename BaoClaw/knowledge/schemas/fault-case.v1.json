@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cornerstone.local/schemas/fault-case.v1.json",
+  "title": "Instrument Fault Case",
+  "description": "Structured fault/disposal record for gas analyzer knowledge base (fault_cases).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "case_id",
+    "title",
+    "status",
+    "instrument",
+    "symptoms",
+    "resolution"
+  ],
+  "properties": {
+    "schema_version": { "const": "fault-case.v1" },
+    "case_id": {
+      "type": "string",
+      "minLength": 3,
+      "pattern": "^fc-[a-z0-9][a-z0-9-]*$",
+      "description": "Stable id, e.g. fc-gc8-sulfur-tail-oxygun-001"
+    },
+    "title": { "type": "string", "minLength": 4 },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "verified", "deprecated"]
+    },
+    "instrument": {
+      "type": "object",
+      "required": ["model"],
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Instrument family, e.g. CS844, ONH836"
+        },
+        "instrument_id": {
+          "type": "string",
+          "description": "Lab code, e.g. GC8, GO6"
+        },
+        "lab_id": { "type": "string", "description": "e.g. lab-2lg" },
+        "location": { "type": "string", "description": "Human lab name, e.g. 二炼钢" }
+      },
+      "additionalProperties": false
+    },
+    "symptoms": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Observable phenomena in operator language"
+    },
+    "symptom_tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Retrieval tags, e.g. 硫拖尾, 氧枪流量偏低, 机械手卡死"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "check"],
+        "properties": {
+          "step": { "type": "integer", "minimum": 1 },
+          "check": { "type": "string" },
+          "expected": { "type": "string" },
+          "if_abnormal": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "description": "Ordered troubleshooting checklist (simple → invasive)"
+    },
+    "root_cause": { "type": "string" },
+    "resolution": {
+      "type": "object",
+      "required": ["actions"],
+      "properties": {
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "parts": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "params_changed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "before": { "type": "string" },
+              "after": { "type": "string" },
+              "unit": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "downtime_hours": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "prevention": { "type": "string" },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "ref"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "anomaly_calendar",
+                  "weekly_report",
+                  "chat_feedback",
+                  "operator_notice",
+                  "manual",
+                  "field_note"
+                ]
+              },
+              "ref": { "type": "string" },
+              "date": { "type": "string", "format": "date" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "snapshot_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "manual_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["manual_id"],
+            "properties": {
+              "manual_id": { "type": "string" },
+              "chapter": { "type": "string" },
+              "figure": { "type": "string" },
+              "section": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "metrics_at_fault": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["metric", "value"],
+            "properties": {
+              "metric": { "type": "string" },
+              "value": { "type": "string" },
+              "unit": { "type": "string" },
+              "window": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "verified_by": { "type": "string" },
+        "verified_at": { "type": "string", "format": "date-time" },
+        "feedback_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tier": {
+          "type": "string",
+          "enum": ["P0", "P1", "P2"],
+          "description": "P0=CS844/ON836 collectible; P1=lab codes; P2=generic gas terms"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

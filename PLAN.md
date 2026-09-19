@@ -4,15 +4,15 @@
 
 > 与对外汇报对齐：[docs/Cornerstone项目汇报.md](docs/Cornerstone项目汇报.md)
 
-### 进度快照（2026-07）
+### 进度快照（2026-08）
 
 
 | 阶段 | 组件 | 状态 |
 | --- | --- | --- |
 | **0–1** | Bridge / Web / CLI：TCP 网关 + REST + XML 解析、配置拆分、Bridge 控制台、Web 分析页（ECharts） | ✅ 已实现 |
 | **1b** | CornerstoneQueue：试样代码缓存、Bridge 在线管理与发送、贴边收纳 | ✅ 已实现 |
-| **2** | 边缘 **CornerstoneAgent**：采集、规则、本地信息窗口 | ⏳ 规划中（[AGENT.md](CornerstoneAgent/AGENT.md) 已定稿，A0 未启动） |
-| **3** | 公司内网：**仪器智能体**、**仪器知识库**、**公司大模型**；对话查询分析结果与仪器状态 | ⏳ **当前聚焦**（网络打通与基本业务 POC） |
+| **2** | 边缘 **CornerstoneAgent**：A0 编排 + P0/P1 查数；**A1 长周期 SQLite 时序**；**D0–D2 建议下行 → Bridge 操作员对话框** | ✅ A0–A1 + 下行已落地；A2 规则 / A3 信息窗口未做 |
+| **3** | 公司内网：**仪器智能体**、**仪器知识库**、**公司大模型**；对话查询分析结果与仪器状态 | ✅ C0–C1（智宝 P0/P1）；C2 检索 / C2+ 反馈 schema 进行中；C3 宝武聊天未做 |
 | **远期** | Bridge 北向 Modbus / MQTT | 📋 暂缓 |
 
 
@@ -374,7 +374,7 @@ flowchart TB
 | 阶段 | 内容 | 验收 |
 |------|------|------|
 | **A0** | 包骨架、Bridge 客户端、`collect once` | 单次采集 JSON 落盘 |
-| **A1** | 长/短周期调度 + SQLite | 24h 参数可查/导出 |
+| **A1** | 长/短周期调度 + SQLite | ✅ 24h 参数可查/导出（运维台时序页 / CLI） |
 | **A2** | 规则引擎 v1（分析 + 状态 + 队列） | 结构化建议 JSON，可静默 |
 | **A3** | 信息窗口 v1；对接公司编排 API（非直连仪器） | 对话展示建议与采集证据 |
 | **A4** | CLI 子命令、日志 tail、UI inspect；与 Queue 发送事件可选联动 | 排故会话端到端 |
@@ -385,9 +385,83 @@ flowchart TB
 | 阶段 | 内容 | 验收 |
 |------|------|------|
 | **C0** | 了解公司大模型 API；打通实验室 ↔ 内网网络 | 内网可访问模型 endpoint |
-| **C1** | 仪器智能体 POC：对话查询 `sets` / `status` / `set-reps` 等 | ✅ 基建+P0 tools+BaoClaw skill（[INTERFACE.md](CornerstoneAgent/INTERFACE.md)）；端到端对话待接真 Bridge |
+| **C1** | 仪器智能体 POC：对话查询 `sets` / `status` / `set-reps` 等 | ✅ 基建+P0/P1 tools+智宝对话；真 Bridge 已接 lab-2lg |
 | **C2** | 仪器知识库 v1（文档入库 + 检索） | 排故/操作问题可引用手册片段 |
+| **C2+** | 知识库反馈闭环 + `fault_cases` + 参数预警联动 | 问答结案可沉淀案例；ack 可验证规则 |
 | **C3** | 宝武聊天（或统一运维入口）集成 | 用户从聊天发起查询并收到回复 |
+
+### C2+ 知识库反馈闭环与参数预警（2026-08 规划）
+
+目标：大模型从「查手册」进化为气体设备**老法师**——结合实时参数、历史案例与现场反馈，指导排故、调参与方法开发。
+
+```mermaid
+flowchart TB
+  subgraph ingest [知识摄入]
+    M[manuals 手册]
+    AC[anomaly_calendar 日历]
+    FC[fault_cases 已验证案例]
+  end
+  subgraph live [实时面]
+    A1[A1 时序 SQLite]
+    A2[A2 规则引擎]
+    P1[P0/P1 查数]
+  end
+  subgraph loop [反馈闭环]
+    Z[智宝对话]
+    FB["/v1/kb/feedback"]
+    BR[Bridge 建议 ack]
+  end
+  ingest --> Z
+  live --> Z
+  Z --> FB
+  BR --> FB
+  FB --> FC
+  FB --> A2
+```
+
+#### 能力等级
+
+| 等级 | 依赖 | 典型问答 |
+|------|------|----------|
+| **L1 检索员** | C2 手册 + 日历 | 「氧枪流量偏低一般查哪里？」 |
+| **L2 诊断员** | L1 + A1/A2 + P1 | 「GC8 硫拖尾，氧枪 0.3，下一步？」 |
+| **L3 参谋** | L2 + verified `fault_cases` + 反馈权重 | 「按机械手卡死案例逐项排除」 |
+| **L4 老法师** | L3 + sets 统计 + 手顺 | 「空白偏高，燃烧时间/氧流量怎么调？」 |
+
+#### 反馈事件（`kb-feedback.v1`）
+
+| `kind` | 入口 | 沉淀 |
+|--------|------|------|
+| `chat_rating` | 智宝「有用/需改进」 | 检索权重 |
+| `case_closure` | 排故结案 | `fault_cases` 草稿 → 审核 |
+| `notice_ack` | Bridge 运维建议确认 | 规则有效性 + 案例 |
+| `correction` | AI 纠错 | 降权错误引用 / 修订规则 |
+| `escalation` | 转人工 | 工单（可选） |
+
+Schema：`CornerstoneAgent/schemas/kb-feedback.v1.json`；案例：`BaoClaw/knowledge/schemas/fault-case.v1.json`；流程：`BaoClaw/knowledge/schemas/FEEDBACK.md`；API 草案：INTERFACE.md §9。
+
+#### 参数预警三层
+
+| 层 | 机制 | 输出 | 反馈 |
+|----|------|------|------|
+| **硬规则** | A2 `rules_eval`（如氧枪流量 &lt; 0.5 L/min） | `post_operator_notice` 弹窗 | `notice_ack` 验证 |
+| **统计基线** | A1 滚动 P5–P95 / 同方法结果分布 | `watch` 级上下文 | `params_before_after` 校准 |
+| **案例相似** | `fault_cases` + 日历模式匹配 | 带频次的历史建议 | `useful_refs` 调权 |
+
+原则不变：**规则优先、LLM 为辅**；每条建议带 `snapshot_id` / `case_id` / `ruleId` / 手册章节。
+
+#### C2+ 落地顺序
+
+| 优先级 | 事项 | 验收 |
+|--------|------|------|
+| **P0** | `fault-case.v1` + 首批 verified 示例 | 3+ 案例可检索引用 |
+| **P0** | 反馈 schema + INTERFACE §9 API 草案 | 智宝/编排可对齐开发 |
+| **P1** | 编排 `POST /v1/kb/feedback` + SQLite 存储 | 对话评分可落库 |
+| **P1** | notice sync → 自动 `notice_ack` | ack 带 note 生成反馈 |
+| **P1** | C2 检索接入（案例 &gt; 日历 &gt; 手册） | 回答含 `case_id` |
+| **P2** | A2 规则 v1（5–10 条高频）+ `rules_eval` tool | 预警 → 建议 → ack 闭环 |
+| **P2** | `promote` 审核工作流 + MD 摘要生成 | 周审入库 |
+| **P3** | L4 调参/方法引导（sets 统计） | 方法开发问答 |
 
 ### 设计原则
 
@@ -412,7 +486,8 @@ flowchart TB
 | ------ | ----------------------------- | -------------------- | ------- |
 | **已完成** | 仪器侧 0–1 + Queue 1b        | 远程控制底座与多入口已落地     | —       |
 | **高**  | 阶段 3 C0–C1：大模型对接 + 对话查数 POC | 汇报当前目标；验证端到端价值     | 2–4 周   |
-| **中高** | 边缘 Agent A0–A2 + C2 知识库 v1 | 为智能体提供采集与文档上下文      | 3–5 周   |
+| **中高**    | 边缘 Agent A2 规则引擎 + C2 知识库 v1 | 为智能体提供研判与文档上下文      | 3–5 周   |
+| **中高** | C2+ 反馈闭环 + `fault_cases` + 预警联动 | 老法师进化：问答→沉淀→规则      | 2–4 周   |
 | **中**  | C3 宝武聊天集成、Agent A3 信息窗口 | 统一入口与现场小窗并存         | 2–4 周   |
 | **暂缓** | Bridge P2–P4（Modbus/MQTT）   | OT/IT 对接非当前课题主线       | 待需求明确 |
 
@@ -420,9 +495,12 @@ flowchart TB
 ### 建议里程碑
 
 1. **已完成（2026 Q1–Q2）**：Bridge/Web/CLI 通信底座；Queue 试样缓存；Web 分析页 ECharts；安装包与 Bridge 控制台。
-2. **当前（2026 Q3）**：公司大模型网络打通；对话查询分析结果与仪器状态 POC（C0–C1）；边缘 Agent A0 启动。
-3. **下一阶段**：仪器知识库 v1（C2）；宝武聊天集成探索（C3）；Agent 规则与长周期采集（A1–A2）。
+2. **已完成（2026 Q3）**：C0–C1 智宝对话查数；边缘 Agent A0 + **A1 长周期 SQLite 时序**。
+3. **下一阶段**：Agent A2 规则引擎；仪器知识库 v1（C2）；**C2+ 反馈闭环与 `fault_cases`**；宝武聊天集成探索（C3）；A3 信息窗口（可与 Bridge 运维建议对话框并存）。
 4. **远期**：Bridge Modbus/MQTT 北向；多厂家南向插件；生产硬化（鉴权、TLS、审计）。
+
+> **2026-08 增量**：告警/建议下行路径 D0–D2 已落地——智宝/编排经 `post_operator_notice` → Agent → Bridge `/api/operator-notices` → 操作员对话框；ack 可经 `/api/ui/operator-notices/sync` 回写审计。  
+> **2026-08 规划**：C2+ 知识库反馈 schema（`kb-feedback.v1`、`fault-case.v1`）与 INTERFACE §9 API 草案已入仓；编排 HTTP 与智宝评分 UI 待实现。
 
 ---
 
