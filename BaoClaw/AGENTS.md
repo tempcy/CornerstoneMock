@@ -41,7 +41,7 @@ read_when:
    - 某次样本全点：`get_timeseries_sample`（`sample_id`）
 6. 调用方式：按 skill `cornerstone_instrument` — `POST http://<PF_SENSE>:8090/v1/tools/{name}`，**不要** curl 仪器机 `8081`，也**不要**直连工控网 `<L1_HOST>:8080`，也**不要**用运维台 `/api/ui/timeseries*` 代替 tool。
 7. 解读时说明数据来自哪台 `instrument_id`、任务与时间窗口；失败则报告 `error.code`。
-8. **尚未开放（P2）**：`rules_eval` / `log_tail` — 不要假装已调用。
+8. **规则（A2）**：可调用 `eval_instrument_rules`（首条：维护计数器 IsExpired / 日常维护缺失）。**尚未开放**：`log_tail` — 不要假装已调用。
 9. 「通知现场 / 弹窗建议检修」→ `post_operator_notice`（确认用户意图后；`severity=reject|maintain` 置顶弹窗；**不写仪器**）。
 
 ## 工具与技能

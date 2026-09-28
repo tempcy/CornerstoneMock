@@ -15,6 +15,9 @@ from .config import AgentConfig, _parse_timeseries, save_timeseries_config
 from .dispatcher import ToolDispatcher
 from .envelopes import make_uplink
 from .registry import DEFAULT_CAPABILITIES, AgentRegistry
+from .rules_audit import RulesAuditStore
+from .rules_engine import load_rule_defs
+from .rules_scheduler import RulesScheduler
 from .timeseries import TimeseriesStore
 from .operator_notices import OperatorNoticeAudit
 from .ui_api import build_config_view, build_overview, ping_instrument, resolve_bridge_url
@@ -32,6 +35,21 @@ def _resolve_timeseries_db(cfg: AgentConfig) -> str:
 
 def _resolve_notice_audit_path(cfg: AgentConfig) -> str:
     return str(cfg.resolve_data_path("operator_notices.jsonl", "operator_notices.jsonl"))
+
+
+def _resolve_rules_audit_path(cfg: AgentConfig) -> str:
+    return str(cfg.resolve_data_path(cfg.rules.audit_path, "rules_audit.jsonl"))
+
+
+def _resolve_rules_path(cfg: AgentConfig) -> str | None:
+    """配置相对路径优先；不存在则 None（引擎回退内置/bundled）。"""
+    raw = (cfg.rules.rules_path or "").strip()
+    if not raw:
+        return None
+    p = cfg.resolve_data_path(raw, "rules/default.json")
+    if p.is_file():
+        return str(p)
+    return None
 
 
 def _qs_str(qs: dict[str, list[str]], key: str) -> str:
@@ -59,6 +77,8 @@ class OrchestratorState:
         timeseries: TimeseriesStore | None = None,
         scheduler: TimeseriesScheduler | None = None,
         notice_audit: OperatorNoticeAudit | None = None,
+        rules_audit: RulesAuditStore | None = None,
+        rules_scheduler: RulesScheduler | None = None,
     ):
         self.cfg = cfg
         self.registry = registry
@@ -66,6 +86,8 @@ class OrchestratorState:
         self.timeseries = timeseries
         self.scheduler = scheduler
         self.notice_audit = notice_audit
+        self.rules_audit = rules_audit
+        self.rules_scheduler = rules_scheduler
         self.started_at = time.time()
 
 
@@ -372,6 +394,38 @@ def make_handler(state: OrchestratorState):
                 )
                 return
 
+            if path == "/api/ui/rules":
+                audit = state.rules_audit
+                try:
+                    limit = int((qs.get("limit") or ["50"])[0])
+                except ValueError:
+                    limit = 50
+                iid = _qs_str(qs, "instrument_id")
+                hit_only = (qs.get("hit_only") or ["false"])[0].lower() in (
+                    "1",
+                    "true",
+                    "yes",
+                )
+                items = (
+                    audit.list_recent(limit=limit, instrument_id=iid, hit_only=hit_only)
+                    if audit is not None
+                    else []
+                )
+                last_ticks = {}
+                if state.rules_scheduler is not None:
+                    with state.rules_scheduler._tick_lock:
+                        last_ticks = dict(state.rules_scheduler.last_ticks)
+                self._send_json(
+                    {
+                        "ok": True,
+                        "enabled": state.cfg.rules.enabled,
+                        "items": items,
+                        "last_ticks": last_ticks,
+                        "post_notice": state.cfg.rules.post_notice,
+                    }
+                )
+                return
+
             if path == "/v1/instruments":
                 lab = (qs.get("lab_id") or [None])[0]
                 online_only = (qs.get("online_only") or ["true"])[0].lower() not in (
@@ -650,6 +704,7 @@ def create_server(cfg: AgentConfig) -> tuple[ThreadingHTTPServer, OrchestratorSt
     if cfg.timeseries.enabled:
         ts_store = TimeseriesStore(_resolve_timeseries_db(cfg))
     notice_audit = OperatorNoticeAudit(_resolve_notice_audit_path(cfg))
+    rules_audit = RulesAuditStore(_resolve_rules_audit_path(cfg))
     dispatcher = ToolDispatcher(
         registry,
         redact_sample_names=cfg.privacy.redact_sample_names,
@@ -657,9 +712,15 @@ def create_server(cfg: AgentConfig) -> tuple[ThreadingHTTPServer, OrchestratorSt
         timeseries_store=ts_store,
         timeseries_cfg=cfg.timeseries if cfg.timeseries.enabled else None,
         notice_audit=notice_audit,
+        rules_audit=rules_audit,
     )
     state = OrchestratorState(
-        cfg, registry, dispatcher, timeseries=ts_store, notice_audit=notice_audit
+        cfg,
+        registry,
+        dispatcher,
+        timeseries=ts_store,
+        notice_audit=notice_audit,
+        rules_audit=rules_audit,
     )
     handler = make_handler(state)
     server = ThreadingHTTPServer(
@@ -759,6 +820,20 @@ def serve_forever(cfg: AgentConfig) -> None:
             )
             + f" db={_resolve_timeseries_db(cfg)}"
         )
+    if cfg.rules.enabled and state.rules_audit is not None:
+        rules = load_rule_defs(_resolve_rules_path(cfg))
+        state.rules_scheduler = RulesScheduler(
+            cfg,
+            state.rules_audit,
+            registry=state.registry,
+            rules=rules,
+        )
+        state.rules_scheduler.start()
+        print(
+            "[rules] scheduler "
+            + ",".join(f"{r.id}:{int(r.interval_s)}s" for r in rules if r.enabled)
+            + f" audit={_resolve_rules_audit_path(cfg)}"
+        )
     host, port = cfg.orchestrator.listen_host, cfg.orchestrator.listen_port
     print(f"[orch] listening http://{host}:{port}/  config={cfg.config_path}")
     print(
@@ -774,6 +849,8 @@ def serve_forever(cfg: AgentConfig) -> None:
             heart.stop()
         if state.scheduler:
             state.scheduler.stop()
+        if state.rules_scheduler:
+            state.rules_scheduler.stop()
         if state.timeseries:
             state.timeseries.close()
         server.server_close()

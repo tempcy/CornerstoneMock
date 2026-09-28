@@ -53,5 +53,12 @@
         "instrument_ids": []
       }
     ]
+  },
+  "rules": {
+    "enabled": true,
+    "rules_path": "rules/default.json",
+    "audit_path": "rules_audit.jsonl",
+    "post_notice": false,
+    "record_ok": false
   }
 }

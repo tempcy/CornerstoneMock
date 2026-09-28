@@ -41,4 +41,18 @@ BaoClaw 技能：`BaoClaw/skills/cornerstone_instrument/`（schema 与 `schemas/
 
 冒烟：`python3 scripts/smoke_c1.py`（步骤详见 [TESTING.md](TESTING.md)）
 
-**当前阶段**：C1 步骤 1–4 已落地（含 P1 `collect_instrument`）；**A1 长周期 SQLite 时序已落地**；规则引擎（A2）与 P2 `rules_eval` / `log_tail` 未启动。
+**当前阶段**：C1 步骤 1–4 已落地（含 P1 `collect_instrument`）；**A1 长周期 SQLite 时序已落地**；**A2 规则引擎首条**（`instrument.daily_maintenance_counters`，每 4h 查维护计数器 IsExpired）已落地；`log_tail` 与更多规则未启动。
+
+### A2 规则（首条）
+
+```powershell
+# 立即评估（命中写入 rules_audit.jsonl）
+python -m cornerstone_agent rules eval --instrument-id GC8
+# 或经编排 tool
+python -m cornerstone_agent tool eval_instrument_rules --lab-id lab-2lg --instrument-id GC8
+```
+
+- 规则定义：`rules/default.json`
+- 审计：配置 `rules.audit_path`（默认 `rules_audit.jsonl`）
+- 调度：`cornerstone-agent run` 时按规则 `interval_s`（默认 14400=4h）轮询
+- 默认 **不** 自动 `post_operator_notice`（`rules.post_notice: false`）；先落盘验证

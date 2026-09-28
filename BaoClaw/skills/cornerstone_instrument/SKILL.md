@@ -1,26 +1,26 @@
 ---
 name: cornerstone_instrument
-description: "Query LECO Cornerstone gas analyzers via company orchestrator: P0/P1 (list_instruments, get_instrument_status, get_analysis_sets, get_set_reps, collect_instrument), A1 timeseries, and D1 post_operator_notice (push advice to Bridge operator dialog). Use for online/status, analysis, troubleshoot snapshots, trends, and sending maintain/reject guidance to on-site staff."
+description: "Query LECO Cornerstone gas analyzers via company orchestrator: P0/P1 (list_instruments, get_instrument_status, get_analysis_sets, get_set_reps, collect_instrument), A1 timeseries, A2 eval_instrument_rules (maintenance counters), and D1 post_operator_notice (push advice to Bridge operator dialog). Use for online/status, analysis, troubleshoot snapshots, trends, daily-maintenance gaps, and sending maintain/reject guidance to on-site staff."
 metadata:
-  version: "0.3.1"
+  version: "0.3.2"
   qwenpaw:
     emoji: "🔬"
     requires: {}
 ---
 
-# Cornerstone 仪器查询（C1 P0/P1 + A1 时序 + D1 建议下行）
+# Cornerstone 仪器查询（C1 P0/P1 + A1 时序 + A2 规则 + D1 建议下行）
 
-当用户询问 **仪器是否在线 / 能否跑样 / 分析结果 / 某次 set 的重复性 / 排故快照 / 压力流量温度趋势 / 环境点 / 最近采集**，或需要 **把运维/检修建议推到仪器机 Bridge 对话框给现场人员看** 时使用本技能。
+当用户询问 **仪器是否在线 / 能否跑样 / 分析结果 / 某次 set 的重复性 / 排故快照 / 压力流量温度趋势 / 环境点 / 最近采集 / 日常维护是否到位**，或需要 **把运维/检修建议推到仪器机 Bridge 对话框给现场人员看** 时使用本技能。
 
 **不要**直连仪器机 Bridge REST（`127.0.0.1:8081`）或工控网 `<L1_HOST>:8080`。对话侧只调编排 DNAT。现场基址见本机 `BaoClaw/skill.json` 的 `orchestrator_base_url`（该文件不入库）；下文示例用占位符 `http://<PF_SENSE>:8090`。
 
-完整 schema 见同目录 [`baoclaw-tools.v1.json`](baoclaw-tools.v1.json)（与仓库 `CornerstoneAgent/schemas/baoclaw-tools.v1.json` / [INTERFACE.md](../../../CornerstoneAgent/INTERFACE.md) 对齐）。边缘 Agent 版本：**0.3.3+**。
+完整 schema 见同目录 [`baoclaw-tools.v1.json`](baoclaw-tools.v1.json)（与仓库 `CornerstoneAgent/schemas/baoclaw-tools.v1.json` / [INTERFACE.md](../../../CornerstoneAgent/INTERFACE.md) 对齐）。边缘 Agent 版本：**0.3.4+**。
 
 ## 前置
 
 ```bash
 curl -s http://<PF_SENSE>:8090/health
-# 期望：ok=true, service=cornerstone-agent-orchestrator, version≥0.3.3
+# 期望：ok=true, service=cornerstone-agent-orchestrator, version≥0.3.4
 ```
 
 ## Tool 调用方式
@@ -118,6 +118,18 @@ curl -s -X POST http://<PF_SENSE>:8090/v1/tools/get_timeseries_sample ^
   -d "{\"lab_id\":\"lab-2lg\",\"instrument_id\":\"GC8\",\"sample_id\":12345}"
 ```
 
+### 10. eval_instrument_rules（A2）
+
+边缘规则引擎。首条：`instrument.daily_maintenance_counters` — 经 Bridge 拉维护计数器，检查未排除且 `IsExpired` 的项（日常维护缺失）。
+
+```bash
+curl -s -X POST http://<PF_SENSE>:8090/v1/tools/eval_instrument_rules ^
+  -H "Content-Type: application/json" ^
+  -d "{\"lab_id\":\"lab-2lg\",\"instrument_id\":\"GC8\",\"rule_ids\":[\"instrument.daily_maintenance_counters\"]}"
+```
+
+关注 `result.data.hit` 与 `result.data.suggestions[]`（含 `evidence` 计数器明细）。
+
 ## 何时用哪类工具
 
 | 用户意图 | 工具 |
@@ -128,6 +140,7 @@ curl -s -X POST http://<PF_SENSE>:8090/v1/tools/get_timeseries_sample ^
 | **现在**压力/流量/柜温 | `get_timeseries_latest`（`widgets` 或 `ambients`） |
 | **趋势 / 波动 / 近 N 小时** | `list_timeseries_metrics` → `query_timeseries` |
 | 某次采集全部点 | `get_timeseries_sample` |
+| 日常维护 / 计数器是否到期 | `eval_instrument_rules` |
 
 时序读 Agent 本地 SQLite，**不经 Bridge**；注册表有该仪器即可（不必要求当前 online）。  
 **不要**用 `GET /api/ui/timeseries*` 代替上述 `/v1/tools/*`（运维台专用）。
@@ -148,7 +161,7 @@ python -m cornerstone_agent tool get_timeseries_sample --instrument-id GC8 --sam
 3. 若返回 `agent_offline` / `instrument_not_found` / `timeseries_disabled` / bridge 失败：说明原因，**不要编造**数据。
 4. 回复引用 `result` 结构化字段，并说明 `instrument_id`、任务（widgets/ambients）、时间窗口。
 5. 曲线回答优先用 `series_summary`；不要把上百个 raw 点原样贴给用户。
-6. **P2 未实现**：不要调用 `eval_instrument_rules` / `tail_instrument_logs`。
+6. **A2 可用** `eval_instrument_rules`；**未实现** `tail_instrument_logs` — 不要假装调用。
 7. 身份与边界见 `PROFILE.md` / `SOUL.md` / `AGENTS.md`；连接笔记见 `MEMORY.md`。
 8. **建议下行**：确认用户要通知现场后，用 `post_operator_notice`（`severity=reject|maintain` 会置顶弹窗）。**不会**自动改仪器或发样。
 9. **智宝 `/chat-modern` 反馈芯片**：排故/结论类最终回复正文结束后空一行，末尾只输出一行 JSON（勿代码围栏）：`{"follow_ups":["有用","需改进","【结案】已解决","【结案】部分解决","【结案】建议不对"]}`（可按场景删减，最多 5 条）。细则见 `AGENTS.md`。
@@ -166,4 +179,5 @@ python -m cornerstone_agent tool get_timeseries_sample --instrument-id GC8 --sam
 | `list_timeseries_metrics` | A1 | 可用 metric 列表 |
 | `query_timeseries` | A1 | 统计 + 样本 + 曲线摘要 |
 | `get_timeseries_sample` | A1 | 指定 sample 全部点 |
+| `eval_instrument_rules` | A2 | 规则评估（首条：日常维护计数器） |
 | `post_operator_notice` | D1 | 推送到 Bridge 操作员对话框 |

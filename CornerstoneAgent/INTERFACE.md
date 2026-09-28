@@ -624,7 +624,7 @@ on_tool_call(name, args, user):
 | 4 | P1：`collect_instrument` + `snapshot_id` 引用 | ✅ `handle_collect` + `acquisition_snapshots/` + schema |
 | 4b | A1：长周期 SQLite 时序 + BaoClaw tools | ✅ 多任务调度（Widgets 10s/3d、Ambients 5min/90d）+ `/api/ui/timeseries*` + `PUT .../jobs` + `/v1/tools/get_timeseries_*` / `query_timeseries` / `list_timeseries_metrics` |
 | 4c | D0–D2：告警/建议下行 → Bridge 操作员对话框 + ack 回执 | ✅ `POST /api/operator-notices`；tool `post_operator_notice`；UI `/api/ui/operator-notices*` |
-| 5 | P2：`rules_eval`、`log_tail`、`alert` 上行 | 📋 |
+| 5 | P2：`rules_eval`（A2 首条日常维护计数器）、`log_tail`、`alert` 上行 | ⏳ `rules_eval` 已开；更多规则 / log_tail 📋 |
 | 6 | C2+：知识库反馈 Plan A（公司侧 JSONL + promote） | ✅ `feedback_tool.py`；编排不存反馈 |
 
 **启动编排（C1）**

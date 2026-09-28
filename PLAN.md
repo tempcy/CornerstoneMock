@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | **0–1** | Bridge / Web / CLI：TCP 网关 + REST + XML 解析、配置拆分、Bridge 控制台、Web 分析页（ECharts） | ✅ 已实现 |
 | **1b** | CornerstoneQueue：试样代码缓存、Bridge 在线管理与发送、贴边收纳 | ✅ 已实现 |
-| **2** | 边缘 **CornerstoneAgent**：A0 编排 + P0/P1 查数；**A1 长周期 SQLite 时序**；**D0–D2 建议下行 → Bridge 操作员对话框** | ✅ A0–A1 + 下行已落地；A2 规则 / A3 信息窗口未做 |
+| **2** | 边缘 **CornerstoneAgent**：A0 编排 + P0/P1 查数；**A1 长周期 SQLite 时序**；**D0–D2 建议下行 → Bridge 操作员对话框**；**A2 规则首条（日常维护计数器 4h）** | ✅ A0–A1 + 下行 + A2 首条；更多规则 / A3 信息窗口未做 |
 | **3** | 公司内网：**仪器智能体**、**仪器知识库**、**公司大模型**；对话查询分析结果与仪器状态 | ✅ C0–C1（智宝 P0/P1）；C2 检索 / C2+ 反馈 schema 进行中；C3 宝武聊天未做 |
 | **远期** | Bridge 北向 Modbus / MQTT | 📋 暂缓 |
 
@@ -375,7 +375,7 @@ flowchart TB
 |------|------|------|
 | **A0** | 包骨架、Bridge 客户端、`collect once` | 单次采集 JSON 落盘 |
 | **A1** | 长/短周期调度 + SQLite | ✅ 24h 参数可查/导出（运维台时序页 / CLI） |
-| **A2** | 规则引擎 v1（分析 + 状态 + 队列） | 结构化建议 JSON，可静默 |
+| **A2** | 规则引擎 v1（分析 + 状态 + 队列） | ✅ 骨架 + 首条 `instrument.daily_maintenance_counters`（4h / counters IsExpired）；其余规则待补 |
 | **A3** | 信息窗口 v1；对接公司编排 API（非直连仪器） | 对话展示建议与采集证据 |
 | **A4** | CLI 子命令、日志 tail、UI inspect；与 Queue 发送事件可选联动 | 排故会话端到端 |
 | **A5** | 心跳、离线队列、installer 可选组件 | 7×24 驻场 |
@@ -460,7 +460,7 @@ Schema：`CornerstoneAgent/schemas/kb-feedback.v1.json`；**存储 Plan A**：`B
 | **P1** | 智宝对话 append 插件（调 `feedback_tool.py`） | 无需机房 HTTP |
 | **P1** | ack → `notice_ack` 整理脚本（读 Agent 审计） | 半自动入库 |
 | **P1** | C2 检索接入（案例 &gt; 日历 &gt; 手册） | 回答含 `case_id` |
-| **P2** | A2 规则 v1（5–10 条高频）+ `rules_eval` tool | 预警 → 建议 → ack 闭环 |
+| **P2** | A2 规则 v1（5–10 条高频）+ `rules_eval` tool | ⏳ 首条日常维护计数器已落地；其余规则 + 默认 `post_notice` 闭环待补 |
 | **P2** | `promote` 审核工作流 + MD 摘要生成 | 周审入库 |
 | **P3** | L4 调参/方法引导（sets 统计） | 方法开发问答 |
 

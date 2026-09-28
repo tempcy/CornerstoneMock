@@ -119,12 +119,17 @@ def cmd_tool(args: argparse.Namespace) -> int:
         ts = TimeseriesStore(cfg.resolve_data_path(cfg.timeseries.db_path, "agent_timeseries.sqlite3"))
         ts_cfg = cfg.timeseries
 
+    from .rules_audit import RulesAuditStore
+
+    rules_audit = RulesAuditStore(cfg.resolve_data_path(cfg.rules.audit_path, "rules_audit.jsonl"))
+
     disp = ToolDispatcher(
         registry,
         redact_sample_names=cfg.privacy.redact_sample_names,
         snapshot_dir=str(snap),
         timeseries_store=ts,
         timeseries_cfg=ts_cfg,
+        rules_audit=rules_audit,
     )
     out = disp.dispatch_tool(args.name, payload)
     _print_json(out)
@@ -243,8 +248,80 @@ def cmd_timeseries_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rules_eval(args: argparse.Namespace) -> int:
+    """立即跑一次 A2 规则（默认日常维护计数器），命中写入审计。"""
+    from pathlib import Path
+
+    from .bridge_client import BridgeClient
+    from .config import InstrumentEndpoint
+    from .jobs import execute_job
+    from .envelopes import make_job
+    from .rules_audit import RulesAuditStore
+    from .rules_engine import bundled_rules_path
+
+    cfg = load_config(args.config)
+    targets = list(cfg.local_instruments())
+    if args.instrument_id:
+        iid = str(args.instrument_id).strip()
+        matched = [ep for ep in targets if ep.instrument_id == iid]
+        if matched:
+            targets = matched
+        else:
+            targets = [
+                InstrumentEndpoint(
+                    instrument_id=iid,
+                    bridge_url=cfg.bridge.base_url,
+                    agent_id=cfg.identity.agent_id,
+                    lab_id=cfg.identity.lab_id,
+                    org_id=cfg.identity.org_id,
+                ).resolve(default_org=cfg.identity.org_id, default_lab=cfg.identity.lab_id)
+            ]
+    elif not args.all and targets:
+        default_id = cfg.identity.instrument_id
+        filtered = [ep for ep in targets if ep.instrument_id == default_id]
+        targets = filtered or targets[:1]
+
+    audit = RulesAuditStore(cfg.resolve_data_path(cfg.rules.audit_path, "rules_audit.jsonl"))
+    rules_path = bundled_rules_path()
+    cfg_rules = cfg.resolve_data_path(cfg.rules.rules_path, "rules/default.json")
+    if cfg_rules.is_file():
+        rules_path = cfg_rules
+
+    results = []
+    rc = 0
+    for ep in targets:
+        job = make_job(
+            "rules_eval",
+            {
+                "rule_ids": [args.rule_id] if args.rule_id else None,
+                "rule_domains": [args.domain] if args.domain else None,
+                "rules_path": str(rules_path),
+                "record": True,
+                "record_ok": bool(args.record_ok),
+            },
+            timeout_s=int(cfg.bridge.timeout_s),
+        )
+        # strip None params
+        job["params"] = {k: v for k, v in job["params"].items() if v is not None}
+        out = execute_job(
+            job,
+            bridge=BridgeClient(ep.bridge_url, timeout_s=cfg.bridge.timeout_s),
+            agent_id=ep.agent_id,
+            instrument_id=ep.instrument_id,
+            lab_id=ep.lab_id,
+            rules_audit=audit,
+        )
+        results.append(out)
+        if out.get("status") != "ok":
+            rc = 1
+        elif (out.get("data") or {}).get("hit"):
+            rc = 0  # hit is success for eval; keep 0 unless error
+    _print_json({"ok": rc == 0, "results": results, "audit": str(audit.path)})
+    return rc
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="cornerstone-agent", description="Cornerstone Agent (C1 + A1)")
+    p = argparse.ArgumentParser(prog="cornerstone-agent", description="Cornerstone Agent (C1 + A1 + A2)")
     p.add_argument(
         "--config",
         default=None,
@@ -279,6 +356,7 @@ def build_parser() -> argparse.ArgumentParser:
             "list_timeseries_metrics",
             "query_timeseries",
             "get_timeseries_sample",
+            "eval_instrument_rules",
         ],
     )
     tool.add_argument("--lab-id", default=None)
@@ -322,6 +400,24 @@ def build_parser() -> argparse.ArgumentParser:
     tse.add_argument("--job", default=None, help="过滤任务 id")
     tse.add_argument("--out", default=None, help="输出文件；省略则打印到 stdout")
     tse.set_defaults(func=cmd_timeseries_export)
+
+    rules = sub.add_parser("rules", help="A2 规则引擎")
+    rules_sub = rules.add_subparsers(dest="rules_cmd", required=True)
+    rev = rules_sub.add_parser("eval", help="立即评估规则（默认日常维护计数器）")
+    rev.add_argument("--instrument-id", default=None)
+    rev.add_argument("--all", action="store_true", help="配置中全部仪器各评一次")
+    rev.add_argument(
+        "--rule-id",
+        default="instrument.daily_maintenance_counters",
+        help="规则 id；省略则用日常维护计数器",
+    )
+    rev.add_argument("--domain", default=None, help="可选 domain 过滤，如 instrument")
+    rev.add_argument(
+        "--record-ok",
+        action="store_true",
+        help="无命中时也写入审计（默认仅命中或错误时记录）",
+    )
+    rev.set_defaults(func=cmd_rules_eval)
 
     return p
 

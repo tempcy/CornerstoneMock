@@ -235,6 +235,31 @@
       },
       "http": { "method": "POST", "path": "/v1/tools/post_operator_notice" },
       "agent_job_type": "operator_notice"
+    },
+    {
+      "name": "eval_instrument_rules",
+      "description": "对当前仪器运行边缘 A2 规则引擎。首条规则：经 Bridge 拉取维护计数器，检查是否有未排除且已到期(IsExpired)项（日常维护缺失）。返回 suggestions[]；命中会写入 Agent rules_audit.jsonl。",
+      "parameters": {
+        "type": "object",
+        "required": ["lab_id", "instrument_id"],
+        "properties": {
+          "lab_id": { "type": "string" },
+          "instrument_id": { "type": "string" },
+          "rule_domains": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["precision", "qc", "instrument", "queue"] }
+          },
+          "rule_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "可选；如 instrument.daily_maintenance_counters"
+          },
+          "timeout_s": { "type": "integer", "default": 90 }
+        },
+        "additionalProperties": false
+      },
+      "http": { "method": "POST", "path": "/v1/tools/eval_instrument_rules" },
+      "agent_job_type": "rules_eval"
     }
   ]
 }
