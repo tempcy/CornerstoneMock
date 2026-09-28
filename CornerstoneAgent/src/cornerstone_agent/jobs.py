@@ -226,6 +226,61 @@ def handle_collect(bridge: BridgeClient, params: dict[str, Any], ctx: dict[str, 
     return snapshot
 
 
+def handle_rules_eval(
+    bridge: BridgeClient, params: dict[str, Any], ctx: dict[str, Any]
+) -> dict[str, Any]:
+    """A2：评估规则；可选写入审计。默认现采 counters（亦可后续扩展 snapshot）。"""
+    from .rules_engine import bundled_rules_path, evaluate_rules, load_rule_defs
+
+    rules_path = params.get("rules_path")
+    path = Path(str(rules_path)) if rules_path else bundled_rules_path()
+    rules = load_rule_defs(path if path.is_file() else None)
+    domains = params.get("rule_domains")
+    if not isinstance(domains, list):
+        domains = None
+    rule_ids = params.get("rule_ids")
+    if not isinstance(rule_ids, list):
+        rule_ids = None
+
+    out = evaluate_rules(
+        bridge,
+        rules,
+        instrument_id=str(ctx.get("instrument_id") or ""),
+        lab_id=str(ctx.get("lab_id") or ""),
+        rule_domains=domains,
+        rule_ids=rule_ids,
+    )
+
+    audit = ctx.get("rules_audit")
+    record = bool(params.get("record", True))
+    if audit is not None and record and (out.get("hit") or out.get("fetch_error") or params.get("record_ok")):
+        try:
+            audit.record(
+                {
+                    "event": "rules_eval",
+                    "source": "job",
+                    "lab_id": ctx.get("lab_id") or "",
+                    "instrument_id": ctx.get("instrument_id") or "",
+                    "agent_id": ctx.get("agent_id") or "",
+                    "hit": bool(out.get("hit")),
+                    "suggestions": out.get("suggestions") or [],
+                    "rule_results": out.get("rule_results") or [],
+                    "fetch_error": out.get("fetch_error") or "",
+                    "checked_at": out.get("checked_at") or "",
+                    "duration_ms": out.get("duration_ms"),
+                    "rules_evaluated": out.get("rules_evaluated") or [],
+                }
+            )
+            out["audit_recorded"] = True
+        except Exception as exc:  # noqa: BLE001
+            out["audit_recorded"] = False
+            out["audit_error"] = str(exc)
+    else:
+        out["audit_recorded"] = False
+
+    return out
+
+
 def handle_operator_notice(
     bridge: BridgeClient, params: dict[str, Any], ctx: dict[str, Any]
 ) -> dict[str, Any]:
@@ -289,6 +344,7 @@ HANDLERS: dict[str, Handler] = {
     "get_set_reps": handle_get_set_reps,
     "collect": handle_collect,
     "operator_notice": handle_operator_notice,
+    "rules_eval": handle_rules_eval,
 }
 
 
@@ -303,6 +359,7 @@ def execute_job(
     timeseries_store: Any = None,
     lab_id: str = "",
     notice_audit: Any = None,
+    rules_audit: Any = None,
 ) -> dict[str, Any]:
     started = time.time()
     job_type = str(job.get("type") or "")
@@ -329,6 +386,8 @@ def execute_job(
         ctx["timeseries_store"] = timeseries_store
     if notice_audit is not None:
         ctx["notice_audit"] = notice_audit
+    if rules_audit is not None:
+        ctx["rules_audit"] = rules_audit
 
     try:
         reachable = True

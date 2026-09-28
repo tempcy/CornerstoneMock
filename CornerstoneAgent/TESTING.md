@@ -8,7 +8,9 @@
 | **CLI TCP** | `<GC8_IP>:54321` | 仪器 TCP 网关；连通性自检 / 排故备用（C1 查数不经此端口） |
 | **Agent 编排** | `http://127.0.0.1:8090` | 本机 Orchestrator（`run` 启动） |
 
-**未实现（不必测）**：规则引擎（P2 `rules_eval`）、`log_tail`、Queue / 仪器日志。
+**A2 已测**：`tests/test_rules_a2.py`（日常维护计数器命中 / 排除项 / Bridge 失败 / 审计落盘）。
+
+**未实现（不必测）**：`log_tail`、Queue / 仪器日志、其余规则。
 
 A1 长周期时序（SQLite）**已实现**，见下文 §7。
 

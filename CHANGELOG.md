@@ -12,6 +12,11 @@
 
 ## [Unreleased]
 
+### Agent (0.3.4)
+
+- **A2 规则引擎首条**：`instrument.daily_maintenance_counters` — 每 4h（可配）经 Bridge `GET /api/instrument/counters` 检查未排除且 `IsExpired` 的维护项；命中写入 `rules_audit.jsonl`。
+- 新增 `rules_eval` job / `eval_instrument_rules` tool、`cornerstone-agent rules eval` CLI、`/api/ui/rules` 查询；默认不自动 `post_operator_notice`。
+
 ---
 
 ## 0.1.17

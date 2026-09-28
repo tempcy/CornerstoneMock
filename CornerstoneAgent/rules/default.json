@@ -1,0 +1,18 @@
+{
+  "schema_version": "agent-rules.v1",
+  "description": "A2 开箱规则集（JSON；stdlib 无 YAML）。",
+  "rules": [
+    {
+      "id": "instrument.daily_maintenance_counters",
+      "enabled": true,
+      "domain": "instrument",
+      "severity": "maintain",
+      "interval_s": 14400,
+      "description": "每 4h 经 Bridge 拉取维护计数器；若有未排除且已到期(IsExpired)项，判定日常维护缺失并记录。",
+      "params": {
+        "include_excluded": false,
+        "only_expired": true
+      }
+    }
+  ]
+}

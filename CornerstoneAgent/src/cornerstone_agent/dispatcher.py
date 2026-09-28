@@ -65,6 +65,7 @@ class ToolDispatcher:
         timeseries_store: Any = None,
         timeseries_cfg: Any = None,
         notice_audit: Any = None,
+        rules_audit: Any = None,
     ):
         self.registry = registry
         self.redact_sample_names = redact_sample_names
@@ -72,6 +73,7 @@ class ToolDispatcher:
         self.timeseries_store = timeseries_store
         self.timeseries_cfg = timeseries_cfg
         self.notice_audit = notice_audit
+        self.rules_audit = rules_audit
         if snapshot_dir:
             self.snapshot_dir = snapshot_dir
         else:
@@ -336,6 +338,7 @@ class ToolDispatcher:
             timeseries_store=self.timeseries_store,
             lab_id=rec.lab_id,
             notice_audit=self.notice_audit,
+            rules_audit=self.rules_audit,
         )
         return {
             "tool": name,
@@ -369,4 +372,5 @@ class ToolDispatcher:
             timeseries_store=self.timeseries_store,
             lab_id=rec.lab_id,
             notice_audit=self.notice_audit,
+            rules_audit=self.rules_audit,
         )

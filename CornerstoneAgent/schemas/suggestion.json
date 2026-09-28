@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cornerstone.local/schemas/suggestion.json",
+  "title": "Rule / LLM suggestion",
+  "type": "object",
+  "required": ["rule_id", "severity", "message", "timestamp"],
+  "properties": {
+    "rule_id": { "type": "string" },
+    "severity": {
+      "type": "string",
+      "enum": ["info", "review", "reject", "maintain"]
+    },
+    "message": { "type": "string" },
+    "evidence": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "timestamp": { "type": "string", "description": "UTC ISO-8601" },
+    "domain": { "type": "string" },
+    "instrument_id": { "type": "string" },
+    "lab_id": { "type": "string" }
+  },
+  "additionalProperties": true
+}

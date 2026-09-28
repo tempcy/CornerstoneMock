@@ -218,6 +218,19 @@ class PrivacyConfig:
     redact_sample_names: bool = True
 
 
+@dataclass
+class RulesConfig:
+    """A2 规则引擎：周期评估 + JSONL 审计。"""
+
+    enabled: bool = True
+    rules_path: str = "rules/default.json"
+    audit_path: str = "rules_audit.jsonl"
+    # 默认不自动弹 Bridge 运维建议；首条规则以落盘记录为主
+    post_notice: bool = False
+    # 无命中且无错误时是否也写审计（默认否，避免 4h 一次的通过刷屏）
+    record_ok: bool = False
+
+
 DEFAULT_TIMESERIES_ENDPOINTS = (
     "status-widgets",
     "ambients",
@@ -314,6 +327,16 @@ class TimeseriesConfig:
         return list(instruments)
 
 
+def _parse_rules(raw: dict[str, Any]) -> RulesConfig:
+    return RulesConfig(
+        enabled=True if "enabled" not in raw else bool(raw.get("enabled")),
+        rules_path=str(raw.get("rules_path") or "rules/default.json"),
+        audit_path=str(raw.get("audit_path") or "rules_audit.jsonl"),
+        post_notice=bool(raw.get("post_notice", False)),
+        record_ok=bool(raw.get("record_ok", False)),
+    )
+
+
 @dataclass
 class AgentConfig:
     identity: IdentityConfig = field(default_factory=IdentityConfig)
@@ -321,6 +344,7 @@ class AgentConfig:
     orchestrator: OrchestratorConfig = field(default_factory=OrchestratorConfig)
     privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
     timeseries: TimeseriesConfig = field(default_factory=TimeseriesConfig)
+    rules: RulesConfig = field(default_factory=RulesConfig)
     instruments: list[InstrumentEndpoint] = field(default_factory=list)
     config_path: str = ""
 
@@ -357,6 +381,7 @@ class AgentConfig:
         orch = _as_dict(data.get("orchestrator"))
         priv = _as_dict(data.get("privacy"))
         ts = _as_dict(data.get("timeseries"))
+        rules_raw = _as_dict(data.get("rules"))
         raw_instruments = data.get("instruments")
         instruments: list[InstrumentEndpoint] = []
         if isinstance(raw_instruments, list):
@@ -400,6 +425,7 @@ class AgentConfig:
                 redact_sample_names=bool(priv.get("redact_sample_names", True)),
             ),
             timeseries=_parse_timeseries(ts),
+            rules=_parse_rules(rules_raw),
             instruments=instruments,
             config_path=config_path,
         )
